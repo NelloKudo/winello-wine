@@ -29,6 +29,7 @@
 #include "wine/debug.h"
 
 #include "mshtml_private.h"
+#include "htmlevent.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 
@@ -145,19 +146,14 @@ static inline HTMLTitleElement *HTMLTitleElement_from_HTMLDOMNode(HTMLDOMNode *i
     return CONTAINING_RECORD(iface, HTMLTitleElement, element.node);
 }
 
-static HRESULT HTMLTitleElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLTitleElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLTitleElement *This = HTMLTitleElement_from_HTMLDOMNode(iface);
 
-    TRACE("(%p)->(%s %p)\n", This, debugstr_mshtml_guid(riid), ppv);
-
     if(IsEqualGUID(&IID_IHTMLTitleElement, riid))
-        *ppv = &This->IHTMLTitleElement_iface;
-    else
-        return HTMLElement_QI(&This->element.node, riid, ppv);
+        return &This->IHTMLTitleElement_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLTitleElement_destructor(HTMLDOMNode *iface)
@@ -168,13 +164,13 @@ static void HTMLTitleElement_destructor(HTMLDOMNode *iface)
 }
 
 static const NodeImplVtbl HTMLTitleElementImplVtbl = {
-    &CLSID_HTMLTitleElement,
-    HTMLTitleElement_QI,
-    HTMLTitleElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col
+    .clsid                 = &CLSID_HTMLTitleElement,
+    .qi                    = HTMLTitleElement_QI,
+    .destructor            = HTMLTitleElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col
 };
 
 static const tid_t HTMLTitleElement_iface_tids[] = {
@@ -183,8 +179,8 @@ static const tid_t HTMLTitleElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLTitleElement_dispex = {
-    L"HTMLTitleElement",
-    NULL,
+    "HTMLTitleElement",
+    &HTMLElement_event_target_vtbl.dispex_vtbl,
     DispHTMLTitleElement_tid,
     HTMLTitleElement_iface_tids,
     HTMLElement_init_dispex_info
@@ -307,19 +303,14 @@ static inline HTMLHtmlElement *HTMLHtmlElement_from_HTMLDOMNode(HTMLDOMNode *ifa
     return CONTAINING_RECORD(iface, HTMLHtmlElement, element.node);
 }
 
-static HRESULT HTMLHtmlElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLHtmlElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLHtmlElement *This = HTMLHtmlElement_from_HTMLDOMNode(iface);
 
-    TRACE("(%p)->(%s %p)\n", This, debugstr_mshtml_guid(riid), ppv);
-
     if(IsEqualGUID(&IID_IHTMLHtmlElement, riid))
-        *ppv = &This->IHTMLHtmlElement_iface;
-    else
-        return HTMLElement_QI(&This->element.node, riid, ppv);
+        return &This->IHTMLHtmlElement_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLHtmlElement_destructor(HTMLDOMNode *iface)
@@ -340,26 +331,14 @@ static BOOL HTMLHtmlElement_is_settable(HTMLDOMNode *iface, DISPID dispid)
 }
 
 static const NodeImplVtbl HTMLHtmlElementImplVtbl = {
-    &CLSID_HTMLHtmlElement,
-    HTMLHtmlElement_QI,
-    HTMLHtmlElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    HTMLHtmlElement_is_settable
+    .clsid                 = &CLSID_HTMLHtmlElement,
+    .qi                    = HTMLHtmlElement_QI,
+    .destructor            = HTMLHtmlElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col,
+    .is_settable           = HTMLHtmlElement_is_settable
 };
 
 static const tid_t HTMLHtmlElement_iface_tids[] = {
@@ -368,8 +347,8 @@ static const tid_t HTMLHtmlElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLHtmlElement_dispex = {
-    L"HTMLHtmlElement",
-    NULL,
+    "HTMLHtmlElement",
+    &HTMLElement_event_target_vtbl.dispex_vtbl,
     DispHTMLHtmlElement_tid,
     HTMLHtmlElement_iface_tids,
     HTMLElement_init_dispex_info
@@ -560,25 +539,18 @@ static inline HTMLMetaElement *HTMLMetaElement_from_HTMLDOMNode(HTMLDOMNode *ifa
     return CONTAINING_RECORD(iface, HTMLMetaElement, element.node);
 }
 
-static HRESULT HTMLMetaElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLMetaElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLMetaElement *This = HTMLMetaElement_from_HTMLDOMNode(iface);
 
-    if(IsEqualGUID(&IID_IUnknown, riid)) {
-        TRACE("(%p)->(IID_IUnknown %p)\n", This, ppv);
-        *ppv = &This->IHTMLMetaElement_iface;
-    }else if(IsEqualGUID(&IID_IDispatch, riid)) {
-        TRACE("(%p)->(IID_IDispatch %p)\n", This, ppv);
-        *ppv = &This->IHTMLMetaElement_iface;
-    }else if(IsEqualGUID(&IID_IHTMLMetaElement, riid)) {
-        TRACE("(%p)->(IID_IHTMLMetaElement %p)\n", This, ppv);
-        *ppv = &This->IHTMLMetaElement_iface;
-    }else {
-        return HTMLElement_QI(&This->element.node, riid, ppv);
-    }
+    if(IsEqualGUID(&IID_IUnknown, riid))
+        return &This->IHTMLMetaElement_iface;
+    if(IsEqualGUID(&IID_IDispatch, riid))
+        return &This->IHTMLMetaElement_iface;
+    if(IsEqualGUID(&IID_IHTMLMetaElement, riid))
+        return &This->IHTMLMetaElement_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLMetaElement_destructor(HTMLDOMNode *iface)
@@ -589,13 +561,13 @@ static void HTMLMetaElement_destructor(HTMLDOMNode *iface)
 }
 
 static const NodeImplVtbl HTMLMetaElementImplVtbl = {
-    &CLSID_HTMLMetaElement,
-    HTMLMetaElement_QI,
-    HTMLMetaElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col
+    .clsid                 = &CLSID_HTMLMetaElement,
+    .qi                    = HTMLMetaElement_QI,
+    .destructor            = HTMLMetaElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col
 };
 
 static const tid_t HTMLMetaElement_iface_tids[] = {
@@ -605,8 +577,8 @@ static const tid_t HTMLMetaElement_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLMetaElement_dispex = {
-    L"HTMLMetaElement",
-    NULL,
+    "HTMLMetaElement",
+    &HTMLElement_event_target_vtbl.dispex_vtbl,
     DispHTMLMetaElement_tid,
     HTMLMetaElement_iface_tids,
     HTMLElement_init_dispex_info
@@ -729,21 +701,16 @@ static inline HTMLHeadElement *impl_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLHeadElement, element.node);
 }
 
-static HRESULT HTMLHeadElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLHeadElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLHeadElement *This = impl_from_HTMLDOMNode(iface);
 
-    TRACE("(%p)->(%s %p)\n", This, debugstr_mshtml_guid(riid), ppv);
-
     if(IsEqualGUID(&IID_IHTMLHeadElement, riid))
-        *ppv = &This->IHTMLHeadElement_iface;
-    else if(IsEqualGUID(&DIID_DispHTMLHeadElement, riid))
-        *ppv = &This->IHTMLHeadElement_iface;
-    else
-        return HTMLElement_QI(&This->element.node, riid, ppv);
+        return &This->IHTMLHeadElement_iface;
+    if(IsEqualGUID(&DIID_DispHTMLHeadElement, riid))
+        return &This->IHTMLHeadElement_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLHeadElement_destructor(HTMLDOMNode *iface)
@@ -754,13 +721,13 @@ static void HTMLHeadElement_destructor(HTMLDOMNode *iface)
 }
 
 static const NodeImplVtbl HTMLHeadElementImplVtbl = {
-    &CLSID_HTMLHeadElement,
-    HTMLHeadElement_QI,
-    HTMLHeadElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col
+    .clsid                 = &CLSID_HTMLHeadElement,
+    .qi                    = HTMLHeadElement_QI,
+    .destructor            = HTMLHeadElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col
 };
 
 static const tid_t HTMLHeadElement_iface_tids[] = {
@@ -769,8 +736,8 @@ static const tid_t HTMLHeadElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLHeadElement_dispex = {
-    L"HTMLHeadElement",
-    NULL,
+    "HTMLHeadElement",
+    &HTMLElement_event_target_vtbl.dispex_vtbl,
     DispHTMLHeadElement_tid,
     HTMLHeadElement_iface_tids,
     HTMLElement_init_dispex_info

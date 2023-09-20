@@ -100,6 +100,7 @@ static HMODULE win32u_module;
 static WOW64INFO *wow64info;
 
 /* cpu backend dll functions */
+/* the function prototypes most likely differ from Windows */
 static void *   (WINAPI *pBTCpuGetBopCode)(void);
 static NTSTATUS (WINAPI *pBTCpuGetContext)(HANDLE,HANDLE,void *,void *);
 static BOOLEAN  (WINAPI *pBTCpuIsProcessorFeaturePresent)(UINT);
@@ -110,7 +111,15 @@ static void     (WINAPI *pBTCpuSimulate)(void);
 static NTSTATUS (WINAPI *pBTCpuResetToConsistentState)( EXCEPTION_POINTERS * );
 static void *   (WINAPI *p__wine_get_unix_opcode)(void);
 static void *   (WINAPI *pKiRaiseUserExceptionDispatcher)(void);
+void (WINAPI *pBTCpuNotifyFlushInstructionCache2)( const void *, SIZE_T ) = NULL;
+void (WINAPI *pBTCpuNotifyMapViewOfSection)( void * ) = NULL;
+void (WINAPI *pBTCpuNotifyMemoryAlloc)( void *, SIZE_T, ULONG, ULONG ) = NULL;
+void (WINAPI *pBTCpuNotifyMemoryDirty)( void *, SIZE_T ) = NULL;
+void (WINAPI *pBTCpuNotifyMemoryFree)( void *, SIZE_T, ULONG ) = NULL;
+void (WINAPI *pBTCpuNotifyMemoryProtect)( void *, SIZE_T, ULONG ) = NULL;
+void (WINAPI *pBTCpuNotifyUnmapViewOfSection)( void * ) = NULL;
 void (WINAPI *pBTCpuUpdateProcessorInformation)( SYSTEM_CPU_INFORMATION * ) = NULL;
+void (WINAPI *pBTCpuThreadTerm)( HANDLE ) = NULL;
 
 void *dummy = RtlUnwind;
 
@@ -635,85 +644,67 @@ NTSTATUS WINAPI wow64_NtWow64IsProcessorFeaturePresent( UINT *args )
 
 
 /**********************************************************************
- *           get_syscall_num
+ *           get_rva
  */
-static DWORD get_syscall_num( const BYTE *syscall )
+static void *get_rva( HMODULE module, DWORD rva )
 {
-    WORD *arm_syscall = (WORD *)((ULONG_PTR)syscall & ~1);
-    DWORD id = ~0u;
-
-    if (!syscall) return id;
-    switch (current_machine)
-    {
-    case IMAGE_FILE_MACHINE_I386:
-        if (syscall[0] == 0xb8 && syscall[5] == 0xba && syscall[10] == 0xff && syscall[11] == 0xd2)
-            id = *(DWORD *)(syscall + 1);
-        break;
-
-    case IMAGE_FILE_MACHINE_ARMNT:
-        if (*arm_syscall == 0xb40f)
-        {
-            DWORD inst = *(DWORD *)(arm_syscall + 1);
-            id = ((inst << 1) & 0x0800) + ((inst << 12) & 0xf000) +
-                ((inst >> 20) & 0x0700) + ((inst >> 16) & 0x00ff);
-        }
-        break;
-    }
-    return id;
+    return (void *)((char *)module + rva);
 }
 
 
 /**********************************************************************
  *           init_syscall_table
  */
-static void init_syscall_table( HMODULE module, ULONG idx, const SYSTEM_SERVICE_TABLE *orig_table )
+static void init_syscall_table( HMODULE module, void *dispatcher, const SYSTEM_SERVICE_TABLE *orig_table )
 {
     static syscall_thunk thunks[2048];
     static ULONG start_pos;
 
+    struct syscall_info32
+    {
+        UINT   dispatcher;
+        UINT   version;
+        USHORT id;
+        USHORT limit;
+     /* USHORT names[limit]; */
+     /* BYTE   args[limit]; */
+    } *info = dispatcher;
+
+    const USHORT *name_ptrs = (const USHORT *)(info + 1);
     const IMAGE_EXPORT_DIRECTORY *exports;
-    const ULONG *functions, *names;
-    const USHORT *ordinals;
-    ULONG id, exp_size, exp_pos, wrap_pos, max_pos = 0;
+    const ULONG *names;
+    ULONG id, exp_size, wrap_pos;
     const char **syscall_names = (const char **)orig_table->CounterTable;
 
+    if (info->version != 0xca110001)
+    {
+        WARN( "invalid syscall table version %x\n", info->version );
+        return;
+    }
+    if (syscall_tables[info->id].ServiceTable) return;  /* already initialized */
+
     exports = RtlImageDirectoryEntryToData( module, TRUE, IMAGE_DIRECTORY_ENTRY_EXPORT, &exp_size );
-    ordinals = get_rva( module, exports->AddressOfNameOrdinals );
-    functions = get_rva( module, exports->AddressOfFunctions );
     names = get_rva( module, exports->AddressOfNames );
 
-    for (exp_pos = wrap_pos = 0; exp_pos < exports->NumberOfNames; exp_pos++)
+    for (id = wrap_pos = 0; id < info->limit; id++)
     {
-        char *name = get_rva( module, names[exp_pos] );
+        char *name = get_rva( module, names[name_ptrs[id]] );
         int res = -1;
-
-        if (strncmp( name, "Nt", 2 ) && strncmp( name, "wine", 4 ) && strncmp( name, "__wine", 6 ))
-            continue;  /* not a syscall */
-
-        if ((id = get_syscall_num( get_rva( module, functions[ordinals[exp_pos]] ))) == ~0u)
-            continue; /* not a syscall */
 
         if (wrap_pos < orig_table->ServiceLimit) res = strcmp( name, syscall_names[wrap_pos] );
 
         if (!res)  /* got a match */
         {
-            ULONG table_idx = (id >> 12) & 3, table_pos = id & 0xfff;
-            if (table_idx == idx)
-            {
-                if (start_pos + table_pos < ARRAY_SIZE(thunks))
-                {
-                    thunks[start_pos + table_pos] = (syscall_thunk)orig_table->ServiceTable[wrap_pos++];
-                    max_pos = max( table_pos, max_pos );
-                }
-                else ERR( "invalid syscall id %04lx for %s\n", id, name );
-            }
-            else ERR( "wrong syscall table id %04lx for %s\n", id, name );
+            if (start_pos + id < ARRAY_SIZE(thunks))
+                thunks[start_pos + id] = (syscall_thunk)orig_table->ServiceTable[wrap_pos++];
+            else
+                ERR( "invalid syscall id %04lx for %s\n", id, name );
         }
         else if (res > 0)
         {
             FIXME( "no export for syscall %s\n", syscall_names[wrap_pos] );
             wrap_pos++;
-            exp_pos--;  /* try again */
+            id--;  /* try again */
         }
         else FIXME( "missing wrapper for syscall %04lx %s\n", id, name );
     }
@@ -721,9 +712,9 @@ static void init_syscall_table( HMODULE module, ULONG idx, const SYSTEM_SERVICE_
     for ( ; wrap_pos < orig_table->ServiceLimit; wrap_pos++)
         FIXME( "no export for syscall %s\n", syscall_names[wrap_pos] );
 
-    syscall_tables[idx].ServiceTable = (ULONG_PTR *)(thunks + start_pos);
-    syscall_tables[idx].ServiceLimit = max_pos + 1;
-    start_pos += max_pos + 1;
+    syscall_tables[info->id].ServiceTable = (ULONG_PTR *)(thunks + start_pos);
+    syscall_tables[info->id].ServiceLimit = info->limit;
+    start_pos += info->limit;
 }
 
 
@@ -732,14 +723,14 @@ static void init_syscall_table( HMODULE module, ULONG idx, const SYSTEM_SERVICE_
  */
 void init_image_mapping( HMODULE module )
 {
-    void **ptr = RtlFindExportedRoutineByName( module, "Wow64Transition" );
+    ULONG *ptr = RtlFindExportedRoutineByName( module, "Wow64Transition" );
 
     if (!ptr) return;
-    *ptr = pBTCpuGetBopCode();
+    *ptr = PtrToUlong( pBTCpuGetBopCode() );
     if (!win32u_module && RtlFindExportedRoutineByName( module, "NtUserInitializeClientPfnArrays" ))
     {
         win32u_module = module;
-        init_syscall_table( win32u_module, 1, psdwhwin32 );
+        init_syscall_table( win32u_module, ptr, psdwhwin32 );
     }
 }
 
@@ -808,14 +799,49 @@ static const WCHAR *get_cpu_dll_name(void)
 
 
 /**********************************************************************
+ *           create_cross_process_work_list
+ */
+static NTSTATUS create_cross_process_work_list( WOW64INFO *wow64info )
+{
+    SIZE_T map_size = 0x4000;
+    LARGE_INTEGER size;
+    NTSTATUS status;
+    HANDLE section;
+    CROSS_PROCESS_WORK_LIST *list = NULL;
+    CROSS_PROCESS_WORK_ENTRY *end;
+    UINT i;
+
+    size.QuadPart = map_size;
+    status = NtCreateSection( &section, SECTION_ALL_ACCESS, NULL, &size, PAGE_READWRITE, SEC_COMMIT, 0 );
+    if (status) return status;
+    status = NtMapViewOfSection( section, GetCurrentProcess(), (void **)&list, default_zero_bits, 0, NULL,
+                                 &map_size, ViewShare, MEM_TOP_DOWN, PAGE_READWRITE );
+    if (status)
+    {
+        NtClose( section );
+        return status;
+    }
+
+    end = (CROSS_PROCESS_WORK_ENTRY *)((char *)list + map_size);
+    for (i = 0; list->entries + i + 1 <= end; i++)
+        RtlWow64PushCrossProcessWorkOntoFreeList( &list->free_list, &list->entries[i] );
+
+    wow64info->SectionHandle = (ULONG_PTR)section;
+    wow64info->CrossProcessWorkList = (ULONG_PTR)list;
+    return STATUS_SUCCESS;
+}
+
+
+/**********************************************************************
  *           process_init
  */
 static DWORD WINAPI process_init( RTL_RUN_ONCE *once, void *param, void **context )
 {
-    TEB32 *teb32 = (TEB32 *)((char *)NtCurrentTeb() + NtCurrentTeb()->WowTebOffset);
+    PEB32 *peb32;
     HMODULE module;
     UNICODE_STRING str = RTL_CONSTANT_STRING( L"ntdll.dll" );
     SYSTEM_BASIC_INFORMATION info;
+    ULONG *p__wine_syscall_dispatcher, *p__wine_unix_call_dispatcher;
 
     RtlWow64GetProcessMachines( GetCurrentProcess(), &current_machine, &native_machine );
     if (!current_machine) current_machine = native_machine;
@@ -823,7 +849,8 @@ static DWORD WINAPI process_init( RTL_RUN_ONCE *once, void *param, void **contex
     NtQuerySystemInformation( SystemEmulationBasicInformation, &info, sizeof(info), NULL );
     highest_user_address = (ULONG_PTR)info.HighestUserAddress;
     default_zero_bits = (ULONG_PTR)info.HighestUserAddress | 0x7fffffff;
-    wow64info = (WOW64INFO *)((PEB32 *)ULongToPtr( teb32->Peb ) + 1);
+    NtQueryInformationProcess( GetCurrentProcess(), ProcessWow64Information, &peb32, sizeof(peb32), NULL );
+    wow64info = (WOW64INFO *)(peb32 + 1);
     wow64info->NativeSystemPageSize = 0x1000;
     wow64info->NativeMachineType    = native_machine;
     wow64info->EmulatedMachineType  = current_machine;
@@ -843,7 +870,15 @@ static DWORD WINAPI process_init( RTL_RUN_ONCE *once, void *param, void **contex
     GET_PTR( BTCpuResetToConsistentState );
     GET_PTR( BTCpuSetContext );
     GET_PTR( BTCpuSimulate );
+    GET_PTR( BTCpuNotifyFlushInstructionCache2 );
+    GET_PTR( BTCpuNotifyMapViewOfSection );
+    GET_PTR( BTCpuNotifyMemoryAlloc );
+    GET_PTR( BTCpuNotifyMemoryDirty );
+    GET_PTR( BTCpuNotifyMemoryFree );
+    GET_PTR( BTCpuNotifyMemoryProtect );
+    GET_PTR( BTCpuNotifyUnmapViewOfSection );
     GET_PTR( BTCpuUpdateProcessorInformation );
+    GET_PTR( BTCpuThreadTerm );
     GET_PTR( __wine_get_unix_opcode );
 
     module = load_64bit_module( L"wow64win.dll" );
@@ -853,10 +888,16 @@ static DWORD WINAPI process_init( RTL_RUN_ONCE *once, void *param, void **contex
 
     module = (HMODULE)(ULONG_PTR)pLdrSystemDllInitBlock->ntdll_handle;
     init_image_mapping( module );
-    init_syscall_table( module, 0, &ntdll_syscall_table );
-    *(void **)RtlFindExportedRoutineByName( module, "__wine_syscall_dispatcher" ) = pBTCpuGetBopCode();
-    *(void **)RtlFindExportedRoutineByName( module, "__wine_unix_call_dispatcher" ) = p__wine_get_unix_opcode();
     GET_PTR( KiRaiseUserExceptionDispatcher );
+    GET_PTR( __wine_syscall_dispatcher );
+    GET_PTR( __wine_unix_call_dispatcher );
+
+    *p__wine_syscall_dispatcher = PtrToUlong( pBTCpuGetBopCode() );
+    *p__wine_unix_call_dispatcher = PtrToUlong( p__wine_get_unix_opcode() );
+
+    init_syscall_table( module, p__wine_syscall_dispatcher, &ntdll_syscall_table );
+
+    if (wow64info->CpuFlags & WOW64_CPUFLAGS_SOFTWARE) create_cross_process_work_list( wow64info );
 
     init_file_redirects();
     return TRUE;
@@ -1218,6 +1259,69 @@ void WINAPI Wow64PassExceptionToGuest( EXCEPTION_POINTERS *ptrs )
 
     exception_record_64to32( &rec32, ptrs->ExceptionRecord );
     call_user_exception_dispatcher( &rec32, NULL, ptrs->ContextRecord );
+}
+
+
+/**********************************************************************
+ *           Wow64ProcessPendingCrossProcessItems  (wow64.@)
+ */
+void WINAPI Wow64ProcessPendingCrossProcessItems(void)
+{
+    CROSS_PROCESS_WORK_LIST *list = (void *)wow64info->CrossProcessWorkList;
+    CROSS_PROCESS_WORK_ENTRY *entry;
+    BOOLEAN flush = FALSE;
+    UINT next;
+
+    if (!list) return;
+    entry = RtlWow64PopAllCrossProcessWorkFromWorkList( &list->work_list, &flush );
+
+    if (flush)
+    {
+        if (pBTCpuNotifyFlushInstructionCache2) pBTCpuNotifyFlushInstructionCache2( NULL, ~0ull );
+        while (entry)
+        {
+            next = entry->next;
+            RtlWow64PushCrossProcessWorkOntoFreeList( &list->free_list, entry );
+            entry = CROSS_PROCESS_LIST_ENTRY( &list->work_list, next );
+        }
+        return;
+    }
+
+    while (entry)
+    {
+        switch (entry->id)
+        {
+        case CrossProcessPreVirtualAlloc:
+            /* FIXME */
+            break;
+        case CrossProcessPostVirtualAlloc:
+            if (!pBTCpuNotifyMemoryAlloc) break;
+            if (entry->args[2]) break;
+            pBTCpuNotifyMemoryAlloc( (void *)entry->addr, entry->size, entry->args[0], entry->args[1] );
+            break;
+        case CrossProcessPreVirtualFree:
+            if (!pBTCpuNotifyMemoryFree) break;
+            pBTCpuNotifyMemoryFree( (void *)entry->addr, entry->size, entry->args[0] );
+            break;
+        case CrossProcessPostVirtualFree:
+            /* FIXME */
+            break;
+        case CrossProcessPreVirtualProtect:
+            if (!pBTCpuNotifyMemoryProtect) break;
+            pBTCpuNotifyMemoryProtect( (void *)entry->addr, entry->size, entry->args[0] );
+            break;
+        case CrossProcessPostVirtualProtect:
+            /* FIXME */
+            break;
+        case CrossProcessFlushCache:
+            if (!pBTCpuNotifyFlushInstructionCache2) break;
+            pBTCpuNotifyFlushInstructionCache2( (void *)entry->addr, entry->size );
+            break;
+        }
+        next = entry->next;
+        RtlWow64PushCrossProcessWorkOntoFreeList( &list->free_list, entry );
+        entry = CROSS_PROCESS_LIST_ENTRY( &list->work_list, next );
+    }
 }
 
 

@@ -1125,7 +1125,7 @@ static inline INT INTERNAL_YWSTODS(HDC hdc, INT height)
     return pt[1].y - pt[0].y;
 }
 
-extern const unsigned short bidi_direction_table[] DECLSPEC_HIDDEN;
+extern const unsigned short bidi_direction_table[];
 
 /*------------------------------------------------------------------------
     Bidirectional Character Types
@@ -2738,8 +2738,8 @@ static int WINAPI hmf_proc(HDC hdc, HANDLETABLE *htable,
         if (!pts) return 0;
         for (i = 0; i < p->cpts; i++)
         {
-            pts[i].x = p->apts[i].x;
-            pts[i].y = p->apts[i].y;
+            pts[i].x = ((const POINTS *)p->apts)[i].x;
+            pts[i].y = ((const POINTS *)p->apts)[i].y;
         }
         i = poly_draw(data->ctx, pts, (BYTE *)(p->apts + p->cpts), p->cpts) &&
             MoveToEx(data->ctx->hdc, pts[p->cpts - 1].x, pts[p->cpts - 1].y, NULL);
@@ -2792,8 +2792,16 @@ static int WINAPI hmf_proc(HDC hdc, HANDLETABLE *htable,
     {
         const EMRSETTEXTJUSTIFICATION *p = (const EMRSETTEXTJUSTIFICATION *)rec;
 
-        data->break_extra = p->break_extra / p->break_count;
-        data->break_rem = p->break_extra - data->break_extra * p->break_count;
+        if (p->break_count)
+        {
+            data->break_extra = p->break_extra / p->break_count;
+            data->break_rem = p->break_extra - data->break_extra * p->break_count;
+        }
+        else
+        {
+            data->break_extra = 0;
+            data->break_rem = 0;
+        }
         return PlayEnhMetaFileRecord(data->ctx->hdc, htable, rec, handle_count);
     }
 
@@ -3132,6 +3140,7 @@ BOOL WINAPI PrintDocumentOnPrintProcessor(HANDLE pp, WCHAR *doc_name)
 cleanup:
     if (data->ctx->job.PageNo)
         PSDRV_WriteFooter(data->ctx);
+    flush_spool(data->ctx);
 
     HeapFree(GetProcessHeap(), 0, data->ctx->job.doc_name);
     ClosePrinter(spool_data);

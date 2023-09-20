@@ -39,7 +39,7 @@ static void clear_node_array(struct uia_node_array *nodes)
         for (i = 0; i < nodes->node_count; i++)
             UiaNodeRelease(nodes->nodes[i]);
 
-        heap_free(nodes->nodes);
+        free(nodes->nodes);
     }
 
     memset(nodes, 0, sizeof(*nodes));
@@ -429,7 +429,7 @@ static ULONG WINAPI uia_node_Release(IWineUiaNode *iface)
         if (node->nested_node)
             uia_stop_provider_thread();
 
-        heap_free(node);
+        free(node);
     }
 
     return ref;
@@ -539,6 +539,45 @@ static HRESULT WINAPI uia_node_get_hwnd(IWineUiaNode *iface, ULONG *out_hwnd)
     return S_OK;
 }
 
+static HRESULT WINAPI uia_node_attach_event(IWineUiaNode *iface, LONG proc_id, LONG event_cookie,
+        IWineUiaEvent **ret_event)
+{
+    struct uia_node *node = impl_from_IWineUiaNode(iface);
+    struct uia_event *event = NULL;
+    int old_event_advisers_count;
+    HRESULT hr;
+
+    TRACE("%p, %ld, %ld, %p\n", node, proc_id, event_cookie, ret_event);
+
+    *ret_event = NULL;
+    hr = create_serverside_uia_event(&event, proc_id, event_cookie);
+    if (FAILED(hr))
+        return hr;
+
+    /* Newly created serverside event. */
+    if (hr == S_OK)
+        *ret_event = &event->IWineUiaEvent_iface;
+
+    old_event_advisers_count = event->event_advisers_count;
+    hr = attach_event_to_node_provider(iface, 0, (HUIAEVENT)event);
+    if (FAILED(hr))
+    {
+        IWineUiaEvent_Release(&event->IWineUiaEvent_iface);
+        *ret_event = NULL;
+        return hr;
+    }
+
+    /*
+     * Pre-existing serverside event that has already had its initial
+     * advise call and gotten event data - if we've got new advisers, we need
+     * to advise them here.
+     */
+    if (!(*ret_event) && event->event_id && (event->event_advisers_count != old_event_advisers_count))
+        hr = IWineUiaEvent_advise_events(&event->IWineUiaEvent_iface, TRUE, old_event_advisers_count);
+
+    return hr;
+}
+
 static const IWineUiaNodeVtbl uia_node_vtbl = {
     uia_node_QueryInterface,
     uia_node_AddRef,
@@ -547,6 +586,7 @@ static const IWineUiaNodeVtbl uia_node_vtbl = {
     uia_node_get_prop_val,
     uia_node_disconnect,
     uia_node_get_hwnd,
+    uia_node_attach_event,
 };
 
 static struct uia_node *unsafe_impl_from_IWineUiaNode(IWineUiaNode *iface)
@@ -631,6 +671,73 @@ static HRESULT prepare_uia_node(struct uia_node *node)
     }
 
     return S_OK;
+}
+
+static HRESULT create_wine_uia_provider(struct uia_node *node, IRawElementProviderSimple *elprov, int prov_type);
+HRESULT clone_uia_node(HUIANODE in_node, HUIANODE *out_node)
+{
+    struct uia_node *in_node_data = impl_from_IWineUiaNode((IWineUiaNode *)in_node);
+    struct uia_node *node;
+    HRESULT hr = S_OK;
+    int i;
+
+    *out_node = NULL;
+    if (in_node_data->nested_node)
+    {
+        FIXME("Cloning of nested nodes currently unimplemented\n");
+        return E_NOTIMPL;
+    }
+
+    for (i = 0; i < PROV_TYPE_COUNT; i++)
+    {
+        if (in_node_data->prov[i] && is_nested_node_provider(in_node_data->prov[i]))
+        {
+            FIXME("Cloning of nested node providers currently unimplemented\n");
+            return E_NOTIMPL;
+        }
+    }
+
+    if (!(node = calloc(1, sizeof(*node))))
+        return E_OUTOFMEMORY;
+
+    node->IWineUiaNode_iface.lpVtbl = &uia_node_vtbl;
+    list_init(&node->prov_thread_list_entry);
+    list_init(&node->node_map_list_entry);
+    node->ref = 1;
+    node->hwnd = in_node_data->hwnd;
+
+    for (i = 0; i < PROV_TYPE_COUNT; i++)
+    {
+        struct uia_provider *in_prov_data;
+
+        if (!in_node_data->prov[i])
+            continue;
+
+        in_prov_data = impl_from_IWineUiaProvider(in_node_data->prov[i]);
+        hr = create_wine_uia_provider(node, in_prov_data->elprov, i);
+        if (FAILED(hr))
+            goto exit;
+
+        if (in_node_data->git_cookie[i])
+        {
+            hr = register_interface_in_git((IUnknown *)node->prov[i], &IID_IWineUiaProvider, &node->git_cookie[i]);
+            if (FAILED(hr))
+                goto exit;
+        }
+    }
+
+    node->parent_link_idx = in_node_data->parent_link_idx;
+    node->creator_prov_idx = in_node_data->creator_prov_idx;
+    node->creator_prov_type = in_node_data->creator_prov_type;
+
+    *out_node = (void *)&node->IWineUiaNode_iface;
+    TRACE("Created clone node %p from node %p\n", *out_node, in_node);
+
+exit:
+    if (FAILED(hr))
+        IWineUiaNode_Release(&node->IWineUiaNode_iface);
+
+    return hr;
 }
 
 static BOOL node_creator_is_parent_link(struct uia_node *node)
@@ -747,7 +854,7 @@ static HRESULT get_child_for_node(struct uia_node *node, int start_prov_idx, int
     return S_OK;
 }
 
-static HRESULT navigate_uia_node(struct uia_node *node, int nav_dir, HUIANODE *out_node)
+HRESULT navigate_uia_node(struct uia_node *node, int nav_dir, HUIANODE *out_node)
 {
     HRESULT hr;
     VARIANT v;
@@ -835,8 +942,6 @@ static HRESULT navigate_uia_node(struct uia_node *node, int nav_dir, HUIANODE *o
     return S_OK;
 }
 
-static HRESULT uia_condition_check(HUIANODE node, struct UiaCondition *condition);
-static BOOL uia_condition_matched(HRESULT hr);
 static HRESULT conditional_navigate_uia_node(struct uia_node *node, int nav_dir, struct UiaCondition *cond,
         HUIANODE *out_node)
 {
@@ -1222,31 +1327,21 @@ static ULONG WINAPI uia_provider_Release(IWineUiaProvider *iface)
     if (!ref)
     {
         IRawElementProviderSimple_Release(prov->elprov);
-        heap_free(prov);
+        free(prov);
     }
 
     return ref;
 }
 
-static void get_variant_for_node(HUIANODE node, VARIANT *v)
-{
-#ifdef _WIN64
-            V_VT(v) = VT_I8;
-            V_I8(v) = (UINT64)node;
-#else
-            V_VT(v) = VT_I4;
-            V_I4(v) = (UINT32)node;
-#endif
-}
-
 static HRESULT get_variant_for_elprov_node(IRawElementProviderSimple *elprov, BOOL out_nested,
-        VARIANT *v)
+        BOOL refuse_hwnd_providers, VARIANT *v)
 {
     HUIANODE node;
     HRESULT hr;
 
     VariantInit(v);
-    hr = create_uia_node_from_elprov(elprov, &node, !out_nested);
+
+    hr = create_uia_node_from_elprov(elprov, &node, !refuse_hwnd_providers);
     IRawElementProviderSimple_Release(elprov);
     if (SUCCEEDED(hr))
     {
@@ -1350,7 +1445,7 @@ static HRESULT uia_provider_get_elem_prop_val(struct uia_provider *prov,
         if (FAILED(hr))
             goto exit;
 
-        hr = get_variant_for_elprov_node(elprov, prov->return_nested_node, ret_val);
+        hr = get_variant_for_elprov_node(elprov, prov->return_nested_node, prov->refuse_hwnd_node_providers, ret_val);
         if (FAILED(hr))
             return hr;
 
@@ -1676,7 +1771,7 @@ static HRESULT WINAPI uia_provider_navigate(IWineUiaProvider *iface, int nav_dir
         if (FAILED(hr) || !elprov)
             return hr;
 
-        hr = get_variant_for_elprov_node(elprov, prov->return_nested_node, out_val);
+        hr = get_variant_for_elprov_node(elprov, prov->return_nested_node, prov->refuse_hwnd_node_providers, out_val);
         if (FAILED(hr))
             return hr;
     }
@@ -1708,7 +1803,7 @@ static HRESULT WINAPI uia_provider_get_focus(IWineUiaProvider *iface, VARIANT *o
     IRawElementProviderFragment_Release(elfrag);
     if (SUCCEEDED(hr))
     {
-        hr = get_variant_for_elprov_node(elprov, prov->return_nested_node, out_val);
+        hr = get_variant_for_elprov_node(elprov, prov->return_nested_node, prov->refuse_hwnd_node_providers, out_val);
         if (FAILED(hr))
             VariantClear(out_val);
     }
@@ -1787,7 +1882,7 @@ static HRESULT WINAPI uia_provider_attach_event(IWineUiaProvider *iface, LONG_PT
             if (FAILED(hr))
                 goto exit;
 
-            hr = create_uia_node_from_elprov(elprov, &node, !prov->return_nested_node);
+            hr = create_uia_node_from_elprov(elprov, &node, !prov->refuse_hwnd_node_providers);
             IRawElementProviderSimple_Release(elprov);
             if (SUCCEEDED(hr))
             {
@@ -1824,7 +1919,7 @@ static const IWineUiaProviderVtbl uia_provider_vtbl = {
 static HRESULT create_wine_uia_provider(struct uia_node *node, IRawElementProviderSimple *elprov,
         int prov_type)
 {
-    struct uia_provider *prov = heap_alloc_zero(sizeof(*prov));
+    struct uia_provider *prov = calloc(1, sizeof(*prov));
 
     if (!prov)
         return E_OUTOFMEMORY;
@@ -1872,7 +1967,7 @@ HRESULT create_uia_node_from_elprov(IRawElementProviderSimple *elprov, HUIANODE 
     else
         prov_type = PROV_TYPE_MAIN;
 
-    node = heap_alloc_zero(sizeof(*node));
+    node = calloc(1, sizeof(*node));
     if (!node)
         return E_OUTOFMEMORY;
 
@@ -1885,7 +1980,7 @@ HRESULT create_uia_node_from_elprov(IRawElementProviderSimple *elprov, HUIANODE 
     hr = create_wine_uia_provider(node, elprov, prov_type);
     if (FAILED(hr))
     {
-        heap_free(node);
+        free(node);
         return hr;
     }
 
@@ -2127,13 +2222,12 @@ static ULONG WINAPI uia_nested_node_provider_Release(IWineUiaProvider *iface)
     {
         IWineUiaNode_Release(prov->nested_node);
         uia_stop_client_thread();
-        heap_free(prov);
+        free(prov);
     }
 
     return ref;
 }
 
-static HRESULT uia_node_from_lresult(LRESULT lr, HUIANODE *huianode);
 static HRESULT WINAPI uia_nested_node_provider_get_prop_val(IWineUiaProvider *iface,
         const struct uia_prop_info *prop_info, VARIANT *ret_val)
 {
@@ -2245,8 +2339,21 @@ static HRESULT WINAPI uia_nested_node_provider_get_focus(IWineUiaProvider *iface
 
 static HRESULT WINAPI uia_nested_node_provider_attach_event(IWineUiaProvider *iface, LONG_PTR huiaevent)
 {
-    FIXME("%p, %#Ix: stub\n", iface, huiaevent);
-    return E_NOTIMPL;
+    struct uia_nested_node_provider *prov = impl_from_nested_node_IWineUiaProvider(iface);
+    struct uia_event *event = (struct uia_event *)huiaevent;
+    IWineUiaEvent *remote_event = NULL;
+    HRESULT hr;
+
+    TRACE("%p, %#Ix\n", iface, huiaevent);
+
+    hr = IWineUiaNode_attach_event(prov->nested_node, GetCurrentProcessId(), event->event_cookie, &remote_event);
+    if (FAILED(hr) || !remote_event)
+        return hr;
+
+    hr = uia_event_add_serverside_event_adviser(remote_event, event);
+    IWineUiaEvent_Release(remote_event);
+
+    return hr;
 }
 
 static const IWineUiaProviderVtbl uia_nested_node_provider_vtbl = {
@@ -2331,6 +2438,7 @@ static HRESULT create_wine_uia_nested_node_provider(struct uia_node *node, LRESU
 
         IWineUiaProvider_AddRef(provider_iface);
         prov_data = impl_from_IWineUiaProvider(provider_iface);
+        prov_data->refuse_hwnd_node_providers = FALSE;
         prov_data->return_nested_node = FALSE;
         prov_data->parent_check_ran = FALSE;
 
@@ -2339,7 +2447,7 @@ static HRESULT create_wine_uia_nested_node_provider(struct uia_node *node, LRESU
     }
     else
     {
-        prov = heap_alloc_zero(sizeof(*prov));
+        prov = calloc(1, sizeof(*prov));
         if (!prov)
             return E_OUTOFMEMORY;
 
@@ -2379,13 +2487,13 @@ static HRESULT create_wine_uia_nested_node_provider(struct uia_node *node, LRESU
     return S_OK;
 }
 
-static HRESULT uia_node_from_lresult(LRESULT lr, HUIANODE *huianode)
+HRESULT uia_node_from_lresult(LRESULT lr, HUIANODE *huianode)
 {
     struct uia_node *node;
     HRESULT hr;
 
     *huianode = NULL;
-    node = heap_alloc_zero(sizeof(*node));
+    node = calloc(1, sizeof(*node));
     if (!node)
         return E_OUTOFMEMORY;
 
@@ -2398,7 +2506,7 @@ static HRESULT uia_node_from_lresult(LRESULT lr, HUIANODE *huianode)
     hr = create_wine_uia_nested_node_provider(node, lr, FALSE);
     if (FAILED(hr))
     {
-        heap_free(node);
+        free(node);
         return hr;
     }
 
@@ -2469,7 +2577,7 @@ HRESULT WINAPI UiaNodeFromHandle(HWND hwnd, HUIANODE *huianode)
     if (!IsWindow(hwnd))
         return UIA_E_ELEMENTNOTAVAILABLE;
 
-    node = heap_alloc_zero(sizeof(*node));
+    node = calloc(1, sizeof(*node));
     if (!node)
         return E_OUTOFMEMORY;
 
@@ -2482,7 +2590,7 @@ HRESULT WINAPI UiaNodeFromHandle(HWND hwnd, HUIANODE *huianode)
     hr = uia_get_providers_for_hwnd(node);
     if (FAILED(hr))
     {
-        heap_free(node);
+        free(node);
         return hr;
     }
 
@@ -2694,29 +2802,11 @@ HRESULT WINAPI UiaGetPropertyValue(HUIANODE huianode, PROPERTYID prop_id, VARIAN
     return hr;
 }
 
-#define UIA_RUNTIME_ID_PREFIX 42
-
 enum fragment_root_prov_type_ids {
     FRAGMENT_ROOT_NONCLIENT_TYPE_ID = 0x03,
     FRAGMENT_ROOT_MAIN_TYPE_ID      = 0x04,
     FRAGMENT_ROOT_OVERRIDE_TYPE_ID  = 0x05,
 };
-
-static HRESULT write_runtime_id_base(SAFEARRAY *sa, HWND hwnd)
-{
-    const int rt_id[2] = { UIA_RUNTIME_ID_PREFIX, HandleToUlong(hwnd) };
-    HRESULT hr;
-    LONG idx;
-
-    for (idx = 0; idx < ARRAY_SIZE(rt_id); idx++)
-    {
-        hr = SafeArrayPutElement(sa, &idx, (void *)&rt_id[idx]);
-        if (FAILED(hr))
-            return hr;
-    }
-
-    return S_OK;
-}
 
 static SAFEARRAY *append_uia_runtime_id(SAFEARRAY *sa, HWND hwnd, enum ProviderOptions root_opts)
 {
@@ -3024,7 +3114,7 @@ void WINAPI UiaRegisterProviderCallback(UiaProviderCallback *callback)
         uia_provider_callback = default_uia_provider_callback;
 }
 
-static BOOL uia_condition_matched(HRESULT hr)
+BOOL uia_condition_matched(HRESULT hr)
 {
     if (hr == S_FALSE)
         return FALSE;
@@ -3085,7 +3175,7 @@ static HRESULT uia_property_condition_check(HUIANODE node, struct UiaPropertyCon
     return hr;
 }
 
-static HRESULT uia_condition_check(HUIANODE node, struct UiaCondition *condition)
+HRESULT uia_condition_check(HUIANODE node, struct UiaCondition *condition)
 {
     HRESULT hr;
 
@@ -3425,7 +3515,7 @@ HRESULT WINAPI UiaFind(HUIANODE huianode, struct UiaFindParams *find_params, str
         goto exit;
     }
 
-    if (!(tmp_reqs = heap_alloc_zero(sizeof(*tmp_reqs) * nodes.node_count)))
+    if (!(tmp_reqs = calloc(nodes.node_count, sizeof(*tmp_reqs))))
     {
         hr = E_OUTOFMEMORY;
         goto exit;
@@ -3465,7 +3555,7 @@ HRESULT WINAPI UiaFind(HUIANODE huianode, struct UiaFindParams *find_params, str
     if (nodes.node_count == 1)
     {
         req = tmp_reqs[0];
-        heap_free(tmp_reqs);
+        free(tmp_reqs);
         tmp_reqs = NULL;
     }
     else
@@ -3496,7 +3586,7 @@ exit:
     {
         for (i = 0; i < nodes.node_count; i++)
             SafeArrayDestroy(tmp_reqs[i]);
-        heap_free(tmp_reqs);
+        free(tmp_reqs);
     }
 
     if (FAILED(hr))
@@ -3507,15 +3597,6 @@ exit:
     }
 
     return hr;
-}
-
-/***********************************************************************
- *          UiaEventAddWindow (uiautomationcore.@)
- */
-HRESULT WINAPI UiaEventAddWindow(HUIAEVENT huiaevent, HWND hwnd)
-{
-    FIXME("(%p, %p): stub\n", huiaevent, hwnd);
-    return E_NOTIMPL;
 }
 
 /***********************************************************************

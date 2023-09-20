@@ -102,8 +102,7 @@ static ULONG WINAPI IDirectMusicSegment8Impl_Release(IDirectMusicSegment8 *iface
         if (This->wave_data)
             free(This->wave_data);
 
-        HeapFree(GetProcessHeap(), 0, This);
-        DMIME_UnlockModule();
+        free(This);
     }
 
     return ref;
@@ -276,9 +275,7 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_InsertTrack(IDirectMusicSegment8 
     }
   }
 
-  pNewSegTrack = HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, sizeof(DMUS_PRIVATE_SEGMENT_TRACK));
-  if (NULL == pNewSegTrack)
-    return  E_OUTOFMEMORY;
+  if (!(pNewSegTrack = calloc(1, sizeof(*pNewSegTrack)))) return E_OUTOFMEMORY;
 
   pNewSegTrack->dwGroupBits = group;
   pNewSegTrack->pTrack = pTrack;
@@ -306,7 +303,7 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_RemoveTrack(IDirectMusicSegment8 
       list_remove(&pIt->entry);
       IDirectMusicTrack_Init(pIt->pTrack, NULL);
       IDirectMusicTrack_Release(pIt->pTrack);
-      HeapFree(GetProcessHeap(), 0, pIt);   
+      free(pIt);
 
       return S_OK;
     }
@@ -455,13 +452,16 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_Clone(IDirectMusicSegment8 *iface
 
     LIST_FOR_EACH_ENTRY(track_item, &This->Tracks, DMUS_PRIVATE_SEGMENT_TRACK, entry) {
         if (SUCCEEDED(hr = IDirectMusicTrack_Clone(track_item->pTrack, start, end, &track))) {
-            if ((cloned_item = HeapAlloc(GetProcessHeap(), 0, sizeof(*cloned_item)))) {
+            if ((cloned_item = malloc(sizeof(*cloned_item))))
+            {
                 cloned_item->dwGroupBits = track_item->dwGroupBits;
                 cloned_item->flags = track_item->flags;
                 cloned_item->pTrack = track;
                 list_add_tail(&clone->Tracks, &cloned_item->entry);
                 continue;
-            } else {
+            }
+            else
+            {
                 IDirectMusicTrack_Release(track);
             }
         }
@@ -922,13 +922,16 @@ static HRESULT parse_wave_form(IDirectMusicSegment8Impl *This, IStream *stream, 
      while ((hr = stream_next_chunk(stream, &chunk)) == S_OK) {
         switch (chunk.id) {
             case mmioFOURCC('f','m','t',' '): {
-                if (FAILED(hr = stream_chunk_get_data(stream, &chunk, &This->wave_format, chunk.size)))
+                if (FAILED(hr = stream_chunk_get_data(stream, &chunk, &This->wave_format,
+                                                      sizeof(This->wave_format))) )
                     return hr;
                 TRACE("Wave Format tag %d\n", This->wave_format.wf.wFormatTag);
                 break;
             }
             case mmioFOURCC('d','a','t','a'): {
                 TRACE("Wave Data size %lu\n", chunk.size);
+                if (This->wave_data)
+                    ERR("Multiple data streams detected\n");
                 This->wave_data = malloc(chunk.size);
                 This->data_size = chunk.size;
                 if (!This->wave_data)
@@ -952,7 +955,7 @@ static HRESULT parse_wave_form(IDirectMusicSegment8Impl *This, IStream *stream, 
         }
     }
 
-    return S_OK;
+    return SUCCEEDED(hr) ? S_OK : hr;
 }
 
 static HRESULT WINAPI seg_IPersistStream_Load(IPersistStream *iface, IStream *stream)
@@ -984,8 +987,12 @@ static HRESULT WINAPI seg_IPersistStream_Load(IPersistStream *iface, IStream *st
 
     if (riff.type == DMUS_FOURCC_SEGMENT_FORM)
         hr = parse_segment_form(This, stream, &riff);
-    else
+    else if(riff.type == mmioFOURCC('W','A','V','E'))
         hr = parse_wave_form(This, stream, &riff);
+    else {
+        FIXME("Unknown type %s\n", debugstr_chunk(&riff));
+        hr = S_OK;
+    }
 
     return hr;
 }
@@ -1005,8 +1012,7 @@ IDirectMusicSegment8Impl *create_segment(void)
 {
     IDirectMusicSegment8Impl *obj;
 
-    if (!(obj = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*obj))))
-        return NULL;
+    if (!(obj = calloc(1, sizeof(*obj)))) return NULL;
 
     obj->IDirectMusicSegment8_iface.lpVtbl = &dmsegment8_vtbl;
     obj->ref = 1;
@@ -1014,8 +1020,6 @@ IDirectMusicSegment8Impl *create_segment(void)
     obj->dmobj.IDirectMusicObject_iface.lpVtbl = &dmobject_vtbl;
     obj->dmobj.IPersistStream_iface.lpVtbl = &persiststream_vtbl;
     list_init (&obj->Tracks);
-
-    DMIME_LockModule();
 
     return obj;
 }

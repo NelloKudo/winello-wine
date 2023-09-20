@@ -23,6 +23,7 @@
 
 #include "unixlib.h"
 
+#include <stdbool.h>
 #include <gst/gst.h>
 
 /* unixlib.c */
@@ -38,6 +39,7 @@ extern GstElement *find_element(GstElementFactoryListType type, GstCaps *src_cap
 extern bool append_element(GstElement *container, GstElement *element, GstElement **first, GstElement **last) DECLSPEC_HIDDEN;
 extern bool link_src_to_element(GstPad *src_pad, GstElement *element) DECLSPEC_HIDDEN;
 extern bool link_element_to_sink(GstElement *element, GstPad *sink_pad) DECLSPEC_HIDDEN;
+extern bool push_event(GstPad *pad, GstEvent *event) DECLSPEC_HIDDEN;
 
 /* wg_format.c */
 
@@ -56,13 +58,23 @@ extern NTSTATUS wg_transform_get_status(void *args) DECLSPEC_HIDDEN;
 extern NTSTATUS wg_transform_drain(void *args) DECLSPEC_HIDDEN;
 extern NTSTATUS wg_transform_flush(void *args) DECLSPEC_HIDDEN;
 
+/* wg_muxer.c */
+
+extern NTSTATUS wg_muxer_create(void *args) DECLSPEC_HIDDEN;
+extern NTSTATUS wg_muxer_destroy(void *args) DECLSPEC_HIDDEN;
+
 /* wg_allocator.c */
+
+static inline BYTE *wg_sample_data(struct wg_sample *sample)
+{
+    return (BYTE *)(UINT_PTR)sample->data;
+}
 
 /* wg_allocator_release_sample can be used to release any sample that was requested. */
 typedef struct wg_sample *(*wg_allocator_request_sample_cb)(gsize size, void *context);
-extern GstAllocator *wg_allocator_create(wg_allocator_request_sample_cb request_sample,
-        void *request_sample_context) DECLSPEC_HIDDEN;
+extern GstAllocator *wg_allocator_create(void) DECLSPEC_HIDDEN;
 extern void wg_allocator_destroy(GstAllocator *allocator) DECLSPEC_HIDDEN;
+extern void wg_allocator_provide_sample(GstAllocator *allocator, struct wg_sample *sample) DECLSPEC_HIDDEN;
 extern void wg_allocator_release_sample(GstAllocator *allocator, struct wg_sample *sample,
         bool discard_data) DECLSPEC_HIDDEN;
 

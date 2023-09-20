@@ -72,6 +72,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(oss);
 static const REFERENCE_TIME def_period = 100000;
 static const REFERENCE_TIME min_period = 50000;
 
+static ULONG_PTR zero_bits = 0;
+
 static NTSTATUS oss_not_implemented(void *args)
 {
     return STATUS_SUCCESS;
@@ -219,6 +221,27 @@ static void get_default_device(EDataFlow flow, char device[OSS_DEVNODE_SIZE])
     TRACE("Default devnode: %s\n", ai.devnode);
     oss_clean_devnode(device, ai.devnode);
     return;
+}
+
+static NTSTATUS oss_process_attach(void *args)
+{
+#ifdef _WIN64
+    if (NtCurrentTeb()->WowTebOffset)
+    {
+        SYSTEM_BASIC_INFORMATION info;
+
+        NtQuerySystemInformation(SystemEmulationBasicInformation, &info, sizeof(info), NULL);
+        zero_bits = (ULONG_PTR)info.HighestUserAddress | 0x7fffffff;
+    }
+#endif
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oss_main_loop(void *args)
+{
+    struct main_loop_params *params = args;
+    NtSetEvent(params->event, NULL);
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS oss_get_endpoint_ids(void *args)
@@ -543,15 +566,6 @@ static HRESULT setup_oss_device(AUDCLNT_SHAREMODE share, int fd,
     return ret;
 }
 
-static ULONG_PTR zero_bits(void)
-{
-#ifdef _WIN64
-    return !NtCurrentTeb()->WowTebOffset ? 0 : 0x7fffffff;
-#else
-    return 0;
-#endif
-}
-
 static NTSTATUS oss_create_stream(void *args)
 {
     struct create_stream_params *params = args;
@@ -646,7 +660,7 @@ static NTSTATUS oss_create_stream(void *args)
     if(params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
         stream->bufsize_frames -= stream->bufsize_frames % stream->period_frames;
     size = stream->bufsize_frames * params->fmt->nBlockAlign;
-    if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits(),
+    if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits,
                                &size, MEM_COMMIT, PAGE_READWRITE)){
         params->result = E_OUTOFMEMORY;
         goto exit;
@@ -667,6 +681,7 @@ exit:
         free(stream->fmt);
         free(stream);
     }else{
+        *params->channel_count = params->fmt->nChannels;
         *params->stream = (stream_handle)(UINT_PTR)stream;
     }
 
@@ -980,7 +995,7 @@ static NTSTATUS oss_get_render_buffer(void *args)
                 stream->tmp_buffer = NULL;
             }
             size = frames * stream->fmt->nBlockAlign;
-            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits(),
+            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits,
                                        &size, MEM_COMMIT, PAGE_READWRITE)){
                 stream->tmp_buffer_frames = 0;
                 return oss_unlock_result(stream, &params->result, E_OUTOFMEMORY);
@@ -1090,7 +1105,7 @@ static NTSTATUS oss_get_capture_buffer(void *args)
                 stream->tmp_buffer = NULL;
             }
             size = *frames * stream->fmt->nBlockAlign;
-            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits(),
+            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits,
                                        &size, MEM_COMMIT, PAGE_READWRITE)){
                 stream->tmp_buffer_frames = 0;
                 return oss_unlock_result(stream, &params->result, E_OUTOFMEMORY);
@@ -1463,6 +1478,15 @@ static NTSTATUS oss_is_started(void *args)
     return oss_unlock_result(stream, &params->result, stream->playing ? S_OK : S_FALSE);
 }
 
+static NTSTATUS oss_get_prop_value(void *args)
+{
+    struct get_prop_value_params *params = args;
+
+    params->result = E_NOTIMPL;
+
+    return STATUS_SUCCESS;
+}
+
 /* Aux driver */
 
 static unsigned int num_aux;
@@ -1680,11 +1704,11 @@ static NTSTATUS oss_aux_message(void *args)
     return STATUS_SUCCESS;
 }
 
-unixlib_entry_t __wine_unix_call_funcs[] =
+const unixlib_entry_t __wine_unix_call_funcs[] =
 {
+    oss_process_attach,
     oss_not_implemented,
-    oss_not_implemented,
-    oss_not_implemented,
+    oss_main_loop,
     oss_get_endpoint_ids,
     oss_create_stream,
     oss_release_stream,
@@ -1709,7 +1733,7 @@ unixlib_entry_t __wine_unix_call_funcs[] =
     oss_set_event_handle,
     oss_test_connect,
     oss_is_started,
-    oss_not_implemented,
+    oss_get_prop_value,
     oss_not_implemented,
     oss_midi_release,
     oss_midi_out_message,
@@ -1717,6 +1741,8 @@ unixlib_entry_t __wine_unix_call_funcs[] =
     oss_midi_notify_wait,
     oss_aux_message,
 };
+
+C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
 
 #ifdef _WIN64
 
@@ -1736,6 +1762,19 @@ static NTSTATUS oss_wow64_test_connect(void *args)
     oss_test_connect(&params);
     params32->priority = params.priority;
     return STATUS_SUCCESS;
+}
+
+static NTSTATUS oss_wow64_main_loop(void *args)
+{
+    struct
+    {
+        PTR32 event;
+    } *params32 = args;
+    struct main_loop_params params =
+    {
+        .event = ULongToHandle(params32->event)
+    };
+    return oss_main_loop(&params);
 }
 
 static NTSTATUS oss_wow64_get_endpoint_ids(void *args)
@@ -2081,6 +2120,62 @@ static NTSTATUS oss_wow64_set_event_handle(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS oss_wow64_get_prop_value(void *args)
+{
+    struct propvariant32
+    {
+        WORD vt;
+        WORD pad1, pad2, pad3;
+        union
+        {
+            ULONG ulVal;
+            PTR32 ptr;
+            ULARGE_INTEGER uhVal;
+        };
+    } *value32;
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 guid;
+        PTR32 prop;
+        HRESULT result;
+        PTR32 value;
+        PTR32 buffer; /* caller allocated buffer to hold value's strings */
+        PTR32 buffer_size;
+    } *params32 = args;
+    PROPVARIANT value;
+    struct get_prop_value_params params =
+    {
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .guid = ULongToPtr(params32->guid),
+        .prop = ULongToPtr(params32->prop),
+        .value = &value,
+        .buffer = ULongToPtr(params32->buffer),
+        .buffer_size = ULongToPtr(params32->buffer_size)
+    };
+    oss_get_prop_value(&params);
+    params32->result = params.result;
+    if (SUCCEEDED(params.result))
+    {
+        value32 = UlongToPtr(params32->value);
+        value32->vt = value.vt;
+        switch (value.vt)
+        {
+        case VT_UI4:
+            value32->ulVal = value.ulVal;
+            break;
+        case VT_LPWSTR:
+            value32->ptr = params32->buffer;
+            break;
+        default:
+            FIXME("Unhandled vt %04x\n", value.vt);
+        }
+    }
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS oss_wow64_aux_message(void *args)
 {
     struct
@@ -2104,11 +2199,11 @@ static NTSTATUS oss_wow64_aux_message(void *args)
     return oss_aux_message(&params);
 }
 
-unixlib_entry_t __wine_unix_call_wow64_funcs[] =
+const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
+    oss_process_attach,
     oss_not_implemented,
-    oss_not_implemented,
-    oss_not_implemented,
+    oss_wow64_main_loop,
     oss_wow64_get_endpoint_ids,
     oss_wow64_create_stream,
     oss_wow64_release_stream,
@@ -2133,7 +2228,7 @@ unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     oss_wow64_set_event_handle,
     oss_wow64_test_connect,
     oss_is_started,
-    oss_not_implemented,
+    oss_wow64_get_prop_value,
     oss_not_implemented,
     oss_midi_release,
     oss_wow64_midi_out_message,
@@ -2141,5 +2236,7 @@ unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     oss_wow64_midi_notify_wait,
     oss_wow64_aux_message,
 };
+
+C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
 
 #endif /* _WIN64 */

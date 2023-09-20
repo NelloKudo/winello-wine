@@ -347,7 +347,7 @@ static void WCMD_show_prompt (BOOL newLine) {
     }
     else {
       p++;
-      switch (toupper(*p)) {
+      switch (towupper(*p)) {
         case '$':
 	  *q++ = '$';
 	  break;
@@ -596,7 +596,7 @@ static WCHAR *WCMD_expand_envvar(WCHAR *start, WCHAR startchar)
     /* If there's complex substitution, just need %var% for now
        to get the expanded data to play with                    */
     if (colonpos) {
-        *colonpos = startchar;
+        *colonpos = '%';
         savedchar = *(colonpos+1);
         *(colonpos+1) = 0x00;
     }
@@ -1134,6 +1134,12 @@ void WCMD_run_program (WCHAR *command, BOOL called)
             lstrcpyW(temp, thisDir);
         else
             lstrcpyW(temp, thisDir + 1);
+
+        /* When temp is an empty string, skip over it. This needs
+           to be done before the expansion, because WCMD_get_fullpath
+           fails when given an empty string                         */
+        if (*temp == '\0')
+            continue;
 
         /* Since you can have eg. ..\.. on the path, need to expand
            to full information                                      */
@@ -2130,9 +2136,9 @@ WCHAR *WCMD_ReadAndParseLine(const WCHAR *optionalcmd, CMD_LIST **output, HANDLE
                 /* See if 1>, 2> etc, in which case we have some patching up
                    to do (provided there's a preceding whitespace, and enough
                    chars read so far) */
-                if (curStringLen > 2
-                        && (*(curPos-1)>='1') && (*(curPos-1)<='9')
-                        && ((*(curPos-2)==' ') || (*(curPos-2)=='\t'))) {
+                if (curPos[-1] >= '1' && curPos[-1] <= '9'
+                        && (curStringLen == 1 ||
+                            curPos[-2] == ' ' || curPos[-2] == '\t')) {
                     curStringLen--;
                     curString[curStringLen] = 0x00;
                     curCopyTo[(*curLen)++] = *(curPos-1);
@@ -2471,6 +2477,12 @@ void WCMD_free_commands(CMD_LIST *cmds) {
     }
 }
 
+static BOOL WINAPI my_event_handler(DWORD ctrl)
+{
+    WCMD_output(L"\n");
+    return ctrl == CTRL_C_EVENT;
+}
+
 
 /*****************************************************************************
  * Main entry point. This is a console application so we have a main() not a
@@ -2717,6 +2729,10 @@ int __cdecl wmain (int argc, WCHAR *argvW[])
        * executable is done later */
       if (opt_s && *cmd=='\"')
           WCMD_strip_quotes(cmd);
+  }
+  else
+  {
+      SetConsoleCtrlHandler(my_event_handler, TRUE);
   }
 
   /* Save cwd into appropriate env var (Must be before the /c processing */

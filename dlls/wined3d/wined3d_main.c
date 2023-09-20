@@ -26,7 +26,10 @@
 #define VKD3D_NO_WIN32_TYPES
 #include "initguid.h"
 #include "wined3d_private.h"
+#include "wined3d_gl.h"
 #include "d3d12.h"
+#define VK_NO_PROTOTYPES
+#include "wine/vulkan.h"
 #include <vkd3d.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d);
@@ -128,6 +131,11 @@ struct wined3d_settings wined3d_settings =
     .renderer = WINED3D_RENDERER_AUTO,
     .shader_backend = WINED3D_SHADER_BACKEND_AUTO,
 };
+
+enum wined3d_renderer CDECL wined3d_get_renderer(void)
+{
+    return wined3d_settings.renderer;
+}
 
 struct wined3d * CDECL wined3d_create(uint32_t flags)
 {
@@ -492,6 +500,9 @@ static BOOL wined3d_dll_init(HINSTANCE hInstDLL)
     }
 
     vkd3d_set_log_callback(vkd3d_log_callback);
+
+    if (wined3d_settings.renderer == WINED3D_RENDERER_AUTO)
+        wined3d_settings.renderer = WINED3D_RENDERER_OPENGL;
 
     return TRUE;
 }

@@ -208,6 +208,7 @@ typedef struct
     unsigned int attribute;
     unsigned int flags;
     unsigned int show;
+    process_id_t process_group_id;
     data_size_t  curdir_len;
     data_size_t  dllpath_len;
     data_size_t  imagepath_len;
@@ -456,6 +457,7 @@ typedef union
     {
         enum select_op  op;
         obj_handle_t    handles[MAXIMUM_WAIT_OBJECTS];
+        int             __pad;
     } wait;
     struct
     {
@@ -526,7 +528,8 @@ typedef union
         unsigned int     op_type;
         client_ptr_t     addr;
         mem_size_t       size;
-        mem_size_t       limit;
+        mem_size_t       limit_low;
+        mem_size_t       limit_high;
         mem_size_t       align;
         unsigned int     prot;
         unsigned int     attributes;
@@ -590,10 +593,12 @@ typedef union
         client_ptr_t     addr;
         mem_size_t       size;
         file_pos_t       offset;
-        mem_size_t       limit;
+        mem_size_t       limit_low;
+        mem_size_t       limit_high;
         unsigned int     alloc_type;
-        unsigned short   prot;
+        unsigned int     prot;
         unsigned short   machine;
+        unsigned short   __pad[3];
     } map_view_ex;
     struct
     {
@@ -1838,6 +1843,23 @@ struct send_socket_reply
 
 
 
+struct socket_get_events_request
+{
+    struct request_header __header;
+    obj_handle_t handle;
+    obj_handle_t event;
+    char __pad_20[4];
+};
+struct socket_get_events_reply
+{
+    struct reply_header __header;
+    unsigned int flags;
+    /* VARARG(status,uints); */
+    char __pad_12[4];
+};
+
+
+
 struct socket_send_icmp_id_request
 {
     struct request_header __header;
@@ -2020,6 +2042,21 @@ struct map_builtin_view_request
 struct map_builtin_view_reply
 {
     struct reply_header __header;
+};
+
+
+
+struct get_image_view_info_request
+{
+    struct request_header __header;
+    obj_handle_t process;
+    client_ptr_t addr;
+};
+struct get_image_view_info_reply
+{
+    struct reply_header __header;
+    client_ptr_t base;
+    mem_size_t   size;
 };
 
 
@@ -2333,6 +2370,25 @@ struct flush_key_request
 struct flush_key_reply
 {
     struct reply_header __header;
+    abstime_t   timestamp_counter;
+    data_size_t total;
+    int         branch_count;
+    /* VARARG(data,bytes); */
+};
+
+
+
+struct flush_key_done_request
+{
+    struct request_header __header;
+    char __pad_12[4];
+    abstime_t    timestamp_counter;
+    int          branch;
+    char __pad_28[4];
+};
+struct flush_key_done_reply
+{
+    struct reply_header __header;
 };
 
 
@@ -2459,12 +2515,19 @@ struct save_registry_request
 {
     struct request_header __header;
     obj_handle_t hkey;
-    obj_handle_t file;
-    char __pad_20[4];
 };
 struct save_registry_reply
 {
     struct reply_header __header;
+    data_size_t  total;
+    /* VARARG(data,bytes); */
+    char __pad_12[4];
+};
+enum prefix_type
+{
+    PREFIX_UNKNOWN,
+    PREFIX_32BIT,
+    PREFIX_64BIT,
 };
 
 
@@ -4460,6 +4523,33 @@ struct remove_clipboard_listener_reply
 
 
 
+struct create_token_request
+{
+    struct request_header __header;
+    struct luid    token_id;
+    unsigned int   access;
+    int            primary;
+    int            impersonation_level;
+    abstime_t      expire;
+    int            group_count;
+    int            primary_group;
+    int            priv_count;
+
+
+
+
+
+    char __pad_52[4];
+};
+struct create_token_reply
+{
+    struct reply_header __header;
+    obj_handle_t   token;
+    char __pad_12[4];
+};
+
+
+
 struct open_token_request
 {
     struct request_header __header;
@@ -5241,7 +5331,7 @@ struct set_fd_disp_info_request
 {
     struct request_header __header;
     obj_handle_t handle;
-    int          unlink;
+    unsigned int flags;
     char __pad_20[4];
 };
 struct set_fd_disp_info_reply
@@ -5368,6 +5458,7 @@ struct set_cursor_reply
 #define SET_CURSOR_POS    0x04
 #define SET_CURSOR_CLIP   0x08
 #define SET_CURSOR_NOCLIP 0x10
+#define SET_CURSOR_FSCLIP 0x20
 
 
 struct get_cursor_history_request
@@ -5798,6 +5889,7 @@ enum request
     REQ_unlock_file,
     REQ_recv_socket,
     REQ_send_socket,
+    REQ_socket_get_events,
     REQ_socket_send_icmp_id,
     REQ_socket_get_icmp_id,
     REQ_get_next_console_request,
@@ -5809,6 +5901,7 @@ enum request
     REQ_map_view,
     REQ_map_image_view,
     REQ_map_builtin_view,
+    REQ_get_image_view_info,
     REQ_unmap_view,
     REQ_get_mapping_committed_range,
     REQ_add_mapping_committed_range,
@@ -5828,6 +5921,7 @@ enum request
     REQ_open_key,
     REQ_delete_key,
     REQ_flush_key,
+    REQ_flush_key_done,
     REQ_enum_key,
     REQ_set_key_value,
     REQ_get_key_value,
@@ -5953,6 +6047,7 @@ enum request
     REQ_set_clipboard_viewer,
     REQ_add_clipboard_listener,
     REQ_remove_clipboard_listener,
+    REQ_create_token,
     REQ_open_token,
     REQ_set_global_windows,
     REQ_adjust_token_privileges,
@@ -6096,6 +6191,7 @@ union generic_request
     struct unlock_file_request unlock_file_request;
     struct recv_socket_request recv_socket_request;
     struct send_socket_request send_socket_request;
+    struct socket_get_events_request socket_get_events_request;
     struct socket_send_icmp_id_request socket_send_icmp_id_request;
     struct socket_get_icmp_id_request socket_get_icmp_id_request;
     struct get_next_console_request_request get_next_console_request_request;
@@ -6107,6 +6203,7 @@ union generic_request
     struct map_view_request map_view_request;
     struct map_image_view_request map_image_view_request;
     struct map_builtin_view_request map_builtin_view_request;
+    struct get_image_view_info_request get_image_view_info_request;
     struct unmap_view_request unmap_view_request;
     struct get_mapping_committed_range_request get_mapping_committed_range_request;
     struct add_mapping_committed_range_request add_mapping_committed_range_request;
@@ -6126,6 +6223,7 @@ union generic_request
     struct open_key_request open_key_request;
     struct delete_key_request delete_key_request;
     struct flush_key_request flush_key_request;
+    struct flush_key_done_request flush_key_done_request;
     struct enum_key_request enum_key_request;
     struct set_key_value_request set_key_value_request;
     struct get_key_value_request get_key_value_request;
@@ -6251,6 +6349,7 @@ union generic_request
     struct set_clipboard_viewer_request set_clipboard_viewer_request;
     struct add_clipboard_listener_request add_clipboard_listener_request;
     struct remove_clipboard_listener_request remove_clipboard_listener_request;
+    struct create_token_request create_token_request;
     struct open_token_request open_token_request;
     struct set_global_windows_request set_global_windows_request;
     struct adjust_token_privileges_request adjust_token_privileges_request;
@@ -6392,6 +6491,7 @@ union generic_reply
     struct unlock_file_reply unlock_file_reply;
     struct recv_socket_reply recv_socket_reply;
     struct send_socket_reply send_socket_reply;
+    struct socket_get_events_reply socket_get_events_reply;
     struct socket_send_icmp_id_reply socket_send_icmp_id_reply;
     struct socket_get_icmp_id_reply socket_get_icmp_id_reply;
     struct get_next_console_request_reply get_next_console_request_reply;
@@ -6403,6 +6503,7 @@ union generic_reply
     struct map_view_reply map_view_reply;
     struct map_image_view_reply map_image_view_reply;
     struct map_builtin_view_reply map_builtin_view_reply;
+    struct get_image_view_info_reply get_image_view_info_reply;
     struct unmap_view_reply unmap_view_reply;
     struct get_mapping_committed_range_reply get_mapping_committed_range_reply;
     struct add_mapping_committed_range_reply add_mapping_committed_range_reply;
@@ -6422,6 +6523,7 @@ union generic_reply
     struct open_key_reply open_key_reply;
     struct delete_key_reply delete_key_reply;
     struct flush_key_reply flush_key_reply;
+    struct flush_key_done_reply flush_key_done_reply;
     struct enum_key_reply enum_key_reply;
     struct set_key_value_reply set_key_value_reply;
     struct get_key_value_reply get_key_value_reply;
@@ -6547,6 +6649,7 @@ union generic_reply
     struct set_clipboard_viewer_reply set_clipboard_viewer_reply;
     struct add_clipboard_listener_reply add_clipboard_listener_reply;
     struct remove_clipboard_listener_reply remove_clipboard_listener_reply;
+    struct create_token_reply create_token_reply;
     struct open_token_reply open_token_reply;
     struct set_global_windows_reply set_global_windows_reply;
     struct adjust_token_privileges_reply adjust_token_privileges_reply;
@@ -6631,7 +6734,7 @@ union generic_reply
 
 /* ### protocol_version begin ### */
 
-#define SERVER_PROTOCOL_VERSION 776
+#define SERVER_PROTOCOL_VERSION 784
 
 /* ### protocol_version end ### */
 

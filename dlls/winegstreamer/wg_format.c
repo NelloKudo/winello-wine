@@ -480,12 +480,17 @@ static GstCaps *wg_format_to_caps_video(const struct wg_format *format)
     {
         for (i = 0; i < gst_caps_get_size(caps); ++i)
         {
+            GstStructure *structure = gst_caps_get_structure(caps, i);
+
             if (!format->u.video.width)
-                gst_structure_remove_fields(gst_caps_get_structure(caps, i), "width", NULL);
+                gst_structure_remove_fields(structure, "width", NULL);
             if (!format->u.video.height)
-                gst_structure_remove_fields(gst_caps_get_structure(caps, i), "height", NULL);
+                gst_structure_remove_fields(structure, "height", NULL);
             if (!format->u.video.fps_d && !format->u.video.fps_n)
-                gst_structure_remove_fields(gst_caps_get_structure(caps, i), "framerate", NULL);
+                gst_structure_remove_fields(structure, "framerate", NULL);
+
+            /* Remove fields which we don't specify but might have some default value */
+            gst_structure_remove_fields(structure, "colorimetry", "chroma-site", NULL);
         }
     }
     return caps;
@@ -548,6 +553,7 @@ static GstCaps *wg_format_to_caps_audio_wma(const struct wg_format *format)
 static GstCaps *wg_format_to_caps_video_h264(const struct wg_format *format)
 {
     const char *profile, *level;
+    GstBuffer *buffer;
     GstCaps *caps;
 
     if (!(caps = gst_caps_new_empty_simple("video/x-h264")))
@@ -603,6 +609,19 @@ static GstCaps *wg_format_to_caps_video_h264(const struct wg_format *format)
     }
     if (level)
         gst_caps_set_simple(caps, "level", G_TYPE_STRING, level, NULL);
+
+    if (format->u.video_h264.codec_data_len)
+    {
+        if (!(buffer = gst_buffer_new_and_alloc(format->u.video_h264.codec_data_len)))
+        {
+            gst_caps_unref(caps);
+            return NULL;
+        }
+
+        gst_buffer_fill(buffer, 0, format->u.video_h264.codec_data, format->u.video_h264.codec_data_len);
+        gst_caps_set_simple(caps, "codec_data", GST_TYPE_BUFFER, buffer, NULL);
+        gst_buffer_unref(buffer);
+    }
 
     return caps;
 }

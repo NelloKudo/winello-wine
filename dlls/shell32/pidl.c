@@ -28,8 +28,6 @@
 #include <string.h>
 
 #define COBJMACROS
-#define NONAMELESSUNION
-
 #include "windef.h"
 #include "winbase.h"
 #include "winreg.h"
@@ -728,7 +726,7 @@ HRESULT WINAPI SHGetRealIDL(LPSHELLFOLDER lpsf, LPCITEMIDLIST pidlSimple, LPITEM
         if (SUCCEEDED(hr))
         {
             /*assert(pida->cidl==1);*/
-            LPIDA pida = GlobalLock(medium.u.hGlobal);
+            LPIDA pida = GlobalLock(medium.hGlobal);
 
             LPCITEMIDLIST pidl_folder = (LPCITEMIDLIST) ((LPBYTE)pida+pida->aoffset[0]);
             LPCITEMIDLIST pidl_child = (LPCITEMIDLIST) ((LPBYTE)pida+pida->aoffset[1]);
@@ -738,8 +736,8 @@ HRESULT WINAPI SHGetRealIDL(LPSHELLFOLDER lpsf, LPCITEMIDLIST pidlSimple, LPITEM
             if (!*pidlReal)
                 hr = E_OUTOFMEMORY;
 
-            GlobalUnlock(medium.u.hGlobal);
-            GlobalFree(medium.u.hGlobal);
+            GlobalUnlock(medium.hGlobal);
+            GlobalFree(medium.hGlobal);
         }
     }
 
@@ -1059,13 +1057,13 @@ LPITEMIDLIST SHSimpleIDListFromPathA(LPCSTR lpszPath)
     if (lpszPath)
     {
         len = MultiByteToWideChar(CP_ACP, 0, lpszPath, -1, NULL, 0);
-        wPath = heap_alloc(len * sizeof(WCHAR));
+        wPath = malloc(len * sizeof(WCHAR));
         MultiByteToWideChar(CP_ACP, 0, lpszPath, -1, wPath, len);
     }
 
     _ILParsePathW(wPath, NULL, TRUE, &pidl, NULL);
 
-    heap_free(wPath);
+    free(wPath);
     TRACE("%s %p\n", debugstr_a(lpszPath), pidl);
     return pidl;
 }
@@ -1330,7 +1328,7 @@ HRESULT WINAPI SHBindToFolderIDListParent(IShellFolder *psf, LPCITEMIDLIST pidl,
         LPITEMIDLIST pidlParent = ILClone(pidl);
         ILRemoveLastID(pidlParent);
         hr = IShellFolder_BindToObject(psf, pidlParent, NULL, riid, ppv);
-        SHFree (pidlParent);
+        ILFree(pidlParent);
     }
 
     if (psfDesktop)

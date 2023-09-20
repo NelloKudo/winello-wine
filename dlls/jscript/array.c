@@ -870,6 +870,8 @@ static HRESULT Array_splice(script_ctx_t *ctx, jsval_t vthis, WORD flags, unsign
         }
 
         add_args = argc-2;
+    } else if (argc && ctx->version >= SCRIPTLANGUAGEVERSION_ES5) {
+        delete_cnt = length-start;
     }
 
     if(r) {
@@ -1663,9 +1665,8 @@ static HRESULT ArrayConstr_isArray(script_ctx_t *ctx, jsval_t vthis, WORD flags,
         return S_OK;
     }
 
-    obj = iface_to_jsdisp(get_object(argv[0]));
+    obj = to_jsdisp(get_object(argv[0]));
     if(r) *r = jsval_bool(obj && is_class(obj, JSCLASS_ARRAY));
-    if(obj) jsdisp_release(obj);
     return S_OK;
 }
 

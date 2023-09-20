@@ -97,12 +97,21 @@ struct scheduler_list {
     struct scheduler_list *next;
 };
 
+struct beacon {
+    bool cancelling;
+    struct list entry;
+    struct _StructuredTaskCollection *task_collection;
+};
+
 typedef struct {
     Context context;
     struct scheduler_list scheduler;
     unsigned int id;
     union allocator_cache_entry *allocator_cache[8];
     LONG blocked;
+    struct _StructuredTaskCollection *task_collection;
+    CRITICAL_SECTION beacons_cs;
+    struct list beacons;
 } ExternalContextBase;
 extern const vtable_ptr ExternalContextBase_vtable;
 static void ExternalContextBase_ctor(ExternalContextBase*);
@@ -175,7 +184,7 @@ typedef struct
 } SpinWait;
 
 #define FINISHED_INITIAL 0x80000000
-typedef struct
+typedef struct _StructuredTaskCollection
 {
     void *unk1;
     unsigned int unk2;
@@ -186,6 +195,8 @@ typedef struct
     void *exception;
     void *event;
 } _StructuredTaskCollection;
+
+bool __thiscall _StructuredTaskCollection__IsCanceling(_StructuredTaskCollection*);
 
 typedef enum
 {
@@ -214,14 +225,12 @@ struct scheduled_chore {
 };
 
 /* keep in sync with msvcp90/msvcp90.h */
-#define CS_UNLOCK 1
-#define CS_TIMEOUT 2
 typedef struct cs_queue
 {
     Context *ctx;
     struct cs_queue *next;
 #if _MSVCR_VER >= 110
-    LONG status;
+    LONG free;
     int unknown;
 #endif
 } cs_queue;
@@ -315,9 +324,14 @@ typedef struct
 #if _MSVCR_VER >= 110
 #define CV_WAKE (void*)1
 typedef struct cv_queue {
+    Context *ctx;
     struct cv_queue *next;
     LONG expired;
 } cv_queue;
+
+typedef struct {
+    struct beacon *beacon;
+} _Cancellation_beacon;
 
 typedef struct {
     /* cv_queue structure is not binary compatible */
@@ -852,7 +866,17 @@ void __cdecl Context__SpinYield(void)
 /* ?IsCurrentTaskCollectionCanceling@Context@Concurrency@@SA_NXZ */
 bool __cdecl Context_IsCurrentTaskCollectionCanceling(void)
 {
-    FIXME("()\n");
+    ExternalContextBase *ctx = (ExternalContextBase*)try_get_current_context();
+
+    TRACE("()\n");
+
+    if (ctx && ctx->context.vtable != &ExternalContextBase_vtable) {
+        ERR("unknown context set\n");
+        return FALSE;
+    }
+
+    if (ctx && ctx->task_collection)
+        return _StructuredTaskCollection__IsCanceling(ctx->task_collection);
     return FALSE;
 }
 
@@ -1066,6 +1090,10 @@ static void ExternalContextBase_dtor(ExternalContextBase *this)
             operator_delete(scheduler_cur);
         }
     }
+
+    DeleteCriticalSection(&this->beacons_cs);
+    if (!list_empty(&this->beacons))
+        ERR("beacons list is not empty - expect crash\n");
 }
 
 DEFINE_THISCALL_WRAPPER(ExternalContextBase_vector_dtor, 8)
@@ -1095,6 +1123,8 @@ static void ExternalContextBase_ctor(ExternalContextBase *this)
     memset(this, 0, sizeof(*this));
     this->context.vtable = &ExternalContextBase_vtable;
     this->id = InterlockedIncrement(&context_id);
+    InitializeCriticalSection(&this->beacons_cs);
+    list_init(&this->beacons);
 
     create_default_scheduler();
     this->scheduler.scheduler = &default_scheduler->scheduler;
@@ -2088,6 +2118,7 @@ void __thiscall _StructuredTaskCollection__Cancel(
     ThreadScheduler *scheduler;
     void *prev_exception, *new_exception;
     struct scheduled_chore *sc, *next;
+    struct beacon *beacon;
     LONG removed = 0;
     LONG prev_finished, new_finished;
 
@@ -2109,6 +2140,13 @@ void __thiscall _StructuredTaskCollection__Cancel(
     } while ((new_exception = InterlockedCompareExchangePointer(
                     &this->exception, new_exception, prev_exception))
              != prev_exception);
+
+    EnterCriticalSection(&((ExternalContextBase*)this->context)->beacons_cs);
+    LIST_FOR_EACH_ENTRY(beacon, &((ExternalContextBase*)this->context)->beacons, struct beacon, entry) {
+        if (beacon->task_collection == this)
+            beacon->cancelling = TRUE;
+    }
+    LeaveCriticalSection(&((ExternalContextBase*)this->context)->beacons_cs);
 
     EnterCriticalSection(&scheduler->cs);
     LIST_FOR_EACH_ENTRY_SAFE(sc, next, &scheduler->scheduled_chores,
@@ -2167,23 +2205,44 @@ static LONG CALLBACK execute_chore_except(EXCEPTION_POINTERS *pexc, void *_data)
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+static void CALLBACK execute_chore_finally(BOOL normal, void *data)
+{
+    ExternalContextBase *ctx = (ExternalContextBase*)try_get_current_context();
+    _StructuredTaskCollection *old_collection = data;
+
+    if (ctx && ctx->context.vtable == &ExternalContextBase_vtable)
+        ctx->task_collection = old_collection;
+}
+
 static void execute_chore(_UnrealizedChore *chore,
         _StructuredTaskCollection *task_collection)
 {
+    ExternalContextBase *ctx = (ExternalContextBase*)try_get_current_context();
     struct execute_chore_data data = { chore, task_collection };
+    _StructuredTaskCollection *old_collection;
 
     TRACE("(%p %p)\n", chore, task_collection);
 
+    if (ctx && ctx->context.vtable == &ExternalContextBase_vtable)
+    {
+        old_collection = ctx->task_collection;
+        ctx->task_collection = task_collection;
+    }
+
     __TRY
     {
-        if (!((ULONG_PTR)task_collection->exception & ~STRUCTURED_TASK_COLLECTION_STATUS_MASK) &&
-                chore->chore_proc)
-            chore->chore_proc(chore);
+        __TRY
+        {
+            if (!((ULONG_PTR)task_collection->exception & ~STRUCTURED_TASK_COLLECTION_STATUS_MASK) &&
+                    chore->chore_proc)
+                chore->chore_proc(chore);
+        }
+        __EXCEPT_CTX(execute_chore_except, &data)
+        {
+        }
+        __ENDTRY
     }
-    __EXCEPT_CTX(execute_chore_except, &data)
-    {
-    }
-    __ENDTRY
+    __FINALLY_CTX(execute_chore_finally, old_collection)
 }
 
 static void CALLBACK chore_wrapper_finally(BOOL normal, void *data)
@@ -2533,7 +2592,7 @@ void __thiscall critical_section_unlock(critical_section *this)
     while(1) {
         cs_queue *next;
 
-        if(!InterlockedCompareExchange(&this->unk_active.next->status, CS_UNLOCK, 0))
+        if(!InterlockedExchange(&this->unk_active.next->free, TRUE))
             break;
 
         next = this->unk_active.next;
@@ -2571,15 +2630,48 @@ static void set_timeout(FILETIME *ft, unsigned int timeout)
     ft->dwLowDateTime = to.QuadPart;
 }
 
-#if _MSVCR_VER >= 110
+struct timeout_unlock
+{
+    Context *ctx;
+    BOOL timed_out;
+};
+
 static void WINAPI timeout_unlock(TP_CALLBACK_INSTANCE *instance, void *ctx, TP_TIMER *timer)
 {
-    cs_queue *q = ctx;
-
-    if(!InterlockedCompareExchange(&q->status, CS_TIMEOUT, 0))
-        call_Context_Unblock(q->ctx);
+    struct timeout_unlock *tu = ctx;
+    tu->timed_out = TRUE;
+    call_Context_Unblock(tu->ctx);
 }
 
+/* returns TRUE if wait has timed out */
+static BOOL block_context_for(Context *ctx, unsigned int timeout)
+{
+    struct timeout_unlock tu = { ctx };
+    TP_TIMER *tp_timer;
+    FILETIME ft;
+
+    if(timeout == COOPERATIVE_TIMEOUT_INFINITE) {
+        call_Context_Block(ctx);
+        return FALSE;
+    }
+
+    tp_timer = CreateThreadpoolTimer(timeout_unlock, &tu, NULL);
+    if(!tp_timer) {
+        FIXME("throw exception?\n");
+        return TRUE;
+    }
+    set_timeout(&ft, timeout);
+    SetThreadpoolTimer(tp_timer, &ft, 0, 0);
+
+    call_Context_Block(ctx);
+
+    SetThreadpoolTimer(tp_timer, NULL, 0, 0);
+    WaitForThreadpoolTimerCallbacks(tp_timer, TRUE);
+    CloseThreadpoolTimer(tp_timer);
+    return tu.timed_out;
+}
+
+#if _MSVCR_VER >= 110
 /* ?try_lock_for@critical_section@Concurrency@@QAE_NI@Z */
 /* ?try_lock_for@critical_section@Concurrency@@QEAA_NI@Z */
 DEFINE_THISCALL_WRAPPER(critical_section_try_lock_for, 8)
@@ -2603,27 +2695,15 @@ bool __thiscall critical_section_try_lock_for(
 
     last = InterlockedExchangePointer(&this->tail, q);
     if(last) {
-        TP_TIMER *tp_timer;
-        FILETIME ft;
-
         last->next = q;
 
-        tp_timer = CreateThreadpoolTimer(timeout_unlock, q, NULL);
-        if(!tp_timer) {
-            FIXME("throw exception?\n");
-            return FALSE;
+        if(block_context_for(q->ctx, timeout))
+        {
+            if(!InterlockedExchange(&q->free, TRUE))
+                return FALSE;
+            /* Context was unblocked because of timeout and unlock operation */
+            call_Context_Block(ctx);
         }
-        set_timeout(&ft, timeout);
-        SetThreadpoolTimer(tp_timer, &ft, 0, 0);
-
-        call_Context_Block(q->ctx);
-
-        SetThreadpoolTimer(tp_timer, NULL, 0, 0);
-        WaitForThreadpoolTimerCallbacks(tp_timer, TRUE);
-        CloseThreadpoolTimer(tp_timer);
-
-        if(q->status == CS_TIMEOUT)
-            return FALSE;
     }
 
     cs_set_head(this, q);
@@ -2831,17 +2911,8 @@ static inline int evt_transition(void **state, void *from, void *to)
     return InterlockedCompareExchangePointer(state, to, from) == from;
 }
 
-static void WINAPI evt_timeout(TP_CALLBACK_INSTANCE *instance, void *ctx, TP_TIMER *timer)
-{
-    thread_wait *wait = ctx;
-
-    if(evt_transition(&wait->signaled, EVT_WAITING, EVT_RUNNING))
-        call_Context_Unblock(wait->ctx);
-}
-
 static size_t evt_wait(thread_wait *wait, event **events, int count, bool wait_all, unsigned int timeout)
 {
-    TP_TIMER *tp_timer = NULL;
     int i;
 
     wait->signaled = EVT_RUNNING;
@@ -2865,30 +2936,12 @@ static size_t evt_wait(thread_wait *wait, event **events, int count, bool wait_a
     if(!timeout)
         return evt_end_wait(wait, events, count);
 
-    if (timeout != COOPERATIVE_TIMEOUT_INFINITE)
-    {
-        FILETIME ft;
-
-        tp_timer = CreateThreadpoolTimer(evt_timeout, wait, NULL);
-        if(!tp_timer) {
-            FIXME("throw exception?\n");
-            return COOPERATIVE_WAIT_TIMEOUT;
-        }
-        set_timeout(&ft, timeout);
-        SetThreadpoolTimer(tp_timer, &ft, 0, 0);
-    }
-
     if(!evt_transition(&wait->signaled, EVT_RUNNING, EVT_WAITING))
         return evt_end_wait(wait, events, count);
 
-    call_Context_Block(wait->ctx);
-
-    if (tp_timer)
-    {
-        SetThreadpoolTimer(tp_timer, NULL, 0, 0);
-        WaitForThreadpoolTimerCallbacks(tp_timer, TRUE);
-        CloseThreadpoolTimer(tp_timer);
-    }
+    if(block_context_for(wait->ctx, timeout) &&
+            !evt_transition(&wait->signaled, EVT_WAITING, EVT_RUNNING))
+        call_Context_Block(wait->ctx);
 
     return evt_end_wait(wait, events, count);
 }
@@ -3009,6 +3062,60 @@ int __cdecl event_wait_for_multiple(event **events, size_t count, bool wait_all,
 
 #if _MSVCR_VER >= 110
 
+/* ??0_Cancellation_beacon@details@Concurrency@@QAE@XZ */
+/* ??0_Cancellation_beacon@details@Concurrency@@QEAA@XZ */
+DEFINE_THISCALL_WRAPPER(_Cancellation_beacon_ctor, 4)
+_Cancellation_beacon* __thiscall _Cancellation_beacon_ctor(_Cancellation_beacon *this)
+{
+    ExternalContextBase *ctx = (ExternalContextBase*)get_current_context();
+    _StructuredTaskCollection *task_collection = NULL;
+    struct beacon *beacon;
+
+    TRACE("(%p)\n", this);
+
+    if (ctx->context.vtable == &ExternalContextBase_vtable) {
+        task_collection = ctx->task_collection;
+        if (task_collection)
+            ctx = (ExternalContextBase*)task_collection->context;
+    }
+
+    if (ctx->context.vtable != &ExternalContextBase_vtable) {
+        ERR("unknown context\n");
+        return NULL;
+    }
+
+    beacon = malloc(sizeof(*beacon));
+    beacon->cancelling = Context_IsCurrentTaskCollectionCanceling();
+    beacon->task_collection = task_collection;
+
+    if (task_collection) {
+        EnterCriticalSection(&ctx->beacons_cs);
+        list_add_head(&ctx->beacons, &beacon->entry);
+        LeaveCriticalSection(&ctx->beacons_cs);
+    }
+
+    this->beacon = beacon;
+    return this;
+}
+
+/* ??1_Cancellation_beacon@details@Concurrency@@QAE@XZ */
+/* ??1_Cancellation_beacon@details@Concurrency@@QEAA@XZ */
+DEFINE_THISCALL_WRAPPER(_Cancellation_beacon_dtor, 4)
+void __thiscall _Cancellation_beacon_dtor(_Cancellation_beacon *this)
+{
+    TRACE("(%p)\n", this);
+
+    if (this->beacon->task_collection) {
+        ExternalContextBase *ctx = (ExternalContextBase*)this->beacon->task_collection->context;
+
+        EnterCriticalSection(&ctx->beacons_cs);
+        list_remove(&this->beacon->entry);
+        LeaveCriticalSection(&ctx->beacons_cs);
+    }
+
+    free(this->beacon);
+}
+
 /* ??0_Condition_variable@details@Concurrency@@QAE@XZ */
 /* ??0_Condition_variable@details@Concurrency@@QEAA@XZ */
 DEFINE_THISCALL_WRAPPER(_Condition_variable_ctor, 4)
@@ -3043,20 +3150,19 @@ void __thiscall _Condition_variable_dtor(_Condition_variable *this)
 DEFINE_THISCALL_WRAPPER(_Condition_variable_wait, 8)
 void __thiscall _Condition_variable_wait(_Condition_variable *this, critical_section *cs)
 {
-    cv_queue q, *next;
+    cv_queue q;
 
     TRACE("(%p, %p)\n", this, cs);
 
+    q.ctx = get_current_context();
+    q.expired = FALSE;
     critical_section_lock(&this->lock);
     q.next = this->queue;
-    q.expired = FALSE;
-    next = q.next;
     this->queue = &q;
     critical_section_unlock(&this->lock);
 
     critical_section_unlock(cs);
-    while (q.next != CV_WAKE)
-        RtlWaitOnAddress(&q.next, &next, sizeof(next), NULL);
+    call_Context_Block(q.ctx);
     critical_section_lock(cs);
 }
 
@@ -3066,35 +3172,26 @@ DEFINE_THISCALL_WRAPPER(_Condition_variable_wait_for, 12)
 bool __thiscall _Condition_variable_wait_for(_Condition_variable *this,
         critical_section *cs, unsigned int timeout)
 {
-    LARGE_INTEGER to;
-    NTSTATUS status;
-    FILETIME ft;
-    cv_queue *q, *next;
+    cv_queue *q;
 
     TRACE("(%p %p %d)\n", this, cs, timeout);
 
     q = operator_new(sizeof(cv_queue));
+    q->ctx = get_current_context();
+    q->expired = FALSE;
     critical_section_lock(&this->lock);
     q->next = this->queue;
-    q->expired = FALSE;
-    next = q->next;
     this->queue = q;
     critical_section_unlock(&this->lock);
 
     critical_section_unlock(cs);
 
-    GetSystemTimeAsFileTime(&ft);
-    to.QuadPart = ((LONGLONG)ft.dwHighDateTime << 32) +
-        ft.dwLowDateTime + (LONGLONG)timeout * TICKSPERMSEC;
-    while (q->next != CV_WAKE) {
-        status = RtlWaitOnAddress(&q->next, &next, sizeof(next), &to);
-        if(status == STATUS_TIMEOUT) {
-            if(!InterlockedExchange(&q->expired, TRUE)) {
-                critical_section_lock(cs);
-                return FALSE;
-            }
-            break;
+    if(block_context_for(q->ctx, timeout)) {
+        if(!InterlockedExchange(&q->expired, TRUE)) {
+            critical_section_lock(cs);
+            return FALSE;
         }
+        call_Context_Block(q->ctx);
     }
 
     operator_delete(q);
@@ -3126,7 +3223,7 @@ void __thiscall _Condition_variable_notify_one(_Condition_variable *this)
 
         node->next = CV_WAKE;
         if(!InterlockedExchange(&node->expired, TRUE)) {
-            RtlWakeAddressSingle(&node->next);
+            call_Context_Unblock(node->ctx);
             return;
         } else {
             operator_delete(node);
@@ -3156,7 +3253,7 @@ void __thiscall _Condition_variable_notify_all(_Condition_variable *this)
 
         ptr->next = CV_WAKE;
         if(!InterlockedExchange(&ptr->expired, TRUE))
-            RtlWakeAddressSingle(&ptr->next);
+            call_Context_Unblock(ptr->ctx);
         else
             operator_delete(ptr);
         ptr = next;
@@ -3459,33 +3556,11 @@ bool __thiscall _ReentrantBlockingLock__TryAcquire(_ReentrantBlockingLock *this)
     return TryEnterCriticalSection(&this->cs);
 }
 
-static void WINAPI wait_timeout(TP_CALLBACK_INSTANCE *instance, void *arg, TP_TIMER *timer)
-{
-    Context *ctx = arg;
-
-    call_Context_Unblock(ctx);
-}
-
 /* ?wait@Concurrency@@YAXI@Z */
 void __cdecl Concurrency_wait(unsigned int time)
 {
-    Context *ctx = get_current_context();
-    TP_TIMER *tp_timer;
-    FILETIME ft;
-
     TRACE("(%d)\n", time);
-
-    tp_timer = CreateThreadpoolTimer(wait_timeout, ctx, NULL);
-    if(!tp_timer) {
-        FIXME("throw exception?\n");
-        Sleep(time);
-        return;
-    }
-    set_timeout(&ft, time);
-    SetThreadpoolTimer(tp_timer, &ft, 0, 0);
-
-    call_Context_Block(ctx);
-    CloseThreadpoolTimer(tp_timer);
+    block_context_for(get_current_context(), time);
 }
 
 #if _MSVCR_VER>=110

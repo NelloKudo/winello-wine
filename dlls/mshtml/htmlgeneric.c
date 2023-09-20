@@ -29,6 +29,7 @@
 #include "wine/debug.h"
 
 #include "mshtml_private.h"
+#include "htmlevent.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 
@@ -127,21 +128,14 @@ static inline HTMLGenericElement *impl_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLGenericElement, element.node);
 }
 
-static HRESULT HTMLGenericElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLGenericElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLGenericElement *This = impl_from_HTMLDOMNode(iface);
 
-    *ppv = NULL;
+    if(IsEqualGUID(&IID_IHTMLGenericElement, riid))
+        return &This->IHTMLGenericElement_iface;
 
-    if(IsEqualGUID(&IID_IHTMLGenericElement, riid)) {
-        TRACE("(%p)->(IID_IHTMLGenericElement %p)\n", This, ppv);
-        *ppv = &This->IHTMLGenericElement_iface;
-    }else {
-        return HTMLElement_QI(&This->element.node, riid, ppv);
-    }
-
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLGenericElement_destructor(HTMLDOMNode *iface)
@@ -152,13 +146,13 @@ static void HTMLGenericElement_destructor(HTMLDOMNode *iface)
 }
 
 static const NodeImplVtbl HTMLGenericElementImplVtbl = {
-    &CLSID_HTMLGenericElement,
-    HTMLGenericElement_QI,
-    HTMLGenericElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col
+    .clsid                 = &CLSID_HTMLGenericElement,
+    .qi                    = HTMLGenericElement_QI,
+    .destructor            = HTMLGenericElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col
 };
 
 static const tid_t HTMLGenericElement_iface_tids[] = {
@@ -168,8 +162,8 @@ static const tid_t HTMLGenericElement_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLGenericElement_dispex = {
-    L"HTMLUnknownElement",
-    NULL,
+    "HTMLUnknownElement",
+    &HTMLElement_event_target_vtbl.dispex_vtbl,
     DispHTMLGenericElement_tid,
     HTMLGenericElement_iface_tids,
     HTMLElement_init_dispex_info

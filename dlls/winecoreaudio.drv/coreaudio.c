@@ -103,6 +103,8 @@ struct coreaudio_stream
 static const REFERENCE_TIME def_period = 100000;
 static const REFERENCE_TIME min_period = 50000;
 
+static ULONG_PTR zero_bits = 0;
+
 static NTSTATUS unix_not_implemented(void *args)
 {
     return STATUS_SUCCESS;
@@ -194,6 +196,27 @@ static BOOL device_has_channels(AudioDeviceID device, EDataFlow flow)
     }
     free(buffers);
     return ret;
+}
+
+static NTSTATUS unix_process_attach(void *args)
+{
+#ifdef _WIN64
+    if (NtCurrentTeb()->WowTebOffset)
+    {
+        SYSTEM_BASIC_INFORMATION info;
+
+        NtQuerySystemInformation(SystemEmulationBasicInformation, &info, sizeof(info), NULL);
+        zero_bits = (ULONG_PTR)info.HighestUserAddress | 0x7fffffff;
+    }
+#endif
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_main_loop(void *args)
+{
+    struct main_loop_params *params = args;
+    NtSetEvent(params->event, NULL);
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS unix_get_endpoint_ids(void *args)
@@ -632,15 +655,6 @@ static HRESULT ca_setup_audiounit(EDataFlow dataflow, AudioComponentInstance uni
     return S_OK;
 }
 
-static ULONG_PTR zero_bits(void)
-{
-#ifdef _WIN64
-    return !NtCurrentTeb()->WowTebOffset ? 0 : 0x7fffffff;
-#else
-    return 0;
-#endif
-}
-
 static AudioDeviceID dev_id_from_device(const char *device)
 {
     return strtoul(device, NULL, 10);
@@ -750,7 +764,7 @@ static NTSTATUS unix_create_stream(void *args)
     }
 
     size = stream->bufsize_frames * stream->fmt->nBlockAlign;
-    if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits(),
+    if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits,
                                &size, MEM_COMMIT, PAGE_READWRITE)){
         params->result = E_OUTOFMEMORY;
         goto end;
@@ -769,8 +783,10 @@ end:
         if(stream->unit) AudioComponentInstanceDispose(stream->unit);
         free(stream->fmt);
         free(stream);
-    } else
+    } else {
+        *params->channel_count = params->fmt->nChannels;
         *params->stream = (stream_handle)(UINT_PTR)stream;
+    }
 
     return STATUS_SUCCESS;
 }
@@ -1488,7 +1504,7 @@ static NTSTATUS unix_get_render_buffer(void *args)
                 stream->tmp_buffer = NULL;
             }
             size = params->frames * stream->fmt->nBlockAlign;
-            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits(),
+            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits,
                                        &size, MEM_COMMIT, PAGE_READWRITE)){
                 stream->tmp_buffer_frames = 0;
                 params->result = E_OUTOFMEMORY;
@@ -1586,7 +1602,7 @@ static NTSTATUS unix_get_capture_buffer(void *args)
         chunk_bytes = chunk_frames * stream->fmt->nBlockAlign;
         if(!stream->tmp_buffer){
             size = stream->period_frames * stream->fmt->nBlockAlign;
-            NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits(),
+            NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits,
                                     &size, MEM_COMMIT, PAGE_READWRITE);
         }
         *params->data = stream->tmp_buffer;
@@ -1717,6 +1733,15 @@ static NTSTATUS unix_is_started(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS unix_get_prop_value(void *args)
+{
+    struct get_prop_value_params *params = args;
+
+    params->result = E_NOTIMPL;
+
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS unix_set_volumes(void *args)
 {
     struct set_volumes_params *params = args;
@@ -1771,11 +1796,11 @@ static NTSTATUS unix_set_event_handle(void *args)
     return STATUS_SUCCESS;
 }
 
-unixlib_entry_t __wine_unix_call_funcs[] =
+const unixlib_entry_t __wine_unix_call_funcs[] =
 {
+    unix_process_attach,
     unix_not_implemented,
-    unix_not_implemented,
-    unix_not_implemented,
+    unix_main_loop,
     unix_get_endpoint_ids,
     unix_create_stream,
     unix_release_stream,
@@ -1800,7 +1825,7 @@ unixlib_entry_t __wine_unix_call_funcs[] =
     unix_set_event_handle,
     unix_not_implemented,
     unix_is_started,
-    unix_not_implemented,
+    unix_get_prop_value,
     unix_midi_init,
     unix_midi_release,
     unix_midi_out_message,
@@ -1809,9 +1834,24 @@ unixlib_entry_t __wine_unix_call_funcs[] =
     unix_not_implemented,
 };
 
+C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
+
 #ifdef _WIN64
 
 typedef UINT PTR32;
+
+static NTSTATUS unix_wow64_main_loop(void *args)
+{
+    struct
+    {
+        PTR32 event;
+    } *params32 = args;
+    struct main_loop_params params =
+    {
+        .event = ULongToHandle(params32->event)
+    };
+    return unix_main_loop(&params);
+}
 
 static NTSTATUS unix_wow64_get_endpoint_ids(void *args)
 {
@@ -2083,6 +2123,7 @@ static NTSTATUS unix_wow64_get_position(void *args)
     struct
     {
         stream_handle stream;
+        BOOL device;
         HRESULT result;
         PTR32 pos;
         PTR32 qpctime;
@@ -2090,6 +2131,7 @@ static NTSTATUS unix_wow64_get_position(void *args)
     struct get_position_params params =
     {
         .stream = params32->stream,
+        .device = params32->device,
         .pos = ULongToPtr(params32->pos),
         .qpctime = ULongToPtr(params32->qpctime)
     };
@@ -2153,11 +2195,67 @@ static NTSTATUS unix_wow64_set_event_handle(void *args)
     return STATUS_SUCCESS;
 }
 
-unixlib_entry_t __wine_unix_call_wow64_funcs[] =
+static NTSTATUS unix_wow64_get_prop_value(void *args)
 {
+    struct propvariant32
+    {
+        WORD vt;
+        WORD pad1, pad2, pad3;
+        union
+        {
+            ULONG ulVal;
+            PTR32 ptr;
+            ULARGE_INTEGER uhVal;
+        };
+    } *value32;
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 guid;
+        PTR32 prop;
+        HRESULT result;
+        PTR32 value;
+        PTR32 buffer; /* caller allocated buffer to hold value's strings */
+        PTR32 buffer_size;
+    } *params32 = args;
+    PROPVARIANT value;
+    struct get_prop_value_params params =
+    {
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .guid = ULongToPtr(params32->guid),
+        .prop = ULongToPtr(params32->prop),
+        .value = &value,
+        .buffer = ULongToPtr(params32->buffer),
+        .buffer_size = ULongToPtr(params32->buffer_size)
+    };
+    unix_get_prop_value(&params);
+    params32->result = params.result;
+    if (SUCCEEDED(params.result))
+    {
+        value32 = UlongToPtr(params32->value);
+        value32->vt = value.vt;
+        switch (value.vt)
+        {
+        case VT_UI4:
+            value32->ulVal = value.ulVal;
+            break;
+        case VT_LPWSTR:
+            value32->ptr = params32->buffer;
+            break;
+        default:
+            FIXME("Unhandled vt %04x\n", value.vt);
+        }
+    }
+    return STATUS_SUCCESS;
+}
+
+const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
+{
+    unix_process_attach,
     unix_not_implemented,
-    unix_not_implemented,
-    unix_not_implemented,
+    unix_wow64_main_loop,
     unix_wow64_get_endpoint_ids,
     unix_wow64_create_stream,
     unix_wow64_release_stream,
@@ -2182,7 +2280,7 @@ unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     unix_wow64_set_event_handle,
     unix_not_implemented,
     unix_is_started,
-    unix_not_implemented,
+    unix_wow64_get_prop_value,
     unix_wow64_midi_init,
     unix_midi_release,
     unix_wow64_midi_out_message,
@@ -2190,5 +2288,7 @@ unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     unix_wow64_midi_notify_wait,
     unix_not_implemented,
 };
+
+C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
 
 #endif /* _WIN64 */

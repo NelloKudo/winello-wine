@@ -45,6 +45,7 @@
 
 #ifdef HAVE_NETIPX_IPX_H
 # include <netipx/ipx.h>
+# define HAS_IPX
 #elif defined(HAVE_LINUX_IPX_H)
 # ifdef HAVE_ASM_TYPES_H
 #  include <asm/types.h>
@@ -53,9 +54,9 @@
 #  include <linux/types.h>
 # endif
 # include <linux/ipx.h>
-#endif
-#if defined(SOL_IPX) || defined(SO_DEFAULT_HEADERS)
-# define HAS_IPX
+# ifdef SOL_IPX
+#  define HAS_IPX
+# endif
 #endif
 
 #ifdef HAVE_LINUX_IRDA_H
@@ -985,10 +986,14 @@ static NTSTATUS try_send( int fd, struct async_send_ioctl *async )
     union unix_sockaddr unix_addr;
     struct msghdr hdr;
     int attempt = 0;
+    int sock_type;
+    socklen_t len = sizeof(sock_type);
     ssize_t ret;
 
+    getsockopt(fd, SOL_SOCKET, SO_TYPE, &sock_type, &len);
+
     memset( &hdr, 0, sizeof(hdr) );
-    if (async->addr)
+    if (async->addr && sock_type != SOCK_STREAM)
     {
         hdr.msg_name = &unix_addr;
         hdr.msg_namelen = sockaddr_to_unix( async->addr, async->addr_len, &unix_addr );
@@ -1549,10 +1554,32 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
         }
 
         case IOCTL_AFD_GET_EVENTS:
+        {
+            struct afd_get_events_params *params = out_buffer;
+            HANDLE reset_event = in_buffer; /* sic */
+
+            TRACE( "reset_event %p\n", reset_event );
             if (in_size) FIXME( "unexpected input size %u\n", in_size );
 
-            status = STATUS_BAD_DEVICE_TYPE;
-            break;
+            if (out_size < sizeof(*params))
+            {
+                status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            SERVER_START_REQ( socket_get_events )
+            {
+                req->handle = wine_server_obj_handle( handle );
+                req->event = wine_server_obj_handle( reset_event );
+                wine_server_set_reply( req, params->status, sizeof(params->status) );
+                if (!(status = wine_server_call( req )))
+                    params->flags = reply->flags;
+            }
+            SERVER_END_REQ;
+
+            complete_async( handle, event, apc, apc_user, io, status, 0 );
+            return status;
+        }
 
         case IOCTL_AFD_POLL:
             status = STATUS_BAD_DEVICE_TYPE;
@@ -2402,6 +2429,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
             break;
         }
 
+#ifdef HAS_IPX
 #ifdef SOL_IPX
         case IOCTL_AFD_WINE_GET_IPX_PTYPE:
             return do_getsockopt( handle, io, SOL_IPX, IPX_TYPE, out_buffer, out_size );
@@ -2439,6 +2467,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc, void *apc
             value.ipx_pt = *(DWORD *)in_buffer;
             return do_setsockopt( handle, io, 0, SO_DEFAULT_HEADERS, &value, sizeof(value) );
         }
+#endif
 #endif
 
 #ifdef HAS_IRDA

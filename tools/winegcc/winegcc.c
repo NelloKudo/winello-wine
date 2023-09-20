@@ -305,24 +305,18 @@ static struct strarray build_tool_name( struct options *opts, enum tool tool )
 
 static struct strarray get_translator(struct options *opts)
 {
-    enum tool tool;
-
     switch(opts->processor)
     {
     case proc_cpp:
-        tool = TOOL_CPP;
-        break;
+        return build_tool_name( opts, TOOL_CPP );
     case proc_cc:
     case proc_as:
-        tool = TOOL_CC;
-        break;
+        return build_tool_name( opts, TOOL_CC );
     case proc_cxx:
-        tool = TOOL_CXX;
-        break;
-    default:
-        assert(0);
+        return build_tool_name( opts, TOOL_CXX );
     }
-    return build_tool_name( opts, tool );
+    assert(0);
+    return empty_strarray;
 }
 
 static int try_link( struct strarray prefix, struct strarray link_tool, const char *cflags )
@@ -413,6 +407,7 @@ static struct strarray get_link_args( struct options *opts, const char *output_n
         if (opts->nostartfiles || opts->use_msvcrt) strarray_add( &flags, "-nostartfiles" );
         if (opts->subsystem) strarray_add( &flags, strmake("-Wl,--subsystem,%s", opts->subsystem ));
 
+        strarray_add( &flags, "-Wl,--exclude-all-symbols" );
         strarray_add( &flags, "-Wl,--nxcompat" );
 
         if (opts->image_base) strarray_add( &flags, strmake("-Wl,--image-base,%s", opts->image_base ));
@@ -837,8 +832,6 @@ static struct strarray get_winebuild_args(struct options *opts)
     for (i = 0; i < opts->prefix.count; i++)
         strarray_add( &spec_args, strmake( "-B%s", opts->prefix.str[i] ));
     strarray_addall( &spec_args, opts->winebuild_args );
-    if (opts->unwind_tables) strarray_add( &spec_args, "-fasynchronous-unwind-tables" );
-    else strarray_add( &spec_args, "-fno-asynchronous-unwind-tables" );
     return spec_args;
 }
 
@@ -966,6 +959,7 @@ static const char *build_spec_obj( struct options *opts, const char *spec_file, 
     {
         if (opts->pic) strarray_add(&spec_args, "-fPIC");
         if (opts->use_msvcrt) strarray_add(&spec_args, "-mno-cygwin");
+        if (opts->unwind_tables) strarray_add( &spec_args, "-fasynchronous-unwind-tables" );
     }
     strarray_add(&spec_args, opts->shared ? "--dll" : "--exe");
     if (opts->fake_module)
@@ -994,7 +988,8 @@ static const char *build_spec_obj( struct options *opts, const char *spec_file, 
         if (opts->large_address_aware) strarray_add( &spec_args, "--large-address-aware" );
     }
 
-    if (opts->target.platform == PLATFORM_WINDOWS) strarray_add(&spec_args, "--safeseh");
+    if (opts->target.platform == PLATFORM_WINDOWS && opts->target.cpu == CPU_i386)
+        strarray_add(&spec_args, "--safeseh");
 
     if (entry_point)
     {

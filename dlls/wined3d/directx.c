@@ -22,6 +22,7 @@
  */
 
 #include "wined3d_private.h"
+#include "wined3d_gl.h"
 #include "winternl.h"
 #include "wine/list.h"
 
@@ -139,7 +140,7 @@ static HRESULT wined3d_output_init(struct wined3d_output *output, unsigned int o
     close_adapter_desc.hAdapter = open_adapter_desc.hAdapter;
     D3DKMTCloseAdapter(&close_adapter_desc);
 
-    create_device_desc.u.hAdapter = adapter->kmt_adapter;
+    create_device_desc.hAdapter = adapter->kmt_adapter;
     if (D3DKMTCreateDevice(&create_device_desc))
         return E_FAIL;
 
@@ -238,6 +239,9 @@ ULONG CDECL wined3d_decref(struct wined3d *wined3d)
  * 24 -> Windows 10 April 2018 Update - WDDM 2.4
  * 25 -> Windows 10 October 2018 Update - WDDM 2.5
  * 26 -> Windows 10 May 2019 Update - WDDM 2.6
+ * 27 -> Windows 10 May 2020 Update - WDDM 2.7
+ * 30 -> Windows 11 21H2 - WDDM 3.0
+ * 31 -> Windows 11 22H2 - WDDM 3.1
  *
  * "y" is the maximum Direct3D version / feature level the driver supports.
  * 11 -> 6
@@ -285,7 +289,7 @@ static const struct driver_version_information driver_version_table[] =
     {DRIVER_AMD_R600,           DRIVER_MODEL_NT5X,  "ati2dvag.dll",    10, 1280},
     {DRIVER_AMD_R300,           DRIVER_MODEL_NT6X,  "atiumdag.dll",    10, 741 },
     {DRIVER_AMD_R600,           DRIVER_MODEL_NT6X,  "atiumdag.dll",    10, 1280},
-    {DRIVER_AMD_RX,             DRIVER_MODEL_NT6X,  "aticfx32.dll", 15002,   61},
+    {DRIVER_AMD_RX,             DRIVER_MODEL_NT6X,  "aticfx32.dll", 21023, 2010}, /* Adrenalin 23.7.2 */
 
     /* Intel
      * The drivers are unified but not all versions support all GPUs. At some point the 2k/xp
@@ -297,7 +301,7 @@ static const struct driver_version_information driver_version_table[] =
     {DRIVER_INTEL_GMA3000,      DRIVER_MODEL_NT5X,  "igxprd32.dll",    10, 5218},
     {DRIVER_INTEL_GMA950,       DRIVER_MODEL_NT6X,  "igdumd32.dll",    10, 1504},
     {DRIVER_INTEL_GMA3000,      DRIVER_MODEL_NT6X,  "igdumd32.dll",    10, 1666},
-    {DRIVER_INTEL_HD4000,       DRIVER_MODEL_NT6X,  "igdumdim32.dll",  15, 4352},
+    {DRIVER_INTEL_HD4000,       DRIVER_MODEL_NT6X,  "igdumdim32.dll", 101, 4577},
 
     /* Nvidia
      * - Geforce8 and newer is supported by the current 340.52 driver on XP-Win8
@@ -314,7 +318,7 @@ static const struct driver_version_information driver_version_table[] =
     {DRIVER_NVIDIA_GEFORCE6,    DRIVER_MODEL_NT6X,  "nvd3dum.dll",     13,  783},
     {DRIVER_NVIDIA_GEFORCE8,    DRIVER_MODEL_NT6X,  "nvd3dum.dll",     13, 4052},
     {DRIVER_NVIDIA_FERMI,       DRIVER_MODEL_NT6X,  "nvd3dum.dll",     13, 9135},
-    {DRIVER_NVIDIA_KEPLER,      DRIVER_MODEL_NT6X,  "nvd3dum.dll",     14, 4587},
+    {DRIVER_NVIDIA_KEPLER,      DRIVER_MODEL_NT6X,  "nvd3dum.dll",     15, 3118}, /* 531.18 */
 
     /* Red Hat */
     {DRIVER_REDHAT_VIRGL,       DRIVER_MODEL_GENERIC, "virgl.dll",      0,    0},
@@ -773,7 +777,7 @@ bool wined3d_driver_info_init(struct wined3d_driver_info *driver_info,
                 break;
 
             case 10:
-                driver_os_version = 26;
+                driver_os_version = 31;
                 driver_model = DRIVER_MODEL_NT6X;
                 break;
 
@@ -828,6 +832,10 @@ bool wined3d_driver_info_init(struct wined3d_driver_info *driver_info,
         driver_feature_level = min(driver_feature_level, 18);
     else if (os_version.dwMajorVersion < 6)
         driver_feature_level = min(driver_feature_level, 14);
+
+    /* Drivers with the OS version 30+ all have the feature level word set to 0 */
+    if (driver_os_version >= 30)
+        driver_feature_level = 0;
 
     driver_info->vendor = gpu_desc->vendor;
     driver_info->device = gpu_desc->device;
@@ -1261,7 +1269,7 @@ static void wined3d_output_update_modes(struct wined3d_output *output, bool cach
 
         if (mode.dmFields & DM_DISPLAYFLAGS)
         {
-            if (mode.u2.dmDisplayFlags & DM_INTERLACED)
+            if (mode.dmDisplayFlags & DM_INTERLACED)
                 wined3d_mode->scanline_ordering = WINED3D_SCANLINE_ORDERING_INTERLACED;
             else
                 wined3d_mode->scanline_ordering = WINED3D_SCANLINE_ORDERING_PROGRESSIVE;
@@ -1511,14 +1519,14 @@ HRESULT CDECL wined3d_output_get_display_mode(const struct wined3d_output *outpu
 
     if (!(m.dmFields & DM_DISPLAYFLAGS))
         mode->scanline_ordering = WINED3D_SCANLINE_ORDERING_UNKNOWN;
-    else if (m.u2.dmDisplayFlags & DM_INTERLACED)
+    else if (m.dmDisplayFlags & DM_INTERLACED)
         mode->scanline_ordering = WINED3D_SCANLINE_ORDERING_INTERLACED;
     else
         mode->scanline_ordering = WINED3D_SCANLINE_ORDERING_PROGRESSIVE;
 
     if (rotation)
     {
-        switch (m.u1.s2.dmDisplayOrientation)
+        switch (m.dmDisplayOrientation)
         {
             case DMDO_DEFAULT:
                 *rotation = WINED3D_DISPLAY_ROTATION_0;
@@ -1533,7 +1541,7 @@ HRESULT CDECL wined3d_output_get_display_mode(const struct wined3d_output *outpu
                 *rotation = WINED3D_DISPLAY_ROTATION_270;
                 break;
             default:
-                FIXME("Unhandled display rotation %#lx.\n", m.u1.s2.dmDisplayOrientation);
+                FIXME("Unhandled display rotation %#lx.\n", m.dmDisplayOrientation);
                 *rotation = WINED3D_DISPLAY_ROTATION_UNSPECIFIED;
                 break;
         }
@@ -1560,7 +1568,7 @@ static BOOL equal_display_mode(const DEVMODEW *mode1, const DEVMODEW *mode2)
         return FALSE;
 
     if (mode1->dmFields & mode2->dmFields & DM_DISPLAYFLAGS
-            && mode1->u2.dmDisplayFlags != mode2->u2.dmDisplayFlags)
+            && mode1->dmDisplayFlags != mode2->dmDisplayFlags)
         return FALSE;
 
     if (mode1->dmFields & mode2->dmFields & DM_DISPLAYFREQUENCY
@@ -1568,12 +1576,12 @@ static BOOL equal_display_mode(const DEVMODEW *mode1, const DEVMODEW *mode2)
         return FALSE;
 
     if (mode1->dmFields & mode2->dmFields & DM_DISPLAYORIENTATION
-            && mode1->u1.s2.dmDisplayOrientation != mode2->u1.s2.dmDisplayOrientation)
+            && mode1->dmDisplayOrientation != mode2->dmDisplayOrientation)
         return FALSE;
 
     if (mode1->dmFields & mode2->dmFields & DM_POSITION
-            && (mode1->u1.s2.dmPosition.x != mode2->u1.s2.dmPosition.x
-            || mode1->u1.s2.dmPosition.y != mode2->u1.s2.dmPosition.y))
+            && (mode1->dmPosition.x != mode2->dmPosition.x
+            || mode1->dmPosition.y != mode2->dmPosition.y))
         return FALSE;
 
     return TRUE;
@@ -1684,7 +1692,7 @@ HRESULT CDECL wined3d_output_set_display_mode(struct wined3d_output *output,
     {
         new_mode.dmFields |= DM_DISPLAYFLAGS;
         if (mode->scanline_ordering == WINED3D_SCANLINE_ORDERING_INTERLACED)
-            new_mode.u2.dmDisplayFlags |= DM_INTERLACED;
+            new_mode.dmDisplayFlags |= DM_INTERLACED;
     }
     new_format_id = mode->format_id;
 
@@ -2527,9 +2535,7 @@ HRESULT CDECL wined3d_get_device_caps(const struct wined3d_adapter *adapter,
     caps->MaxUserClipPlanes                = vertex_caps.max_user_clip_planes;
     caps->MaxActiveLights                  = vertex_caps.max_active_lights;
     caps->MaxVertexBlendMatrices           = vertex_caps.max_vertex_blend_matrices;
-    caps->MaxVertexBlendMatrixIndex = caps->DeviceType == WINED3D_DEVICE_TYPE_HAL ? 0
-            : vertex_caps.max_vertex_blend_matrix_index;
-
+    caps->MaxVertexBlendMatrixIndex        = vertex_caps.max_vertex_blend_matrix_index;
     caps->VertexProcessingCaps             = vertex_caps.vertex_processing_caps;
     caps->FVFCaps                          = vertex_caps.fvf_caps;
     caps->RasterCaps                      |= vertex_caps.raster_caps;
@@ -2857,6 +2863,8 @@ static HRESULT adapter_no3d_create_device(struct wined3d *wined3d, const struct 
         const enum wined3d_feature_level *levels, unsigned int level_count,
         struct wined3d_device_parent *device_parent, struct wined3d_device **device)
 {
+    /* No extensions in the state table, only extension 0, which is implicitly supported. */
+    static const BOOL supported_extensions[] = {TRUE};
     struct wined3d_device_no3d *device_no3d;
     HRESULT hr;
 
@@ -2864,7 +2872,7 @@ static HRESULT adapter_no3d_create_device(struct wined3d *wined3d, const struct 
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = wined3d_device_init(&device_no3d->d, wined3d, adapter->ordinal, device_type, focus_window,
-            flags, surface_alignment, levels, level_count, adapter->gl_info.supported, device_parent)))
+            flags, surface_alignment, levels, level_count, supported_extensions, device_parent)))
     {
         WARN("Failed to initialize device, hr %#lx.\n", hr);
         heap_free(device_no3d);
@@ -2980,7 +2988,7 @@ static void adapter_no3d_unmap_bo_address(struct wined3d_context *context,
 
 static void adapter_no3d_copy_bo_address(struct wined3d_context *context,
         const struct wined3d_bo_address *dst, const struct wined3d_bo_address *src,
-        unsigned int range_count, const struct wined3d_range *ranges)
+        unsigned int range_count, const struct wined3d_range *ranges, uint32_t map_flags)
 {
     unsigned int i;
 
@@ -3011,7 +3019,7 @@ static void adapter_no3d_destroy_bo(struct wined3d_context *context, struct wine
 }
 
 static HRESULT adapter_no3d_create_swapchain(struct wined3d_device *device,
-        struct wined3d_swapchain_desc *desc, struct wined3d_swapchain_state_parent *state_parent,
+        const struct wined3d_swapchain_desc *desc, struct wined3d_swapchain_state_parent *state_parent,
         void *parent, const struct wined3d_parent_ops *parent_ops, struct wined3d_swapchain **swapchain)
 {
     struct wined3d_swapchain *swapchain_no3d;

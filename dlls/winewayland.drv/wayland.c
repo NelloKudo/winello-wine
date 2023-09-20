@@ -34,8 +34,47 @@ WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
 struct wayland process_wayland =
 {
+    .pointer.mutex = PTHREAD_MUTEX_INITIALIZER,
     .output_list = {&process_wayland.output_list, &process_wayland.output_list},
     .output_mutex = PTHREAD_MUTEX_INITIALIZER
+};
+
+/**********************************************************************
+ *          xdg_wm_base handling
+ */
+
+static void xdg_wm_base_handle_ping(void *data, struct xdg_wm_base *shell,
+                                    uint32_t serial)
+{
+    xdg_wm_base_pong(shell, serial);
+}
+
+static const struct xdg_wm_base_listener xdg_wm_base_listener =
+{
+    xdg_wm_base_handle_ping
+};
+
+/**********************************************************************
+ *          wl_seat handling
+ */
+
+static void wl_seat_handle_capabilities(void *data, struct wl_seat *seat,
+                                        enum wl_seat_capability caps)
+{
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !process_wayland.pointer.wl_pointer)
+        wayland_pointer_init(wl_seat_get_pointer(seat));
+    else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && process_wayland.pointer.wl_pointer)
+        wayland_pointer_deinit();
+}
+
+static void wl_seat_handle_name(void *data, struct wl_seat *seat, const char *name)
+{
+}
+
+static const struct wl_seat_listener seat_listener =
+{
+    wl_seat_handle_capabilities,
+    wl_seat_handle_name
 };
 
 /**********************************************************************
@@ -65,6 +104,35 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
         wl_list_for_each(output, &process_wayland.output_list, link)
             wayland_output_use_xdg_extension(output);
     }
+    else if (strcmp(interface, "wl_compositor") == 0)
+    {
+        process_wayland.wl_compositor =
+            wl_registry_bind(registry, id, &wl_compositor_interface, 4);
+    }
+    else if (strcmp(interface, "xdg_wm_base") == 0)
+    {
+        /* Bind version 2 so that compositors (e.g., sway) can properly send tiled
+         * states, instead of falling back to (ab)using the maximized state. */
+        process_wayland.xdg_wm_base =
+            wl_registry_bind(registry, id, &xdg_wm_base_interface,
+                             version < 2 ? version : 2);
+        xdg_wm_base_add_listener(process_wayland.xdg_wm_base, &xdg_wm_base_listener, NULL);
+    }
+    else if (strcmp(interface, "wl_shm") == 0)
+    {
+        process_wayland.wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
+    }
+    else if (strcmp(interface, "wl_seat") == 0)
+    {
+        if (process_wayland.wl_seat)
+        {
+            WARN("Only a single seat is currently supported, ignoring additional seats.\n");
+            return;
+        }
+        process_wayland.wl_seat = wl_registry_bind(registry, id, &wl_seat_interface,
+                                                   version < 5 ? version : 5);
+        wl_seat_add_listener(process_wayland.wl_seat, &seat_listener, NULL);
+    }
 }
 
 static void registry_handle_global_remove(void *data, struct wl_registry *registry,
@@ -82,6 +150,15 @@ static void registry_handle_global_remove(void *data, struct wl_registry *regist
             wayland_output_destroy(output);
             return;
         }
+    }
+
+    if (process_wayland.wl_seat &&
+        wl_proxy_get_id((struct wl_proxy *)process_wayland.wl_seat) == id)
+    {
+        TRACE("removing seat\n");
+        if (process_wayland.pointer.wl_pointer) wayland_pointer_deinit();
+        wl_seat_release(process_wayland.wl_seat);
+        process_wayland.wl_seat = NULL;
     }
 }
 
@@ -135,6 +212,23 @@ BOOL wayland_process_init(void)
      * initial events produced from registering the globals. */
     wl_display_roundtrip_queue(process_wayland.wl_display, process_wayland.wl_event_queue);
     wl_display_roundtrip_queue(process_wayland.wl_display, process_wayland.wl_event_queue);
+
+    /* Check for required protocol globals. */
+    if (!process_wayland.wl_compositor)
+    {
+        ERR("Wayland compositor doesn't support wl_compositor\n");
+        return FALSE;
+    }
+    if (!process_wayland.xdg_wm_base)
+    {
+        ERR("Wayland compositor doesn't support xdg_wm_base\n");
+        return FALSE;
+    }
+    if (!process_wayland.wl_shm)
+    {
+        ERR("Wayland compositor doesn't support wl_shm\n");
+        return FALSE;
+    }
 
     wayland_init_display_devices(FALSE);
 

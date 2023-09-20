@@ -371,7 +371,7 @@ enum TreeScope {
     TreeScope_Descendants = 0x04,
     TreeScope_Parent      = 0x08,
     TreeScope_Ancestors   = 0x10,
-    TreeScope_SubTree     = TreeScope_Element | TreeScope_Children | TreeScope_Descendants,
+    TreeScope_Subtree     = TreeScope_Element | TreeScope_Children | TreeScope_Descendants,
 };
 
 enum PropertyConditionFlags {
@@ -537,7 +537,7 @@ void WINAPI UiaRegisterProviderCallback(UiaProviderCallback *pCallback);
 LRESULT WINAPI UiaReturnRawElementProvider(HWND hwnd, WPARAM wParam, LPARAM lParam, IRawElementProviderSimple *elprov);
 BOOL WINAPI UiaTextRangeRelease(HUIATEXTRANGE hobj);
 HRESULT WINAPI UiaHostProviderFromHwnd(HWND hwnd, IRawElementProviderSimple **elprov);
-HRESULT WINAPI UiaProviderFromIAccessible(IAccessible *acc, long child_id, DWORD flags, IRawElementProviderSimple **elprov);
+HRESULT WINAPI UiaProviderFromIAccessible(IAccessible *acc, LONG child_id, DWORD flags, IRawElementProviderSimple **elprov);
 HRESULT WINAPI UiaGetPropertyValue(HUIANODE huianode, PROPERTYID prop_id, VARIANT *out_val);
 HRESULT WINAPI UiaNodeFromProvider(IRawElementProviderSimple *elprov, HUIANODE *huianode);
 BOOL WINAPI UiaNodeRelease(HUIANODE huianode);

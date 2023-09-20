@@ -413,21 +413,14 @@ static inline HTMLAreaElement *impl_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLAreaElement, element.node);
 }
 
-static HRESULT HTMLAreaElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLAreaElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLAreaElement *This = impl_from_HTMLDOMNode(iface);
 
-    *ppv = NULL;
+    if(IsEqualGUID(&IID_IHTMLAreaElement, riid))
+        return &This->IHTMLAreaElement_iface;
 
-    if(IsEqualGUID(&IID_IHTMLAreaElement, riid)) {
-        TRACE("(%p)->(IID_IHTMLAreaElement %p)\n", This, ppv);
-        *ppv = &This->IHTMLAreaElement_iface;
-    }else {
-        return HTMLElement_QI(&This->element.node, riid, ppv);
-    }
-
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static HRESULT HTMLAreaElement_handle_event(HTMLDOMNode *iface, DWORD eid, nsIDOMEvent *event, BOOL *prevent_default)
@@ -461,14 +454,44 @@ fallback:
     return HTMLElement_handle_event(&This->element.node, eid, event, prevent_default);
 }
 
+static inline HTMLAreaElement *impl_from_DispatchEx(DispatchEx *iface)
+{
+    return CONTAINING_RECORD(iface, HTMLAreaElement, element.node.event_target.dispex);
+}
+
+static void HTMLAreaElement_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
+{
+    HTMLAreaElement *This = impl_from_DispatchEx(dispex);
+    HTMLDOMNode_traverse(dispex, cb);
+
+    if(This->nsarea)
+        note_cc_edge((nsISupports*)This->nsarea, "nsarea", cb);
+}
+
+static void HTMLAreaElement_unlink(DispatchEx *dispex)
+{
+    HTMLAreaElement *This = impl_from_DispatchEx(dispex);
+    HTMLDOMNode_unlink(dispex);
+    unlink_ref(&This->nsarea);
+}
+
 static const NodeImplVtbl HTMLAreaElementImplVtbl = {
-    &CLSID_HTMLAreaElement,
-    HTMLAreaElement_QI,
-    HTMLElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLAreaElement_handle_event,
-    HTMLElement_get_attr_col
+    .clsid                 = &CLSID_HTMLAreaElement,
+    .qi                    = HTMLAreaElement_QI,
+    .destructor            = HTMLElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLAreaElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col,
+};
+
+static const event_target_vtbl_t HTMLAreaElement_event_target_vtbl = {
+    {
+        HTMLELEMENT_DISPEX_VTBL_ENTRIES,
+        .traverse       = HTMLAreaElement_traverse,
+        .unlink         = HTMLAreaElement_unlink
+    },
+    HTMLELEMENT_EVENT_TARGET_VTBL_ENTRIES,
 };
 
 static const tid_t HTMLAreaElement_iface_tids[] = {
@@ -477,8 +500,8 @@ static const tid_t HTMLAreaElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLAreaElement_dispex = {
-    L"HTMLAreaElement",
-    NULL,
+    "HTMLAreaElement",
+    &HTMLAreaElement_event_target_vtbl.dispex_vtbl,
     DispHTMLAreaElement_tid,
     HTMLAreaElement_iface_tids,
     HTMLElement_init_dispex_info

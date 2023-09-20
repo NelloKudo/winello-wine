@@ -27,7 +27,6 @@
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
-#define NONAMELESSUNION
 #include "windef.h"
 #include "winbase.h"
 #include "winerror.h"
@@ -234,7 +233,7 @@ done:
  *		VxDCall7 (KERNEL32.8)
  *		VxDCall8 (KERNEL32.9)
  */
-void WINAPI DECLSPEC_HIDDEN __regs_VxDCall( CONTEXT *context )
+void WINAPI __regs_VxDCall( CONTEXT *context )
 {
     unsigned int i;
     VxDCallProc proc = NULL;

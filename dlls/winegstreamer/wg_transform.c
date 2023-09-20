@@ -57,12 +57,16 @@ struct wg_transform
     GstElement *video_flip;
 
     struct wg_format output_format;
-    struct wg_sample *output_wg_sample;
     GstAtomicQueue *output_queue;
     GstSample *output_sample;
     bool output_caps_changed;
     GstCaps *output_caps;
 };
+
+static struct wg_transform *get_transform(wg_transform_t trans)
+{
+    return (struct wg_transform *)(ULONG_PTR)trans;
+}
 
 static void align_video_info_planes(gsize plane_align, GstVideoInfo *info, GstVideoAlignment *align)
 {
@@ -254,7 +258,7 @@ static gboolean transform_sink_event_cb(GstPad *pad, GstObject *parent, GstEvent
 
 NTSTATUS wg_transform_destroy(void *args)
 {
-    struct wg_transform *transform = args;
+    struct wg_transform *transform = get_transform(*(wg_transform_t *)args);
     GstSample *sample;
     GstBuffer *buffer;
 
@@ -279,15 +283,6 @@ NTSTATUS wg_transform_destroy(void *args)
     free(transform);
 
     return STATUS_SUCCESS;
-}
-
-static struct wg_sample *transform_request_sample(gsize size, void *context)
-{
-    struct wg_transform *transform = context;
-
-    GST_LOG("size %#zx, context %p", size, transform);
-
-    return InterlockedExchangePointer((void **)&transform->output_wg_sample, NULL);
 }
 
 static bool wg_format_video_is_flipped(const struct wg_format *format)
@@ -318,7 +313,7 @@ NTSTATUS wg_transform_create(void *args)
         goto out;
     if (!(transform->drain_query = gst_query_new_drain()))
         goto out;
-    if (!(transform->allocator = wg_allocator_create(transform_request_sample, transform)))
+    if (!(transform->allocator = wg_allocator_create()))
         goto out;
     transform->attrs = *params->attrs;
     transform->output_format = output_format;
@@ -406,7 +401,6 @@ NTSTATUS wg_transform_create(void *args)
             break;
 
         case WG_MAJOR_TYPE_VIDEO:
-        case WG_MAJOR_TYPE_VIDEO_WMV:
             if (!(element = create_element("videoconvert", "base"))
                     || !append_element(transform->container, element, &first, &last))
                 goto out;
@@ -423,13 +417,14 @@ NTSTATUS wg_transform_create(void *args)
             gst_util_set_object_arg(G_OBJECT(element), "n-threads", "0");
             break;
 
+        case WG_MAJOR_TYPE_UNKNOWN:
         case WG_MAJOR_TYPE_AUDIO_MPEG1:
         case WG_MAJOR_TYPE_AUDIO_MPEG4:
         case WG_MAJOR_TYPE_AUDIO_WMA:
         case WG_MAJOR_TYPE_VIDEO_CINEPAK:
         case WG_MAJOR_TYPE_VIDEO_H264:
-        case WG_MAJOR_TYPE_UNKNOWN:
         case WG_MAJOR_TYPE_VIDEO_INDEO:
+        case WG_MAJOR_TYPE_VIDEO_WMV:
             GST_FIXME("Format %u not implemented!", output_format.major_type);
             goto out;
     }
@@ -448,10 +443,10 @@ NTSTATUS wg_transform_create(void *args)
         goto out;
 
     if (!(event = gst_event_new_stream_start("stream"))
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto out;
     if (!(event = gst_event_new_caps(src_caps))
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto out;
 
     /* We need to use GST_FORMAT_TIME here because it's the only format
@@ -460,13 +455,13 @@ NTSTATUS wg_transform_create(void *args)
     transform->segment.start = 0;
     transform->segment.stop = -1;
     if (!(event = gst_event_new_segment(&transform->segment))
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto out;
 
     gst_caps_unref(src_caps);
 
     GST_INFO("Created winegstreamer transform %p.", transform);
-    params->transform = transform;
+    params->transform = (wg_transform_t)(ULONG_PTR)transform;
     return STATUS_SUCCESS;
 
 out:
@@ -499,7 +494,7 @@ out:
 NTSTATUS wg_transform_set_output_format(void *args)
 {
     struct wg_transform_set_output_format_params *params = args;
-    struct wg_transform *transform = params->transform;
+    struct wg_transform *transform = get_transform(params->transform);
     const struct wg_format *format = params->format;
     GstSample *sample;
     GstCaps *caps;
@@ -536,7 +531,7 @@ NTSTATUS wg_transform_set_output_format(void *args)
             value = "none";
         gst_util_set_object_arg(G_OBJECT(transform->video_flip), "method", value);
     }
-    if (!gst_pad_push_event(transform->my_sink, gst_event_new_reconfigure()))
+    if (!push_event(transform->my_sink, gst_event_new_reconfigure()))
     {
         GST_ERROR("Failed to reconfigure transform %p.", transform);
         return STATUS_UNSUCCESSFUL;
@@ -569,7 +564,7 @@ static void wg_sample_free_notify(void *arg)
 NTSTATUS wg_transform_push_data(void *args)
 {
     struct wg_transform_push_data_params *params = args;
-    struct wg_transform *transform = params->transform;
+    struct wg_transform *transform = get_transform(params->transform);
     struct wg_sample *sample = params->sample;
     GstBuffer *buffer;
     guint length;
@@ -582,7 +577,7 @@ NTSTATUS wg_transform_push_data(void *args)
         return STATUS_SUCCESS;
     }
 
-    if (!(buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, sample->data, sample->max_size,
+    if (!(buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, wg_sample_data(sample), sample->max_size,
             0, sample->size, sample, wg_sample_free_notify)))
     {
         GST_ERROR("Failed to allocate input buffer");
@@ -632,7 +627,7 @@ static NTSTATUS copy_video_buffer(GstBuffer *buffer, GstCaps *caps, gsize plane_
         return STATUS_BUFFER_TOO_SMALL;
     }
 
-    if (!(dst_buffer = gst_buffer_new_wrapped_full(0, sample->data, sample->max_size,
+    if (!(dst_buffer = gst_buffer_new_wrapped_full(0, wg_sample_data(sample), sample->max_size,
             0, sample->max_size, 0, NULL)))
     {
         GST_ERROR("Failed to wrap wg_sample into GstBuffer");
@@ -678,7 +673,7 @@ static NTSTATUS copy_buffer(GstBuffer *buffer, GstCaps *caps, struct wg_sample *
         sample->size = sample->max_size;
     }
 
-    memcpy(sample->data, info.data, sample->size);
+    memcpy(wg_sample_data(sample), info.data, sample->size);
     gst_buffer_unmap(buffer, &info);
 
     if (sample->flags & WG_SAMPLE_FLAG_INCOMPLETE)
@@ -702,7 +697,7 @@ static NTSTATUS read_transform_output_data(GstBuffer *buffer, GstCaps *caps, gsi
         sample->size = 0;
         return STATUS_UNSUCCESSFUL;
     }
-    needs_copy = info.data != sample->data;
+    needs_copy = info.data != wg_sample_data(sample);
     total_size = sample->size = info.size;
     gst_buffer_unmap(buffer, &info);
 
@@ -762,9 +757,7 @@ static bool get_transform_output(struct wg_transform *transform, struct wg_sampl
     GstBuffer *input_buffer;
     GstFlowReturn ret;
 
-    /* Provide the sample for transform_request_sample to pick it up */
-    InterlockedIncrement(&sample->refcount);
-    InterlockedExchangePointer((void **)&transform->output_wg_sample, sample);
+    wg_allocator_provide_sample(transform->allocator, sample);
 
     while (!(transform->output_sample = gst_atomic_queue_pop(transform->output_queue))
             && (input_buffer = gst_atomic_queue_pop(transform->input_queue)))
@@ -773,9 +766,8 @@ static bool get_transform_output(struct wg_transform *transform, struct wg_sampl
             GST_WARNING("Failed to push transform input, error %d", ret);
     }
 
-    /* Remove the sample so transform_request_sample cannot use it */
-    if (InterlockedExchangePointer((void **)&transform->output_wg_sample, NULL))
-        InterlockedDecrement(&sample->refcount);
+    /* Remove the sample so the allocator cannot use it */
+    wg_allocator_provide_sample(transform->allocator, NULL);
 
     return !!transform->output_sample;
 }
@@ -783,7 +775,7 @@ static bool get_transform_output(struct wg_transform *transform, struct wg_sampl
 NTSTATUS wg_transform_read_data(void *args)
 {
     struct wg_transform_read_data_params *params = args;
-    struct wg_transform *transform = params->transform;
+    struct wg_transform *transform = get_transform(params->transform);
     struct wg_sample *sample = params->sample;
     struct wg_format *format = params->format;
     GstBuffer *output_buffer;
@@ -878,7 +870,7 @@ NTSTATUS wg_transform_read_data(void *args)
 NTSTATUS wg_transform_get_status(void *args)
 {
     struct wg_transform_get_status_params *params = args;
-    struct wg_transform *transform = params->transform;
+    struct wg_transform *transform = get_transform(params->transform);
 
     params->accepts_input = gst_atomic_queue_length(transform->input_queue) < transform->attrs.input_queue_length + 1;
     return STATUS_SUCCESS;
@@ -886,7 +878,7 @@ NTSTATUS wg_transform_get_status(void *args)
 
 NTSTATUS wg_transform_drain(void *args)
 {
-    struct wg_transform *transform = args;
+    struct wg_transform *transform = get_transform(*(wg_transform_t *)args);
     GstBuffer *input_buffer;
     GstFlowReturn ret;
     GstEvent *event;
@@ -900,16 +892,16 @@ NTSTATUS wg_transform_drain(void *args)
     }
 
     if (!(event = gst_event_new_segment_done(GST_FORMAT_TIME, -1))
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto error;
     if (!(event = gst_event_new_eos())
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto error;
     if (!(event = gst_event_new_stream_start("stream"))
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto error;
     if (!(event = gst_event_new_segment(&transform->segment))
-            || !gst_pad_push_event(transform->my_src, event))
+            || !push_event(transform->my_src, event))
         goto error;
 
     return STATUS_SUCCESS;
@@ -921,7 +913,7 @@ error:
 
 NTSTATUS wg_transform_flush(void *args)
 {
-    struct wg_transform *transform = args;
+    struct wg_transform *transform = get_transform(*(wg_transform_t *)args);
     GstBuffer *input_buffer;
     GstSample *sample;
     NTSTATUS status;
@@ -931,7 +923,7 @@ NTSTATUS wg_transform_flush(void *args)
     while ((input_buffer = gst_atomic_queue_pop(transform->input_queue)))
         gst_buffer_unref(input_buffer);
 
-    if ((status = wg_transform_drain(transform)))
+    if ((status = wg_transform_drain(args)))
         return status;
 
     while ((sample = gst_atomic_queue_pop(transform->output_queue)))

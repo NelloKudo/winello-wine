@@ -254,10 +254,12 @@ static void winrt_enable( int ns_prefix )
     control                                     { return tCONTROL; }
     custom                                      { return tCUSTOM; }
     decode                                      { return tDECODE; }
+    default_overload                            { return tDEFAULT_OVERLOAD; }
     defaultbind                                 { return tDEFAULTBIND; }
     defaultcollelem                             { return tDEFAULTCOLLELEM; }
     defaultvalue                                { return tDEFAULTVALUE; }
     defaultvtable                               { return tDEFAULTVTABLE; }
+    deprecated                                  { return token_winrt( tDEPRECATED, yytext, yylval ); }
     disable_consistency_check                   { return tDISABLECONSISTENCYCHECK; }
     displaybind                                 { return tDISPLAYBIND; }
     dllname                                     { return tDLLNAME; }
@@ -518,6 +520,7 @@ void push_import( const char *import_name, struct location *where )
 
     LIST_FOR_EACH_ENTRY( import, &imports, struct import, entry )
         if (!strcmp( import->name, import_name )) return;  /* already imported */
+    if (!strcmp( idl_name, import_name )) return;  /* already imported */
 
     import = xmalloc( sizeof(struct import) );
     import->name = xstrdup( import_name );

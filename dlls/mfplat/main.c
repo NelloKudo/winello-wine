@@ -22,8 +22,6 @@
 #include <limits.h>
 
 #define COBJMACROS
-#define NONAMELESSUNION
-
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
@@ -974,11 +972,14 @@ HRESULT WINAPI MFTUnregisterLocal(IClassFactory *factory)
 
 MFTIME WINAPI MFGetSystemTime(void)
 {
-    MFTIME mf;
+    static LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
 
-    GetSystemTimeAsFileTime( (FILETIME*)&mf );
+    if (!frequency.QuadPart)
+        QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
 
-    return mf;
+    return counter.QuadPart * 10000000 / frequency.QuadPart;
 }
 
 static BOOL mft_is_type_info_match(struct mft_registration *mft, const GUID *category, UINT32 flags,
@@ -3808,7 +3809,7 @@ static HRESULT bytestream_create_io_request(struct bytestream *stream, enum asyn
             &stream->write_callback, NULL, &request)))
         goto failed;
 
-    RtwqPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, 0, request);
+    RtwqPutWorkItem(MFASYNC_CALLBACK_QUEUE_IO, 0, request);
     IRtwqAsyncResult_Release(request);
 
 failed:

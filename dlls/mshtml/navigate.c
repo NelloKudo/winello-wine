@@ -19,8 +19,6 @@
 #include <stdarg.h>
 
 #define COBJMACROS
-#define NONAMELESSUNION
-
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
@@ -337,15 +335,8 @@ static HRESULT WINAPI BindStatusCallback_OnStopBinding(IBindStatusCallback *ifac
 
     hres = This->vtbl->stop_binding(This, hresult);
 
-    if(This->binding) {
-        IBinding_Release(This->binding);
-        This->binding = NULL;
-    }
-
-    if(This->mon) {
-        IMoniker_Release(This->mon);
-        This->mon = NULL;
-    }
+    unlink_ref(&This->binding);
+    unlink_ref(&This->mon);
 
     list_remove(&This->entry);
     list_init(&This->entry);
@@ -386,7 +377,7 @@ static HRESULT WINAPI BindStatusCallback_GetBindInfo(IBindStatusCallback *iface,
         pbindinfo->dwBindVerb = BINDVERB_POST;
 
         pbindinfo->stgmedData.tymed = TYMED_HGLOBAL;
-        pbindinfo->stgmedData.u.hGlobal = This->request_data.post_data;
+        pbindinfo->stgmedData.hGlobal = This->request_data.post_data;
         pbindinfo->stgmedData.pUnkForRelease = (IUnknown*)&This->IBindStatusCallback_iface;
         IBindStatusCallback_AddRef(&This->IBindStatusCallback_iface);
     }
@@ -401,7 +392,7 @@ static HRESULT WINAPI BindStatusCallback_OnDataAvailable(IBindStatusCallback *if
 
     TRACE("(%p)->(%08lx %ld %p %p)\n", This, grfBSCF, dwSize, pformatetc, pstgmed);
 
-    return This->vtbl->read_data(This, pstgmed->u.pstm);
+    return This->vtbl->read_data(This, pstgmed->pstm);
 }
 
 static HRESULT WINAPI BindStatusCallback_OnObjectAvailable(IBindStatusCallback *iface,
@@ -1104,7 +1095,7 @@ static HRESULT read_stream_data(nsChannelBSC *This, IStream *stream)
         IWinInetHttpInfo *wininet_info;
 
         if(This->is_doc_channel)
-            This->bsc.window->performance_timing->response_start_time = get_time_stamp();
+            This->bsc.window->response_start_time = get_time_stamp();
 
         This->response_processed = TRUE;
         if(This->bsc.binding) {
@@ -1360,12 +1351,12 @@ static HRESULT nsChannelBSC_start_binding(BSCallback *bsc)
         DWORD flags = This->bsc.window->base.outer_window->load_flags;
 
         if(flags & BINDING_FROMHIST)
-            This->bsc.window->performance_timing->navigation_type = 2;  /* TYPE_BACK_FORWARD */
+            This->bsc.window->navigation_type = 2;  /* TYPE_BACK_FORWARD */
         if(flags & BINDING_REFRESH)
-            This->bsc.window->performance_timing->navigation_type = 1;  /* TYPE_RELOAD */
+            This->bsc.window->navigation_type = 1;  /* TYPE_RELOAD */
 
         This->bsc.window->base.outer_window->base.inner_window->doc->skip_mutation_notif = FALSE;
-        This->bsc.window->performance_timing->navigation_start_time = get_time_stamp();
+        This->bsc.window->navigation_start_time = get_time_stamp();
     }
 
     return S_OK;
@@ -1533,7 +1524,7 @@ static HRESULT nsChannelBSC_stop_binding(BSCallback *bsc, HRESULT result)
     nsChannelBSC *This = nsChannelBSC_from_BSCallback(bsc);
 
     if(This->is_doc_channel && This->bsc.window) {
-        This->bsc.window->performance_timing->response_end_time = get_time_stamp();
+        This->bsc.window->response_end_time = get_time_stamp();
         if(result != E_ABORT) {
             if(FAILED(result))
                 handle_navigation_error(This, result);
@@ -1735,22 +1726,22 @@ static HRESULT nsChannelBSC_on_progress(BSCallback *bsc, ULONG progress, ULONG t
         break;
     case BINDSTATUS_REDIRECTING:
         if(This->is_doc_channel) {
-            This->bsc.window->performance_timing->redirect_count++;
-            if(!This->bsc.window->performance_timing->redirect_time)
-                This->bsc.window->performance_timing->redirect_time = get_time_stamp();
+            This->bsc.window->redirect_count++;
+            if(!This->bsc.window->redirect_time)
+                This->bsc.window->redirect_time = get_time_stamp();
         }
         return handle_redirect(This, status_text);
     case BINDSTATUS_FINDINGRESOURCE:
-        if(This->is_doc_channel && !This->bsc.window->performance_timing->dns_lookup_time)
-            This->bsc.window->performance_timing->dns_lookup_time = get_time_stamp();
+        if(This->is_doc_channel && !This->bsc.window->dns_lookup_time)
+            This->bsc.window->dns_lookup_time = get_time_stamp();
         break;
     case BINDSTATUS_CONNECTING:
         if(This->is_doc_channel)
-            This->bsc.window->performance_timing->connect_time = get_time_stamp();
+            This->bsc.window->connect_time = get_time_stamp();
         break;
     case BINDSTATUS_SENDINGREQUEST:
         if(This->is_doc_channel)
-            This->bsc.window->performance_timing->request_time = get_time_stamp();
+            This->bsc.window->request_time = get_time_stamp();
         break;
     case BINDSTATUS_BEGINDOWNLOADDATA: {
         IWinInetHttpInfo *http_info;
@@ -1807,7 +1798,7 @@ static HRESULT nsChannelBSC_on_response(BSCallback *bsc, DWORD response_code,
     HRESULT hres;
 
     if(This->is_doc_channel)
-        This->bsc.window->performance_timing->response_start_time = get_time_stamp();
+        This->bsc.window->response_start_time = get_time_stamp();
 
     This->response_processed = TRUE;
     This->nschannel->response_status = response_code;
@@ -1995,10 +1986,16 @@ void abort_window_bindings(HTMLInnerWindow *window)
 
         IBindStatusCallback_AddRef(&iter->IBindStatusCallback_iface);
 
-        if(iter->binding)
-            IBinding_Abort(iter->binding);
-        else
+        if(iter->binding) {
+            IBinding *binding = iter->binding;
+
+            /* Abort can end up calling our OnStopBinding, which releases the binding. */
+            IBinding_AddRef(binding);
+            IBinding_Abort(binding);
+            IBinding_Release(binding);
+        }else {
             iter->vtbl->stop_binding(iter, E_ABORT);
+        }
 
         iter->window = NULL;
         list_remove(&iter->entry);
@@ -2012,10 +2009,7 @@ void abort_window_bindings(HTMLInnerWindow *window)
         window->bscallback = NULL;
     }
 
-    if(window->mon) {
-        IMoniker_Release(window->mon);
-        window->mon = NULL;
-    }
+    unlink_ref(&window->mon);
 }
 
 HRESULT channelbsc_load_stream(HTMLInnerWindow *pending_window, IMoniker *mon, IStream *stream)

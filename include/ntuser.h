@@ -135,6 +135,7 @@ enum wm_char_mapping
     WMCHAR_MAP_RECVMESSAGE,
     WMCHAR_MAP_DISPATCHMESSAGE,
     WMCHAR_MAP_CALLWINDOWPROC,
+    WMCHAR_MAP_ISDIALOGMESSAGE,
     WMCHAR_MAP_COUNT,
     WMCHAR_MAP_NOMAPPING = WMCHAR_MAP_COUNT
 };
@@ -147,10 +148,8 @@ struct win_proc_params
     UINT msg;
     WPARAM wparam;
     LPARAM lparam;
-    LRESULT *result;
     BOOL ansi;
     BOOL ansi_dst;
-    BOOL needs_unpack;
     enum wm_char_mapping mapping;
     DPI_AWARENESS_CONTEXT dpi_awareness;
     WNDPROC procA;
@@ -168,9 +167,9 @@ struct win_hook_params
     int code;
     WPARAM wparam;
     LPARAM lparam;
-    UINT lparam_size;
     BOOL prev_unicode;
     BOOL next_unicode;
+    WCHAR module[1];
 };
 
 /* NtUserCopyImage params */
@@ -189,7 +188,6 @@ struct draw_text_params
     HDC hdc;
     int count;
     RECT rect;
-    RECT *ret_rect; /* FIXME: Use NtCallbackReturn instead */
     UINT flags;
     WCHAR str[1];
 };
@@ -304,12 +302,10 @@ enum
     /* Wine-specific exports */
     NtUserClipboardWindowProc = 0x0300,
     NtUserGetDispatchParams   = 0x3001,
-    NtUserSendDriverMessage   = 0x3002,
-    NtUserSpyGetMsgName       = 0x3003,
-    NtUserSpyEnter            = 0x0304,
-    NtUserSpyExit             = 0x0305,
-    NtUserWinProcResult       = 0x0306,
-    NtUserImeDriverCall       = 0x0307,
+    NtUserSpyGetMsgName       = 0x3002,
+    NtUserSpyEnter            = 0x0303,
+    NtUserSpyExit             = 0x0304,
+    NtUserImeDriverCall       = 0x0305,
 };
 
 /* NtUserThunkedMenuItemInfo codes */
@@ -483,6 +479,7 @@ enum wine_internal_message
     WM_WINE_KEYBOARD_LL_HOOK,
     WM_WINE_MOUSE_LL_HOOK,
     WM_WINE_CLIPCURSOR,
+    WM_WINE_SETCURSOR,
     WM_WINE_UPDATEWINDOWSTATE,
     WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
     WM_WINE_LAST_DRIVER_MSG = 0x80001fff
@@ -515,158 +512,6 @@ struct ime_driver_call_params
 };
 
 #define WM_SYSTIMER  0x0118
-
-/* the various structures that can be sent in messages, in platform-independent layout */
-struct packed_CREATESTRUCTW
-{
-    ULONGLONG lpCreateParams;
-    ULONGLONG hInstance;
-    UINT      hMenu;
-    DWORD     __pad1;
-    UINT      hwndParent;
-    DWORD     __pad2;
-    INT       cy;
-    INT       cx;
-    INT       y;
-    INT       x;
-    LONG      style;
-    ULONGLONG lpszName;
-    ULONGLONG lpszClass;
-    DWORD     dwExStyle;
-    DWORD     __pad3;
-};
-
-struct packed_DRAWITEMSTRUCT
-{
-    UINT      CtlType;
-    UINT      CtlID;
-    UINT      itemID;
-    UINT      itemAction;
-    UINT      itemState;
-    UINT      hwndItem;
-    DWORD     __pad1;
-    UINT      hDC;
-    DWORD     __pad2;
-    RECT      rcItem;
-    ULONGLONG itemData;
-};
-
-struct packed_MEASUREITEMSTRUCT
-{
-    UINT      CtlType;
-    UINT      CtlID;
-    UINT      itemID;
-    UINT      itemWidth;
-    UINT      itemHeight;
-    ULONGLONG itemData;
-};
-
-struct packed_DELETEITEMSTRUCT
-{
-    UINT      CtlType;
-    UINT      CtlID;
-    UINT      itemID;
-    UINT      hwndItem;
-    DWORD     __pad;
-    ULONGLONG itemData;
-};
-
-struct packed_COMPAREITEMSTRUCT
-{
-    UINT      CtlType;
-    UINT      CtlID;
-    UINT      hwndItem;
-    DWORD     __pad1;
-    UINT      itemID1;
-    ULONGLONG itemData1;
-    UINT      itemID2;
-    ULONGLONG itemData2;
-    DWORD     dwLocaleId;
-    DWORD     __pad2;
-};
-
-struct packed_WINDOWPOS
-{
-    UINT      hwnd;
-    DWORD     __pad1;
-    UINT      hwndInsertAfter;
-    DWORD     __pad2;
-    INT       x;
-    INT       y;
-    INT       cx;
-    INT       cy;
-    UINT      flags;
-    DWORD     __pad3;
-};
-
-struct packed_COPYDATASTRUCT
-{
-    ULONGLONG dwData;
-    DWORD     cbData;
-    ULONGLONG lpData;
-};
-
-struct packed_HELPINFO
-{
-    UINT      cbSize;
-    INT       iContextType;
-    INT       iCtrlId;
-    UINT      hItemHandle;
-    DWORD     __pad;
-    ULONGLONG dwContextId;
-    POINT     MousePos;
-};
-
-struct packed_NCCALCSIZE_PARAMS
-{
-    RECT      rgrc[3];
-    ULONGLONG __pad1;
-    UINT      hwnd;
-    DWORD     __pad2;
-    UINT      hwndInsertAfter;
-    DWORD     __pad3;
-    INT       x;
-    INT       y;
-    INT       cx;
-    INT       cy;
-    UINT      flags;
-    DWORD     __pad4;
-};
-
-struct packed_MSG
-{
-    UINT      hwnd;
-    DWORD     __pad1;
-    UINT      message;
-    ULONGLONG wParam;
-    ULONGLONG lParam;
-    DWORD     time;
-    POINT     pt;
-    DWORD     __pad2;
-};
-
-struct packed_MDINEXTMENU
-{
-    UINT      hmenuIn;
-    DWORD     __pad1;
-    UINT      hmenuNext;
-    DWORD     __pad2;
-    UINT      hwndNext;
-    DWORD     __pad3;
-};
-
-struct packed_MDICREATESTRUCTW
-{
-    ULONGLONG szClass;
-    ULONGLONG szTitle;
-    ULONGLONG hOwner;
-    INT       x;
-    INT       y;
-    INT       cx;
-    INT       cy;
-    DWORD     style;
-    ULONGLONG lParam;
-};
 
 
 HKL     WINAPI NtUserActivateKeyboardLayout( HKL layout, UINT flags );
@@ -843,6 +688,9 @@ BOOL    WINAPI NtUserPerMonitorDPIPhysicalToLogicalPoint( HWND hwnd, POINT *pt )
 BOOL    WINAPI NtUserPostMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam );
 BOOL    WINAPI NtUserPostThreadMessage( DWORD thread, UINT msg, WPARAM wparam, LPARAM lparam );
 BOOL    WINAPI NtUserPrintWindow( HWND hwnd, HDC hdc, UINT flags );
+LONG    WINAPI NtUserQueryDisplayConfig( UINT32 flags, UINT32 *paths_count, DISPLAYCONFIG_PATH_INFO *paths,
+                                         UINT32 *modes_count, DISPLAYCONFIG_MODE_INFO *modes,
+                                         DISPLAYCONFIG_TOPOLOGY_ID *topology_id);
 UINT_PTR WINAPI NtUserQueryInputContext( HIMC handle, UINT attr );
 HWND    WINAPI NtUserRealChildWindowFromPoint( HWND parent, LONG x, LONG y );
 BOOL    WINAPI NtUserRedrawWindow( HWND hwnd, const RECT *rect, HRGN hrgn, UINT flags );

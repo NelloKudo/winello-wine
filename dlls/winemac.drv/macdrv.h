@@ -160,7 +160,7 @@ extern void macdrv_WindowPosChanged(HWND hwnd, HWND insert_after, UINT swp_flags
 extern void macdrv_DestroyCursorIcon(HCURSOR cursor) DECLSPEC_HIDDEN;
 extern BOOL macdrv_GetCursorPos(LPPOINT pos) DECLSPEC_HIDDEN;
 extern void macdrv_SetCapture(HWND hwnd, UINT flags) DECLSPEC_HIDDEN;
-extern void macdrv_SetCursor(HCURSOR cursor) DECLSPEC_HIDDEN;
+extern void macdrv_SetCursor(HWND hwnd, HCURSOR cursor) DECLSPEC_HIDDEN;
 extern BOOL macdrv_SetCursorPos(INT x, INT y) DECLSPEC_HIDDEN;
 extern BOOL macdrv_RegisterHotKey(HWND hwnd, UINT mod_flags, UINT vkey) DECLSPEC_HIDDEN;
 extern void macdrv_UnregisterHotKey(HWND hwnd, UINT modifiers, UINT vkey) DECLSPEC_HIDDEN;
@@ -291,7 +291,7 @@ extern NTSTATUS macdrv_client_func(enum macdrv_client_funcs func, const void *pa
 
 static inline LRESULT send_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
-    return NtUserMessageCall(hwnd, msg, wparam, lparam, NULL, NtUserSendDriverMessage, FALSE);
+    return NtUserMessageCall(hwnd, msg, wparam, lparam, NULL, NtUserSendMessage, FALSE);
 }
 
 static inline LRESULT send_message_timeout(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,

@@ -91,6 +91,8 @@ static const WCHAR drv_keyW[] = {'S','o','f','t','w','a','r','e','\\',
     'W','i','n','e','\\','D','r','i','v','e','r','s','\\',
     'w','i','n','e','a','l','s','a','.','d','r','v'};
 
+static ULONG_PTR zero_bits = 0;
+
 static NTSTATUS alsa_not_implemented(void *args)
 {
     return STATUS_SUCCESS;
@@ -476,6 +478,27 @@ static WCHAR *alsa_get_card_name(int card)
     return ret;
 }
 
+static NTSTATUS alsa_process_attach(void *args)
+{
+#ifdef _WIN64
+    if (NtCurrentTeb()->WowTebOffset)
+    {
+        SYSTEM_BASIC_INFORMATION info;
+
+        NtQuerySystemInformation(SystemEmulationBasicInformation, &info, sizeof(info), NULL);
+        zero_bits = (ULONG_PTR)info.HighestUserAddress | 0x7fffffff;
+    }
+#endif
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS alsa_main_loop(void *args)
+{
+    struct main_loop_params *params = args;
+    NtSetEvent(params->event, NULL);
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS alsa_get_endpoint_ids(void *args)
 {
     static const WCHAR defaultW[] = {'d','e','f','a','u','l','t',0};
@@ -774,15 +797,6 @@ static void silence_buffer(struct alsa_stream *stream, BYTE *buffer, UINT32 fram
         memset(buffer, 0, frames * stream->fmt->nBlockAlign);
 }
 
-static ULONG_PTR zero_bits(void)
-{
-#ifdef _WIN64
-    return !NtCurrentTeb()->WowTebOffset ? 0 : 0x7fffffff;
-#else
-    return 0;
-#endif
-}
-
 static NTSTATUS alsa_create_stream(void *args)
 {
     struct create_stream_params *params = args;
@@ -997,7 +1011,7 @@ static NTSTATUS alsa_create_stream(void *args)
     stream->fmt = &fmtex->Format;
 
     size = stream->bufsize_frames * params->fmt->nBlockAlign;
-    if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits(), &size,
+    if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits, &size,
                                MEM_COMMIT, PAGE_READWRITE)){
         params->result = E_OUTOFMEMORY;
         goto exit;
@@ -1043,6 +1057,7 @@ exit:
         free(stream->vols);
         free(stream);
     }else{
+        *params->channel_count = params->fmt->nChannels;
         *params->stream = (stream_handle)(UINT_PTR)stream;
     }
 
@@ -1710,7 +1725,7 @@ static NTSTATUS alsa_get_render_buffer(void *args)
                 stream->tmp_buffer = NULL;
             }
             size = frames * stream->fmt->nBlockAlign;
-            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits(), &size,
+            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits, &size,
                                        MEM_COMMIT, PAGE_READWRITE)){
                 stream->tmp_buffer_frames = 0;
                 return alsa_unlock_result(stream, &params->result, E_OUTOFMEMORY);
@@ -1813,7 +1828,7 @@ static NTSTATUS alsa_get_capture_buffer(void *args)
                 stream->tmp_buffer = NULL;
             }
             size = *frames * stream->fmt->nBlockAlign;
-            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits(), &size,
+            if(NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits, &size,
                                        MEM_COMMIT, PAGE_READWRITE)){
                 stream->tmp_buffer_frames = 0;
                 return alsa_unlock_result(stream, &params->result, E_OUTOFMEMORY);
@@ -2489,11 +2504,11 @@ static NTSTATUS alsa_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
-unixlib_entry_t __wine_unix_call_funcs[] =
+const unixlib_entry_t __wine_unix_call_funcs[] =
 {
+    alsa_process_attach,
     alsa_not_implemented,
-    alsa_not_implemented,
-    alsa_not_implemented,
+    alsa_main_loop,
     alsa_get_endpoint_ids,
     alsa_create_stream,
     alsa_release_stream,
@@ -2527,9 +2542,24 @@ unixlib_entry_t __wine_unix_call_funcs[] =
     alsa_not_implemented,
 };
 
+C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
+
 #ifdef _WIN64
 
 typedef UINT PTR32;
+
+static NTSTATUS alsa_wow64_main_loop(void *args)
+{
+    struct
+    {
+        PTR32 event;
+    } *params32 = args;
+    struct main_loop_params params =
+    {
+        .event = ULongToHandle(params32->event)
+    };
+    return alsa_main_loop(&params);
+}
 
 static NTSTATUS alsa_wow64_get_endpoint_ids(void *args)
 {
@@ -2930,11 +2960,11 @@ static NTSTATUS alsa_wow64_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
-unixlib_entry_t __wine_unix_call_wow64_funcs[] =
+const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
+    alsa_process_attach,
     alsa_not_implemented,
-    alsa_not_implemented,
-    alsa_not_implemented,
+    alsa_wow64_main_loop,
     alsa_wow64_get_endpoint_ids,
     alsa_wow64_create_stream,
     alsa_wow64_release_stream,
@@ -2967,5 +2997,7 @@ unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     alsa_wow64_midi_notify_wait,
     alsa_not_implemented,
 };
+
+C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
 
 #endif /* _WIN64 */

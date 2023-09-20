@@ -441,7 +441,7 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
     {
         if (!(pid = fork()))  /* grandchild */
         {
-            if (params->ConsoleFlags ||
+            if ((peb->ProcessParameters && params->ProcessGroupId != peb->ProcessParameters->ProcessGroupId) ||
                 params->ConsoleHandle == CONSOLE_HANDLE_ALLOC ||
                 params->ConsoleHandle == CONSOLE_HANDLE_ALLOC_NO_WINDOW ||
                 (params->hStdInput == INVALID_HANDLE_VALUE && params->hStdOutput == INVALID_HANDLE_VALUE))
@@ -620,7 +620,7 @@ static NTSTATUS fork_and_exec( OBJECT_ATTRIBUTES *attr, int unixdir,
         {
             close( fd[0] );
 
-            if (params->ConsoleFlags ||
+            if ((peb->ProcessParameters && params->ProcessGroupId != peb->ProcessParameters->ProcessGroupId) ||
                 params->ConsoleHandle == CONSOLE_HANDLE_ALLOC ||
                 params->ConsoleHandle == CONSOLE_HANDLE_ALLOC_NO_WINDOW ||
                 (params->hStdInput == INVALID_HANDLE_VALUE && params->hStdOutput == INVALID_HANDLE_VALUE))
@@ -802,7 +802,8 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         goto done;
     }
     if (!machine) machine = pe_info.machine;
-    if (!(startup_info = create_startup_info( attr.ObjectName, params, &startup_info_size ))) goto done;
+    if (!(startup_info = create_startup_info( attr.ObjectName, params, &pe_info, &startup_info_size )))
+        goto done;
     env_size = get_env_size( params, &winedebug );
 
     if ((status = alloc_object_attributes( process_attr, &objattr, &attr_len ))) goto done;
@@ -1330,33 +1331,31 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 
     case ProcessDebugPort:
         len = sizeof(DWORD_PTR);
-        if (size == len)
+        if (size != len) return STATUS_INFO_LENGTH_MISMATCH;
+        if (!info) ret = STATUS_ACCESS_VIOLATION;
+        else
         {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else
-            {
-                HANDLE debug;
+            HANDLE debug;
 
-                SERVER_START_REQ(get_process_debug_info)
-                {
-                    req->handle = wine_server_obj_handle( handle );
-                    ret = wine_server_call( req );
-                    debug = wine_server_ptr_handle( reply->debug );
-                }
-                SERVER_END_REQ;
-                if (ret == STATUS_SUCCESS)
-                {
-                    *(DWORD_PTR *)info = ~0ul;
-                    NtClose( debug );
-                }
-                else if (ret == STATUS_PORT_NOT_SET)
-                {
-                    *(DWORD_PTR *)info = 0;
-                    ret = STATUS_SUCCESS;
-                }
+            SERVER_START_REQ(get_process_debug_info)
+            {
+                req->handle = wine_server_obj_handle( handle );
+                ret = wine_server_call( req );
+                debug = wine_server_ptr_handle( reply->debug );
             }
+            SERVER_END_REQ;
+            if (ret == STATUS_SUCCESS)
+            {
+                *(DWORD_PTR *)info = ~0ul;
+                NtClose( debug );
+            }
+            else if (ret == STATUS_PORT_NOT_SET)
+            {
+                *(DWORD_PTR *)info = 0;
+                ret = STATUS_SUCCESS;
+            }
+            else return ret;
         }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
         break;
 
     case ProcessDebugFlags:
@@ -1391,21 +1390,14 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 
     case ProcessDebugObjectHandle:
         len = sizeof(HANDLE);
-        if (size == len)
+        if (size != len) return STATUS_INFO_LENGTH_MISMATCH;
+        SERVER_START_REQ(get_process_debug_info)
         {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else
-            {
-                SERVER_START_REQ(get_process_debug_info)
-                {
-                    req->handle = wine_server_obj_handle( handle );
-                    ret = wine_server_call( req );
-                    *(HANDLE *)info = wine_server_ptr_handle( reply->debug );
-                }
-                SERVER_END_REQ;
-            }
+            req->handle = wine_server_obj_handle( handle );
+            ret = wine_server_call( req );
+            *(HANDLE *)info = wine_server_ptr_handle( reply->debug );
         }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        SERVER_END_REQ;
         break;
 
     case ProcessHandleCount:
@@ -1447,7 +1439,7 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
             }
             SERVER_END_REQ;
         }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        else return STATUS_INFO_LENGTH_MISMATCH;
         break;
 
     case ProcessSessionInformation:
@@ -1467,10 +1459,9 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 
     case ProcessWow64Information:
         len = sizeof(ULONG_PTR);
-        if (size != len) ret = STATUS_INFO_LENGTH_MISMATCH;
-        else if (!info) ret = STATUS_ACCESS_VIOLATION;
-        else if (!handle) ret = STATUS_INVALID_HANDLE;
-        else if (handle == GetCurrentProcess()) *(ULONG_PTR *)info = is_wow64();
+        if (size != len) return STATUS_INFO_LENGTH_MISMATCH;
+        if (handle == GetCurrentProcess())
+            *(ULONG_PTR *)info = is_old_wow64() ? (ULONG_PTR)peb : (ULONG_PTR)wow_peb;
         else
         {
             ULONG_PTR val = 0;
@@ -1478,10 +1469,12 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
             SERVER_START_REQ( get_process_info )
             {
                 req->handle = wine_server_obj_handle( handle );
-                if (!(ret = wine_server_call( req ))) val = (reply->machine != native_machine);
+                ret = wine_server_call( req );
+                if (!ret && !is_machine_64bit( reply->machine ) && is_machine_64bit( native_machine ))
+                    val = reply->peb + 0x1000;
             }
             SERVER_END_REQ;
-            *(ULONG_PTR *)info = val;
+            if (!ret) *(ULONG_PTR *)info = val;
         }
         break;
 

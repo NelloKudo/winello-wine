@@ -42,7 +42,6 @@
 
 #define CINTERFACE
 #define COBJMACROS
-#define NONAMELESSUNION
 
 #include "windef.h"
 #include "winerror.h"
@@ -953,7 +952,7 @@ static HRESULT ShellView_OpenSelectedItems(IShellViewImpl * This)
 	if (FAILED(hr))
 	  return hr;
 
-	pIDList = GlobalLock(stgm.u.hGlobal);
+	pIDList = GlobalLock(stgm.hGlobal);
 
 	parent_pidl = (LPCITEMIDLIST) ((LPBYTE)pIDList+pIDList->aoffset[0]);
 	hr = IShellFolder_GetAttributesOf(This->pSFParent, 1, &parent_pidl, &attribs);
@@ -992,7 +991,7 @@ static HRESULT ShellView_OpenSelectedItems(IShellViewImpl * This)
 	  }
 	}
 
-	GlobalUnlock(stgm.u.hGlobal);
+	GlobalUnlock(stgm.hGlobal);
 	ReleaseStgMedium(&stgm);
 
 	IDataObject_Release(selection);
@@ -1436,7 +1435,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 	      {
 	          /* set to empty on failure */
 	          sd.str.uType = STRRET_WSTR;
-	          sd.str.u.pOleStr = emptyW;
+	          sd.str.pOleStr = emptyW;
 	      }
 
               if (lpnmh->code == LVN_GETDISPINFOW)
@@ -1578,7 +1577,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 		  }
 
 		  /* allocate memory for the pidl array */
-		  pItems = heap_alloc(sizeof(LPITEMIDLIST) * count);
+		  pItems = malloc(sizeof(ITEMIDLIST*) * count);
 
 		  /* retrieve all selected items */
 		  i = 0;
@@ -1604,7 +1603,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 		  ISFHelper_Release(psfhlp);
 
 		  /* free pidl array memory */
-		  heap_free(pItems);
+		  free(pItems);
                 }
 		break;
 
@@ -1826,7 +1825,7 @@ static ULONG WINAPI IShellView_fnRelease(IShellView3 *iface)
 	  if(This->pAdvSink)
 	    IAdviseSink_Release(This->pAdvSink);
 
-	  heap_free(This);
+	  free(This);
 	}
 	return refCount;
 }
@@ -3757,7 +3756,7 @@ IShellView *IShellView_Constructor(IShellFolder *folder)
 {
     IShellViewImpl *sv;
 
-    sv = heap_alloc_zero(sizeof(*sv));
+    sv = calloc(1, sizeof(*sv));
     if (!sv)
         return NULL;
 

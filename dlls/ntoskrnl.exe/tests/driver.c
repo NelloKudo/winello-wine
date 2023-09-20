@@ -20,6 +20,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#if 0
+#pragma makedep testdll
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -1243,8 +1247,7 @@ static void test_lookaside_list(void)
     ok(list.L.Type == (NonPagedPool|POOL_NX_ALLOCATION),
        "Expected NonPagedPool|POOL_NX_ALLOCATION got %u\n", list.L.Type);
     ok(list.L.Tag == tag, "Expected %lx got %lx\n", tag, list.L.Tag);
-    ok(list.L.Size == LOOKASIDE_MINIMUM_BLOCK_SIZE,
-       "Expected %Iu got %lu\n", LOOKASIDE_MINIMUM_BLOCK_SIZE, list.L.Size);
+    ok(list.L.Size == LOOKASIDE_MINIMUM_BLOCK_SIZE, "got %lu\n", list.L.Size);
     ok(list.L.LastTotalAllocates == 0,"Expected 0 got %lu\n", list.L.LastTotalAllocates);
     ok(list.L.LastAllocateMisses == 0,"Expected 0 got %lu\n", list.L.LastAllocateMisses);
     ExDeleteNPagedLookasideList(&list);
@@ -1266,8 +1269,7 @@ static void test_lookaside_list(void)
     ok(paged_list.L.Type == (PagedPool|POOL_NX_ALLOCATION),
        "Expected PagedPool|POOL_NX_ALLOCATION got %u\n", paged_list.L.Type);
     ok(paged_list.L.Tag == tag, "Expected %lx got %lx\n", tag, paged_list.L.Tag);
-    ok(paged_list.L.Size == LOOKASIDE_MINIMUM_BLOCK_SIZE,
-       "Expected %Iu got %lu\n", LOOKASIDE_MINIMUM_BLOCK_SIZE, paged_list.L.Size);
+    ok(paged_list.L.Size == LOOKASIDE_MINIMUM_BLOCK_SIZE, "got %lu\n", paged_list.L.Size);
     ok(paged_list.L.LastTotalAllocates == 0,"Expected 0 got %lu\n", paged_list.L.LastTotalAllocates);
     ok(paged_list.L.LastAllocateMisses == 0,"Expected 0 got %lu\n", paged_list.L.LastAllocateMisses);
     ExDeletePagedLookasideList(&paged_list);
@@ -2124,9 +2126,26 @@ static void WINAPI test_dpc_func(PKDPC Dpc, void *context, void *cpu_count,
 static void test_dpc(void)
 {
     void (WINAPI *pKeGenericCallDpc)(PKDEFERRED_ROUTINE routine, void *context);
+    void (WINAPI *pKeInitializeDpc)(PKDPC dpc, PKDEFERRED_ROUTINE routine, void *context);
     struct test_dpc_func_context data;
     KAFFINITY cpu_mask;
     ULONG cpu_count;
+    struct _KDPC dpc = {0};
+
+    pKeInitializeDpc = get_proc_address("KeInitializeDpc");
+    if(!pKeInitializeDpc)
+    {
+        win_skip("KeInitializeDpc is not available.\n");
+        return;
+    }
+
+    pKeInitializeDpc(&dpc, test_dpc_func, &data);
+
+    ok(dpc.Number == 0, "Got unexpected Dpc Number %u.\n", dpc.Number);
+    todo_wine ok(dpc.Type == 0x13, "Got unexpected Dpc Type %u.\n", dpc.Type);
+    todo_wine ok(dpc.Importance == MediumImportance, "Got unexpected Dpc Importance %u.\n", dpc.Importance);
+    ok(dpc.DeferredRoutine == test_dpc_func, "Got unexpected Dpc DeferredRoutine %p.\n", dpc.DeferredRoutine);
+    ok(dpc.DeferredContext == &data, "Got unexpected Dpc DeferredContext %p.\n", dpc.DeferredContext);
 
     pKeGenericCallDpc = get_proc_address("KeGenericCallDpc");
     if (!pKeGenericCallDpc)
@@ -2238,7 +2257,7 @@ static void test_process_memory(const struct main_test_input *test_input)
        win_skip("MmCopyVirtualMemory is not available.\n");
     }
 
-    if (!running_under_wine)
+    if (!winetest_platform_is_wine)
     {
         KeStackAttachProcess((PKPROCESS)process, &state);
         todo_wine ok(!strcmp(teststr, (char *)(base + test_input->teststr_offset)),
@@ -2403,12 +2422,12 @@ static void test_default_security(void)
     ok(acl != NULL, "acl is NULL\n");
     ok(acl->AceCount == 2, "got %d\n", acl->AceCount);
 
-    sid1 = RtlAllocateHeap(GetProcessHeap(), HEAP_ZERO_MEMORY, RtlLengthRequiredSid(2));
+    sid1 = ExAllocatePool(NonPagedPool, RtlLengthRequiredSid(2));
     RtlInitializeSid(sid1, &auth, 2);
     *RtlSubAuthoritySid(sid1, 0)  = SECURITY_BUILTIN_DOMAIN_RID;
     *RtlSubAuthoritySid(sid1, 1) = DOMAIN_GROUP_RID_ADMINS;
 
-    sid2 = RtlAllocateHeap(GetProcessHeap(), HEAP_ZERO_MEMORY, RtlLengthRequiredSid(1));
+    sid2 = ExAllocatePool(NonPagedPool, RtlLengthRequiredSid(1));
     RtlInitializeSid(sid2, &auth, 1);
     *RtlSubAuthoritySid(sid2, 0)  = SECURITY_LOCAL_SYSTEM_RID;
 
@@ -2432,8 +2451,8 @@ static void test_default_security(void)
 
     ok(RtlEqualSid(sid2, (PSID)&ace->SidStart), "SID not equal\n");
 
-    RtlFreeHeap(GetProcessHeap(), 0, sid1);
-    RtlFreeHeap(GetProcessHeap(), 0, sid2);
+    ExFreePool(sid1);
+    ExFreePool(sid2);
 
     FltFreeSecurityDescriptor(sd);
 }

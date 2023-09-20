@@ -700,20 +700,14 @@ static const IHTMLFrameBase2Vtbl HTMLFrameBase2Vtbl = {
     HTMLFrameBase2_get_allowTransparency
 };
 
-static HRESULT HTMLFrameBase_QI(HTMLFrameBase *This, REFIID riid, void **ppv)
+static void *HTMLFrameBase_QI(HTMLFrameBase *This, REFIID riid)
 {
-    if(IsEqualGUID(&IID_IHTMLFrameBase, riid)) {
-        TRACE("(%p)->(IID_IHTMLFrameBase %p)\n", This, ppv);
-        *ppv = &This->IHTMLFrameBase_iface;
-    }else if(IsEqualGUID(&IID_IHTMLFrameBase2, riid)) {
-        TRACE("(%p)->(IID_IHTMLFrameBase2 %p)\n", This, ppv);
-        *ppv = &This->IHTMLFrameBase2_iface;
-    }else {
-        return HTMLElement_QI(&This->element.node, riid, ppv);
-    }
+    if(IsEqualGUID(&IID_IHTMLFrameBase, riid))
+        return &This->IHTMLFrameBase_iface;
+    if(IsEqualGUID(&IID_IHTMLFrameBase2, riid))
+        return &This->IHTMLFrameBase2_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLFrameBase_destructor(HTMLFrameBase *This)
@@ -893,19 +887,14 @@ static inline HTMLFrameElement *frame_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLFrameElement, framebase.element.node);
 }
 
-static HRESULT HTMLFrameElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLFrameElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLFrameElement *This = frame_from_HTMLDOMNode(iface);
 
-    if(IsEqualGUID(&IID_IHTMLFrameElement3, riid)) {
-        TRACE("(%p)->(IID_IHTMLFrameElement3 %p)\n", This, ppv);
-        *ppv = &This->IHTMLFrameElement3_iface;
-    }else {
-        return HTMLFrameBase_QI(&This->framebase, riid, ppv);
-    }
+    if(IsEqualGUID(&IID_IHTMLFrameElement3, riid))
+        return &This->IHTMLFrameElement3_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLFrameBase_QI(&This->framebase, riid);
 }
 
 static void HTMLFrameElement_destructor(HTMLDOMNode *iface)
@@ -992,45 +981,50 @@ static HRESULT HTMLFrameElement_bind_to_tree(HTMLDOMNode *iface)
     return hres;
 }
 
-static void HTMLFrameElement_traverse(HTMLDOMNode *iface, nsCycleCollectionTraversalCallback *cb)
+static inline HTMLFrameElement *frame_from_DispatchEx(DispatchEx *iface)
 {
-    HTMLFrameElement *This = frame_from_HTMLDOMNode(iface);
-
-    if(This->framebase.nsframe)
-        note_cc_edge((nsISupports*)This->framebase.nsframe, "This->nsframe", cb);
+    return CONTAINING_RECORD(iface, HTMLFrameElement, framebase.element.node.event_target.dispex);
 }
 
-static void HTMLFrameElement_unlink(HTMLDOMNode *iface)
+static void HTMLFrameElement_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
 {
-    HTMLFrameElement *This = frame_from_HTMLDOMNode(iface);
+    HTMLFrameElement *This = frame_from_DispatchEx(dispex);
+    HTMLDOMNode_traverse(dispex, cb);
 
-    if(This->framebase.nsframe) {
-        nsIDOMHTMLFrameElement *nsframe = This->framebase.nsframe;
+    if(This->framebase.nsframe)
+        note_cc_edge((nsISupports*)This->framebase.nsframe, "nsframe", cb);
+}
 
-        This->framebase.nsframe = NULL;
-        nsIDOMHTMLFrameElement_Release(nsframe);
-    }
+static void HTMLFrameElement_unlink(DispatchEx *dispex)
+{
+    HTMLFrameElement *This = frame_from_DispatchEx(dispex);
+    HTMLDOMNode_unlink(dispex);
+    unlink_ref(&This->framebase.nsframe);
 }
 
 static const NodeImplVtbl HTMLFrameElementImplVtbl = {
-    &CLSID_HTMLFrameElement,
-    HTMLFrameElement_QI,
-    HTMLFrameElement_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col,
-    NULL,
-    NULL,
-    NULL,
-    HTMLFrameElement_get_document,
-    HTMLFrameElement_get_readystate,
-    HTMLFrameElement_get_dispid,
-    HTMLFrameElement_get_name,
-    HTMLFrameElement_invoke,
-    HTMLFrameElement_bind_to_tree,
-    HTMLFrameElement_traverse,
-    HTMLFrameElement_unlink
+    .clsid                 = &CLSID_HTMLFrameElement,
+    .qi                    = HTMLFrameElement_QI,
+    .destructor            = HTMLFrameElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col,
+    .get_document          = HTMLFrameElement_get_document,
+    .get_readystate        = HTMLFrameElement_get_readystate,
+    .get_dispid            = HTMLFrameElement_get_dispid,
+    .get_name              = HTMLFrameElement_get_name,
+    .invoke                = HTMLFrameElement_invoke,
+    .bind_to_tree          = HTMLFrameElement_bind_to_tree,
+};
+
+static const event_target_vtbl_t HTMLFrameElement_event_target_vtbl = {
+    {
+        HTMLELEMENT_DISPEX_VTBL_ENTRIES,
+        .traverse       = HTMLFrameElement_traverse,
+        .unlink         = HTMLFrameElement_unlink
+    },
+    HTMLELEMENT_EVENT_TARGET_VTBL_ENTRIES,
 };
 
 static const tid_t HTMLFrameElement_iface_tids[] = {
@@ -1042,8 +1036,8 @@ static const tid_t HTMLFrameElement_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLFrameElement_dispex = {
-    L"HTMLFrameElement",
-    NULL,
+    "HTMLFrameElement",
+    &HTMLFrameElement_event_target_vtbl.dispex_vtbl,
     DispHTMLFrameElement_tid,
     HTMLFrameElement_iface_tids,
     HTMLElement_init_dispex_info
@@ -1480,25 +1474,18 @@ static inline HTMLIFrame *iframe_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLIFrame, framebase.element.node);
 }
 
-static HRESULT HTMLIFrame_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLIFrame_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLIFrame *This = iframe_from_HTMLDOMNode(iface);
 
-    if(IsEqualGUID(&IID_IHTMLIFrameElement, riid)) {
-        TRACE("(%p)->(IID_IHTMLIFrameElement %p)\n", This, ppv);
-        *ppv = &This->IHTMLIFrameElement_iface;
-    }else if(IsEqualGUID(&IID_IHTMLIFrameElement2, riid)) {
-        TRACE("(%p)->(IID_IHTMLIFrameElement2 %p)\n", This, ppv);
-        *ppv = &This->IHTMLIFrameElement2_iface;
-    }else if(IsEqualGUID(&IID_IHTMLIFrameElement3, riid)) {
-        TRACE("(%p)->(IID_IHTMLIFrameElement3 %p)\n", This, ppv);
-        *ppv = &This->IHTMLIFrameElement3_iface;
-    }else {
-        return HTMLFrameBase_QI(&This->framebase, riid, ppv);
-    }
+    if(IsEqualGUID(&IID_IHTMLIFrameElement, riid))
+        return &This->IHTMLIFrameElement_iface;
+    if(IsEqualGUID(&IID_IHTMLIFrameElement2, riid))
+        return &This->IHTMLIFrameElement2_iface;
+    if(IsEqualGUID(&IID_IHTMLIFrameElement3, riid))
+        return &This->IHTMLIFrameElement3_iface;
 
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLFrameBase_QI(&This->framebase, riid);
 }
 
 static void HTMLIFrame_destructor(HTMLDOMNode *iface)
@@ -1585,45 +1572,50 @@ static HRESULT HTMLIFrame_bind_to_tree(HTMLDOMNode *iface)
     return hres;
 }
 
-static void HTMLIFrame_traverse(HTMLDOMNode *iface, nsCycleCollectionTraversalCallback *cb)
+static inline HTMLIFrame *iframe_from_DispatchEx(DispatchEx *iface)
 {
-    HTMLIFrame *This = iframe_from_HTMLDOMNode(iface);
-
-    if(This->framebase.nsiframe)
-        note_cc_edge((nsISupports*)This->framebase.nsiframe, "This->nsiframe", cb);
+    return CONTAINING_RECORD(iface, HTMLIFrame, framebase.element.node.event_target.dispex);
 }
 
-static void HTMLIFrame_unlink(HTMLDOMNode *iface)
+static void HTMLIFrame_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
 {
-    HTMLIFrame *This = iframe_from_HTMLDOMNode(iface);
+    HTMLIFrame *This = iframe_from_DispatchEx(dispex);
+    HTMLDOMNode_traverse(dispex, cb);
 
-    if(This->framebase.nsiframe) {
-        nsIDOMHTMLIFrameElement *nsiframe = This->framebase.nsiframe;
+    if(This->framebase.nsiframe)
+        note_cc_edge((nsISupports*)This->framebase.nsiframe, "nsiframe", cb);
+}
 
-        This->framebase.nsiframe = NULL;
-        nsIDOMHTMLIFrameElement_Release(nsiframe);
-    }
+static void HTMLIFrame_unlink(DispatchEx *dispex)
+{
+    HTMLIFrame *This = iframe_from_DispatchEx(dispex);
+    HTMLDOMNode_unlink(dispex);
+    unlink_ref(&This->framebase.nsiframe);
 }
 
 static const NodeImplVtbl HTMLIFrameImplVtbl = {
-    &CLSID_HTMLIFrame,
-    HTMLIFrame_QI,
-    HTMLIFrame_destructor,
-    HTMLElement_cpc,
-    HTMLElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col,
-    NULL,
-    NULL,
-    NULL,
-    HTMLIFrame_get_document,
-    HTMLIFrame_get_readystate,
-    HTMLIFrame_get_dispid,
-    HTMLIFrame_get_name,
-    HTMLIFrame_invoke,
-    HTMLIFrame_bind_to_tree,
-    HTMLIFrame_traverse,
-    HTMLIFrame_unlink
+    .clsid                 = &CLSID_HTMLIFrame,
+    .qi                    = HTMLIFrame_QI,
+    .destructor            = HTMLIFrame_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col,
+    .get_document          = HTMLIFrame_get_document,
+    .get_readystate        = HTMLIFrame_get_readystate,
+    .get_dispid            = HTMLIFrame_get_dispid,
+    .get_name              = HTMLIFrame_get_name,
+    .invoke                = HTMLIFrame_invoke,
+    .bind_to_tree          = HTMLIFrame_bind_to_tree,
+};
+
+static const event_target_vtbl_t HTMLIFrame_event_target_vtbl = {
+    {
+        HTMLELEMENT_DISPEX_VTBL_ENTRIES,
+        .traverse       = HTMLIFrame_traverse,
+        .unlink         = HTMLIFrame_unlink
+    },
+    HTMLELEMENT_EVENT_TARGET_VTBL_ENTRIES,
 };
 
 static const tid_t HTMLIFrame_iface_tids[] = {
@@ -1637,8 +1629,8 @@ static const tid_t HTMLIFrame_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLIFrame_dispex = {
-    L"HTMLIFrameElement",
-    NULL,
+    "HTMLIFrameElement",
+    &HTMLIFrame_event_target_vtbl.dispex_vtbl,
     DispHTMLIFrame_tid,
     HTMLIFrame_iface_tids,
     HTMLElement_init_dispex_info

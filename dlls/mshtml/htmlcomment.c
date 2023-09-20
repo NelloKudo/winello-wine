@@ -27,6 +27,7 @@
 #include "ole2.h"
 
 #include "mshtml_private.h"
+#include "htmlevent.h"
 
 #include "wine/debug.h"
 
@@ -145,21 +146,14 @@ static inline HTMLCommentElement *impl_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLCommentElement, element.node);
 }
 
-static HRESULT HTMLCommentElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
+static void *HTMLCommentElement_QI(HTMLDOMNode *iface, REFIID riid)
 {
     HTMLCommentElement *This = impl_from_HTMLDOMNode(iface);
 
-    *ppv =  NULL;
+    if(IsEqualGUID(&IID_IHTMLCommentElement, riid))
+        return &This->IHTMLCommentElement_iface;
 
-    if(IsEqualGUID(&IID_IHTMLCommentElement, riid)) {
-        TRACE("(%p)->(IID_IHTMLCommentElement %p)\n", This, ppv);
-        *ppv = &This->IHTMLCommentElement_iface;
-    }else {
-        return HTMLElement_QI(&This->element.node, riid, ppv);
-    }
-
-    IUnknown_AddRef((IUnknown*)*ppv);
-    return S_OK;
+    return HTMLElement_QI(&This->element.node, riid);
 }
 
 static void HTMLCommentElement_destructor(HTMLDOMNode *iface)
@@ -184,13 +178,13 @@ static HRESULT HTMLCommentElement_clone(HTMLDOMNode *iface, nsIDOMNode *nsnode, 
 }
 
 static const NodeImplVtbl HTMLCommentElementImplVtbl = {
-    &CLSID_HTMLCommentElement,
-    HTMLCommentElement_QI,
-    HTMLCommentElement_destructor,
-    HTMLElement_cpc,
-    HTMLCommentElement_clone,
-    HTMLElement_handle_event,
-    HTMLElement_get_attr_col
+    .clsid                 = &CLSID_HTMLCommentElement,
+    .qi                    = HTMLCommentElement_QI,
+    .destructor            = HTMLCommentElement_destructor,
+    .cpc_entries           = HTMLElement_cpc,
+    .clone                 = HTMLCommentElement_clone,
+    .handle_event          = HTMLElement_handle_event,
+    .get_attr_col          = HTMLElement_get_attr_col
 };
 
 static const tid_t HTMLCommentElement_iface_tids[] = {
@@ -199,8 +193,8 @@ static const tid_t HTMLCommentElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLCommentElement_dispex = {
-    L"Comment",
-    NULL,
+    "Comment",
+    &HTMLElement_event_target_vtbl.dispex_vtbl,
     DispHTMLCommentElement_tid,
     HTMLCommentElement_iface_tids,
     HTMLElement_init_dispex_info

@@ -192,6 +192,23 @@ typedef struct
 
 typedef struct
 {
+    ULONG ImageBase;
+    ULONG SizeOfImage;
+    union
+    {
+        ULONG ImageFlags;
+        struct
+        {
+            ULONG ImagePartialMap : 1;
+            ULONG ImageNotExecutable : 1;
+            ULONG ImageSigningLevel : 4;
+            ULONG Reserved : 26;
+        };
+    };
+} MEMORY_IMAGE_INFORMATION32;
+
+typedef struct
+{
     NTSTATUS  ExitStatus;
     ULONG     PebBaseAddress;
     ULONG     AffinityMask;
@@ -354,6 +371,11 @@ typedef struct
 {
     ULONG Owner;
 } TOKEN_OWNER32;
+
+typedef struct
+{
+    ULONG PrimaryGroup;
+} TOKEN_PRIMARY_GROUP32;
 
 typedef struct
 {

@@ -21,8 +21,6 @@
 #include <stdarg.h>
 
 #define COBJMACROS
-#define NONAMELESSUNION
-
 #include "winerror.h"
 #include "windef.h"
 #include "winbase.h"
@@ -112,7 +110,7 @@ static void events_unadvise_all(ExplorerBrowserImpl *This)
         TRACE("Removing %p\n", client);
         list_remove(&client->entry);
         IExplorerBrowserEvents_Release(client->pebe);
-        heap_free(client);
+        free(client);
     }
 }
 
@@ -184,7 +182,7 @@ static void travellog_remove_entry(ExplorerBrowserImpl *This, travellog_entry *e
 
     list_remove(&entry->entry);
     ILFree(entry->pidl);
-    heap_free(entry);
+    free(entry);
     This->travellog_count--;
 }
 
@@ -216,7 +214,7 @@ static void travellog_add_entry(ExplorerBrowserImpl *This, LPITEMIDLIST pidl)
     }
 
     /* Create and add the new entry */
-    new = heap_alloc(sizeof(*new));
+    new = malloc(sizeof(*new));
     new->pidl = ILClone(pidl);
     list_add_tail(&This->travellog, &new->entry);
     This->travellog_cursor = new;
@@ -829,7 +827,7 @@ static ULONG WINAPI IExplorerBrowser_fnRelease(IExplorerBrowser *iface)
 
         IObjectWithSite_SetSite(&This->IObjectWithSite_iface, NULL);
 
-        heap_free(This);
+        free(This);
     }
 
     return ref;
@@ -1007,7 +1005,7 @@ static HRESULT WINAPI IExplorerBrowser_fnAdvise(IExplorerBrowser *iface,
     event_client *client;
     TRACE("%p (%p, %p)\n", This, psbe, pdwCookie);
 
-    client = heap_alloc(sizeof(*client));
+    client = malloc(sizeof(*client));
     client->pebe = psbe;
     client->cookie = ++This->events_next_cookie;
 
@@ -1032,7 +1030,7 @@ static HRESULT WINAPI IExplorerBrowser_fnUnadvise(IExplorerBrowser *iface,
         {
             list_remove(&client->entry);
             IExplorerBrowserEvents_Release(client->pebe);
-            heap_free(client);
+            free(client);
             return S_OK;
         }
     }
@@ -1557,7 +1555,7 @@ static HRESULT WINAPI ICommDlgBrowser3_fnOnDefaultCommand(ICommDlgBrowser3 *ifac
         IDataObject_Release(pdo);
         if(SUCCEEDED(hr))
         {
-            LPIDA pida = GlobalLock(medium.u.hGlobal);
+            LPIDA pida = GlobalLock(medium.hGlobal);
             LPCITEMIDLIST pidl_child = (LPCITEMIDLIST) ((LPBYTE)pida+pida->aoffset[1]);
 
             /* Handle folders by browsing to them. */
@@ -1566,8 +1564,8 @@ static HRESULT WINAPI ICommDlgBrowser3_fnOnDefaultCommand(ICommDlgBrowser3 *ifac
                 IExplorerBrowser_BrowseToIDList(&This->IExplorerBrowser_iface, pidl_child, SBSP_RELATIVE);
                 ret = S_OK;
             }
-            GlobalUnlock(medium.u.hGlobal);
-            GlobalFree(medium.u.hGlobal);
+            GlobalUnlock(medium.hGlobal);
+            GlobalFree(medium.hGlobal);
         }
         else
             ERR("Failed to get data from IDataObject.\n");
@@ -2069,7 +2067,7 @@ HRESULT WINAPI ExplorerBrowser_Constructor(IUnknown *pUnkOuter, REFIID riid, voi
     if(pUnkOuter)
         return CLASS_E_NOAGGREGATION;
 
-    eb = heap_alloc_zero(sizeof(*eb));
+    eb = calloc(1, sizeof(*eb));
     eb->ref = 1;
     eb->IExplorerBrowser_iface.lpVtbl = &vt_IExplorerBrowser;
     eb->IShellBrowser_iface.lpVtbl    = &vt_IShellBrowser;

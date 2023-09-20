@@ -118,8 +118,10 @@ BOOL WINAPI DECLSPEC_HOTPATCH DebugActiveProcessStop( DWORD pid )
 /***********************************************************************
  *           DebugBreak   (kernelbase.@)
  */
-#if defined(__i386__) || defined(__x86_64__)
+#ifdef __i386__
 __ASM_STDCALL_FUNC( DebugBreak, 0, "jmp " __ASM_STDCALL("DbgBreakPoint", 0) )
+#elif defined(__x86_64__)
+__ASM_GLOBAL_FUNC( DebugBreak, "jmp " __ASM_NAME("DbgBreakPoint") )
 #else
 void WINAPI DebugBreak(void)
 {
@@ -279,6 +281,11 @@ void WINAPI DECLSPEC_HOTPATCH OutputDebugStringA( LPCSTR str )
     }
 }
 
+static LONG WINAPI debug_exception_handler_wide( EXCEPTION_POINTERS *eptr )
+{
+    EXCEPTION_RECORD *rec = eptr->ExceptionRecord;
+    return (rec->ExceptionCode == DBG_PRINTEXCEPTION_WIDE_C) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
+}
 
 /***********************************************************************
  *           OutputDebugStringW   (kernelbase.@)
@@ -288,10 +295,32 @@ void WINAPI DECLSPEC_HOTPATCH OutputDebugStringW( LPCWSTR str )
     UNICODE_STRING strW;
     STRING strA;
 
+    WARN( "%s\n", debugstr_w(str) );
+
     RtlInitUnicodeString( &strW, str );
     if (!RtlUnicodeStringToAnsiString( &strA, &strW, TRUE ))
     {
-        OutputDebugStringA( strA.Buffer );
+        BOOL exc_handled;
+
+        __TRY
+        {
+            ULONG_PTR args[4];
+            args[0] = wcslen(str) + 1;
+            args[1] = (ULONG_PTR)str;
+            args[2] = strlen(strA.Buffer) + 1;
+            args[3] = (ULONG_PTR)strA.Buffer;
+            RaiseException( DBG_PRINTEXCEPTION_WIDE_C, 0, 4, args );
+            exc_handled = TRUE;
+        }
+        __EXCEPT(debug_exception_handler_wide)
+        {
+            exc_handled = FALSE;
+        }
+        __ENDTRY
+
+        if (!exc_handled)
+            OutputDebugStringA( strA.Buffer );
+
         RtlFreeAnsiString( &strA );
     }
 }
@@ -364,7 +393,12 @@ void WINAPI DECLSPEC_HOTPATCH RaiseException( DWORD code, DWORD flags, DWORD cou
     RtlRaiseException( &record );
 }
 #endif
+
+#ifdef __i386__
 __ASM_STDCALL_IMPORT(RaiseException,16)
+#else
+__ASM_GLOBAL_IMPORT(RaiseException)
+#endif
 
 /*******************************************************************
  *           RaiseFailFastException  (kernelbase.@)
@@ -835,36 +869,38 @@ struct module_iterator
 };
 
 
-/* Caller must ensure that wow64=TRUE is only passed from 64bit for 'process' being a wow64 process */
-static BOOL init_module_iterator( struct module_iterator *iter, HANDLE process, BOOL wow64 )
+static BOOL init_module_iterator_wow64( struct module_iterator *iter, HANDLE process )
+{
+    PEB_LDR_DATA32 *ldr_data32_ptr;
+    DWORD ldr_data32, first_module;
+    PEB32 *peb32;
+
+    iter->wow64 = TRUE;
+    if (!set_ntstatus( NtQueryInformationProcess( process, ProcessWow64Information,
+                                                  &peb32, sizeof(peb32), NULL )))
+        return FALSE;
+    if (!ReadProcessMemory( process, &peb32->LdrData, &ldr_data32, sizeof(ldr_data32), NULL ))
+        return FALSE;
+    ldr_data32_ptr = (PEB_LDR_DATA32 *)(DWORD_PTR) ldr_data32;
+    if (!ReadProcessMemory( process, &ldr_data32_ptr->InLoadOrderModuleList.Flink,
+                            &first_module, sizeof(first_module), NULL ))
+        return FALSE;
+    iter->head = (LIST_ENTRY *)&ldr_data32_ptr->InLoadOrderModuleList;
+    iter->current = (LIST_ENTRY *)(DWORD_PTR)first_module;
+    iter->process = process;
+    return TRUE;
+}
+
+
+static BOOL init_module_iterator( struct module_iterator *iter, HANDLE process )
 {
     PROCESS_BASIC_INFORMATION pbi;
     PPEB_LDR_DATA ldr_data;
 
-    /* get address of PEB */
+    iter->wow64 = FALSE;
     if (!set_ntstatus( NtQueryInformationProcess( process, ProcessBasicInformation,
                                                   &pbi, sizeof(pbi), NULL )))
         return FALSE;
-
-    iter->wow64 = wow64;
-    if (wow64)
-    {
-        PEB_LDR_DATA32 *ldr_data32_ptr;
-        DWORD ldr_data32, first_module;
-        PEB32 *peb32;
-
-        peb32 = (PEB32 *)((char *)pbi.PebBaseAddress + 0x1000);
-        if (!ReadProcessMemory( process, &peb32->LdrData, &ldr_data32, sizeof(ldr_data32), NULL ))
-            return FALSE;
-        ldr_data32_ptr = (PEB_LDR_DATA32 *)(DWORD_PTR) ldr_data32;
-        if (!ReadProcessMemory( process, &ldr_data32_ptr->InLoadOrderModuleList.Flink,
-                                &first_module, sizeof(first_module), NULL ))
-            return FALSE;
-        iter->head = (LIST_ENTRY *)&ldr_data32_ptr->InLoadOrderModuleList;
-        iter->current = (LIST_ENTRY *)(DWORD_PTR)first_module;
-        iter->process = process;
-        return TRUE;
-    }
 
     /* read address of LdrData from PEB */
     if (!ReadProcessMemory( process, &pbi.PebBaseAddress->LdrData, &ldr_data, sizeof(ldr_data), NULL ))
@@ -918,7 +954,7 @@ static BOOL get_ldr_module( HANDLE process, HMODULE module, LDR_DATA_TABLE_ENTRY
     struct module_iterator iter;
     INT ret;
 
-    if (!init_module_iterator( &iter, process, FALSE )) return FALSE;
+    if (!init_module_iterator( &iter, process )) return FALSE;
 
     while ((ret = module_iterator_next( &iter )) > 0)
         /* When hModule is NULL we return the process image - which will be
@@ -946,7 +982,7 @@ static BOOL get_ldr_module32( HANDLE process, HMODULE module, LDR_DATA_TABLE_ENT
         return FALSE;
     }
 #endif
-    if (!init_module_iterator( &iter, process, TRUE )) return FALSE;
+    if (!init_module_iterator_wow64( &iter, process )) return FALSE;
 
     while ((ret = module_iterator_next( &iter )) > 0)
         /* When hModule is NULL we return the process image - which will be
@@ -1112,12 +1148,12 @@ BOOL WINAPI EnumProcessModulesEx( HANDLE process, HMODULE *module, DWORD count,
 
         if (is_win64 && target_wow64 && (list_mode & LIST_MODULES_32BIT))
         {
-            if (!init_module_iterator( &iter, process, TRUE ) || module_push_all( &mp, &iter ) < 0)
+            if (!init_module_iterator_wow64( &iter, process ) || module_push_all( &mp, &iter ) < 0)
                 return FALSE;
         }
         if (!(is_win64 && list_mode == LIST_MODULES_32BIT))
         {
-            if (init_module_iterator( &iter, process, FALSE ))
+            if (init_module_iterator( &iter, process ))
             {
                 if (is_win64 && target_wow64 && (list_mode & LIST_MODULES_64BIT))
                     /* Don't add main module twice in _ALL mode */
@@ -1131,7 +1167,7 @@ BOOL WINAPI EnumProcessModulesEx( HANDLE process, HMODULE *module, DWORD count,
                  */
                 if (list_mode == LIST_MODULES_DEFAULT)
                 {
-                    if (init_module_iterator( &iter, process, TRUE ) && module_iterator_next( &iter ) > 0)
+                    if (init_module_iterator_wow64( &iter, process ) && module_iterator_next( &iter ) > 0)
                         module_push_iter( &mp, &iter );
                     else
                         ret = -1;

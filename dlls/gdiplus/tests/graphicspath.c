@@ -451,6 +451,20 @@ static void test_arc(void)
     GpPath* path;
 
     GdipCreatePath(FillModeAlternate, &path);
+
+    status = GdipAddPathArc(path, 100.0, 100.0, 1.0, 0.0, 0.0, 90.0);
+    expect(InvalidParameter, status);
+
+    status = GdipAddPathArc(path, 100.0, 100.0, 0.0, 1.0, 0.0, 90.0);
+    expect(InvalidParameter, status);
+
+    status = GdipAddPathArc(path, 100.0, 100.0, -40, 1.0, 0.0, 90.0);
+    expect(InvalidParameter, status);
+
+    status = GdipAddPathArc(path, 100.0, 100.0, 1.0, -50.0, 0.0, 90.0);
+    expect(InvalidParameter, status);
+
+    GdipResetPath(path);
     /* Exactly 90 degrees */
     status = GdipAddPathArc(path, 100.0, 100.0, 500.0, 700.0, 0.0, 90.0);
     expect(Ok, status);
@@ -1249,6 +1263,22 @@ static void test_flatten(void)
     expect(Ok, status);
     ok_path(path, flattenquater_path, ARRAY_SIZE(flattenquater_path), FALSE);
 
+    status = GdipResetPath(path);
+    expect(Ok, status);
+    status = GdipStartPathFigure(path);
+    expect(Ok, status);
+
+    /* path seen in the wild that caused a stack overflow */
+    /* same path but redo with the manual points that caused a crash */
+    status = GdipAddPathBezier(path, 154.950806, 33.391144, 221.586075, 15.536285, 291.747314, 15.536285, 358.382568, 33.391144);
+    expect(Ok, status);
+    status = GdipAddPathBezier(path, 256.666809, 412.999512, 256.666718, 412.999481, 256.666656, 412.999481, 256.666565, 412.999512);
+    expect(Ok, status);
+    status = GdipClosePathFigure(path);
+    expect(Ok, status);
+    status = GdipFlattenPath(path, NULL, 1.0);
+    expect(Ok, status);
+
     GdipDeleteMatrix(m);
     GdipDeletePath(path);
 }
@@ -1276,6 +1306,17 @@ static path_test_t widenline_dash_path[] = {
     {50.0, 0.0,  PathPointTypeLine,  0, 0}, /*5*/
     {50.0, 10.0, PathPointTypeLine,  0, 0}, /*6*/
     {45.0, 10.0,  PathPointTypeLine|PathPointTypeCloseSubpath,  0, 0}, /*7*/
+    };
+
+static path_test_t widenline_thin_dash_path[] = {
+    {5.0, 4.75, PathPointTypeStart, 0, 0}, /*0*/
+    {8.0, 4.75, PathPointTypeLine,  0, 0}, /*1*/
+    {8.0, 5.25, PathPointTypeLine,  0, 0}, /*2*/
+    {5.0, 5.25, PathPointTypeLine|PathPointTypeCloseSubpath,  0, 0}, /*3*/
+    {9.0, 4.75, PathPointTypeStart, 0, 0}, /*4*/
+    {9.5, 4.75, PathPointTypeLine,  0, 0}, /*5*/
+    {9.5, 5.25, PathPointTypeLine,  0, 0}, /*6*/
+    {9.0, 5.25, PathPointTypeLine|PathPointTypeCloseSubpath,  0, 0}, /*7*/
     };
 
 static path_test_t widenline_unit_path[] = {
@@ -1374,6 +1415,18 @@ static void test_widen(void)
 
     status = GdipSetPenDashStyle(pen, DashStyleSolid);
     expect(Ok, status);
+
+    /* dashed line less than 1 pixel wide */
+    GdipDeletePen(pen);
+    GdipCreatePen1(0xffffffff, 0.5, UnitPixel, &pen);
+    GdipSetPenDashStyle(pen, DashStyleDash);
+
+    GdipResetPath(path);
+    GdipAddPathLine(path, 5.0, 5.0, 9.5, 5.0);
+
+    status = GdipWidenPath(path, pen, m, 1.0);
+    expect(Ok, status);
+    ok_path_fudge(path, widenline_thin_dash_path, ARRAY_SIZE(widenline_thin_dash_path), FALSE, 0.000005);
 
     /* pen width in UnitWorld */
     GdipDeletePen(pen);
@@ -1812,6 +1865,18 @@ static void test_isvisible(void)
     status = GdipIsVisiblePathPoint(path, 0.0, 0.0, graphics, &result);
     expect(Ok, status);
     expect(TRUE, result);
+    /* not affected by world transform */
+    status = GdipScaleWorldTransform(graphics, 2.0, 2.0, MatrixOrderPrepend);
+    expect(Ok, status);
+    result = FALSE;
+    status = GdipIsVisiblePathPoint(path, 9.0, 9.0, graphics, &result);
+    expect(Ok, status);
+    expect(TRUE, result);
+    result = TRUE;
+    status = GdipIsVisiblePathPoint(path, 11.0, 11.0, graphics, &result);
+    expect(Ok, status);
+    expect(FALSE, result);
+    GdipResetWorldTransform(graphics);
 
     GdipDeletePath(path);
     GdipDeleteGraphics(graphics);

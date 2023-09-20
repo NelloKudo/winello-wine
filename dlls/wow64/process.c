@@ -427,19 +427,6 @@ NTSTATUS WINAPI wow64_NtDebugActiveProcess( UINT *args )
 
 
 /**********************************************************************
- *           wow64_NtFlushInstructionCache
- */
-NTSTATUS WINAPI wow64_NtFlushInstructionCache( UINT *args )
-{
-    HANDLE process = get_handle( &args );
-    const void *addr = get_ptr( &args );
-    SIZE_T size = get_ulong( &args );
-
-    return NtFlushInstructionCache( process, addr, size );
-}
-
-
-/**********************************************************************
  *           wow64_NtFlushProcessWriteBuffers
  */
 NTSTATUS WINAPI wow64_NtFlushProcessWriteBuffers( UINT *args )
@@ -608,10 +595,13 @@ NTSTATUS WINAPI wow64_NtQueryInformationProcess( UINT *args )
                 *(ULONG *)ptr = data;
                 if (retlen) *retlen = sizeof(ULONG);
             }
-            else if (status == STATUS_PORT_NOT_SET) *(ULONG *)ptr = 0;
+            else if (status == STATUS_PORT_NOT_SET)
+            {
+                *(ULONG *)ptr = 0;
+                if (retlen) *retlen = sizeof(ULONG);
+            }
             return status;
         }
-        if (retlen) *retlen = sizeof(ULONG);
         return STATUS_INFO_LENGTH_MISMATCH;
 
     case ProcessImageFileName:
@@ -1032,6 +1022,8 @@ NTSTATUS WINAPI wow64_NtTerminateThread( UINT *args )
 {
     HANDLE handle = get_handle( &args );
     LONG exit_code = get_ulong( &args );
+
+    if (pBTCpuThreadTerm) pBTCpuThreadTerm( handle );
 
     return NtTerminateThread( handle, exit_code );
 }

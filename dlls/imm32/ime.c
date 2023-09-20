@@ -98,6 +98,8 @@ static void input_context_set_comp_str( INPUTCONTEXT *ctx, const WCHAR *str, UIN
     UINT size;
     BYTE *dst;
 
+    TRACE( "ctx %p, str %s\n", ctx, debugstr_wn( str, len ) );
+
     size = sizeof(*compstr);
     size += len * sizeof(WCHAR); /* GCS_COMPSTR */
     size += len; /* GCS_COMPSTRATTR */
@@ -310,20 +312,17 @@ static void ime_ui_paint( HIMC himc, HWND hwnd )
 
 static void ime_ui_update_window( INPUTCONTEXT *ctx, HWND hwnd )
 {
-    COMPOSITIONSTRING *string;
+    WCHAR *str;
+    UINT len;
 
-    if (ctx->hCompStr) string = ImmLockIMCC( ctx->hCompStr );
-    else string = NULL;
-
-    if (!string || string->dwCompStrLen == 0)
+    if (!(str = input_context_get_comp_str( ctx, FALSE, &len )) || !*str)
         ShowWindow( hwnd, SW_HIDE );
     else
     {
         ShowWindow( hwnd, SW_SHOWNOACTIVATE );
         RedrawWindow( hwnd, NULL, NULL, RDW_ERASENOW | RDW_INVALIDATE );
     }
-
-    if (string) ImmUnlockIMCC( ctx->hCompStr );
+    free( str );
 
     ctx->hWnd = GetFocus();
 }
@@ -366,7 +365,9 @@ static UINT ime_set_comp_string( HIMC himc, LPARAM lparam )
     if (!(ctx = ImmLockIMC( himc ))) return 0;
 
     count = ImeToAsciiEx( VK_PROCESSKEY, lparam, NULL, &buffer.list, 0, himc );
-    if (count >= buffer.uMsgCount)
+    if (!count)
+        TRACE( "ImeToAsciiEx returned no messages\n" );
+    else if (count >= buffer.uMsgCount)
         WARN( "ImeToAsciiEx returned %#x messages\n", count );
     else if (!(himcc = ImmReSizeIMCC( ctx->hMsgBuf, (ctx->dwNumMsgBuf + count) * sizeof(*msgs) )))
         WARN( "Failed to resize input context message buffer\n" );
@@ -534,7 +535,7 @@ UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs, 
 
     if (!(ctx = ImmLockIMC( himc ))) return 0;
     if (!(compstr = ImmLockIMCC( ctx->hCompStr ))) goto done;
-    size = compstr->dwSize;
+    size = max( compstr->dwSize, sizeof(COMPOSITIONSTRING) );
 
     do
     {
@@ -557,7 +558,7 @@ UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs, 
         TRANSMSG status_msg = {.message = ime_set_composition_status( himc, !!compstr->dwCompStrOffset )};
         if (status_msg.message) msgs->TransMsg[count++] = status_msg;
 
-        if (compstr->dwResultStrLen)
+        if (compstr->dwResultStrOffset)
         {
             const WCHAR *result = (WCHAR *)((BYTE *)compstr + compstr->dwResultStrOffset);
             TRANSMSG msg = {.message = WM_IME_COMPOSITION, .wParam = result[0], .lParam = GCS_RESULTSTR};
@@ -565,7 +566,7 @@ UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs, 
             msgs->TransMsg[count++] = msg;
         }
 
-        if (compstr->dwCompStrLen)
+        if (compstr->dwCompStrOffset)
         {
             const WCHAR *comp = (WCHAR *)((BYTE *)compstr + compstr->dwCompStrOffset);
             TRANSMSG msg = {.message = WM_IME_COMPOSITION, .wParam = comp[0], .lParam = GCS_COMPSTR | GCS_CURSORPOS | GCS_DELTASTART};
