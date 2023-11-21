@@ -18,6 +18,7 @@
 
 #include "vkd3d_shader_private.h"
 #include "vkd3d_version.h"
+#include "hlsl.h"
 
 #include <stdio.h>
 #include <math.h>
@@ -381,7 +382,7 @@ void set_u32(struct vkd3d_bytecode_buffer *buffer, size_t offset, uint32_t value
     memcpy(buffer->data + offset, &value, sizeof(value));
 }
 
-static void vkd3d_shader_dump_blob(const char *path, const char *prefix,
+static void vkd3d_shader_dump_blob(const char *path, const char *profile,
         const char *suffix, const void *data, size_t size)
 {
     static LONG shader_id = 0;
@@ -391,7 +392,10 @@ static void vkd3d_shader_dump_blob(const char *path, const char *prefix,
 
     id = InterlockedIncrement(&shader_id) - 1;
 
-    snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%s-%u.%s", path, prefix, id, suffix);
+    if (profile)
+        snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%u-%s.%s", path, id, profile, suffix);
+    else
+        snprintf(filename, ARRAY_SIZE(filename), "%s/vkd3d-shader-%u.%s", path, id, suffix);
     if ((f = fopen(filename, "wb")))
     {
         if (fwrite(data, 1, size, f) != size)
@@ -423,9 +427,12 @@ static const char *shader_get_source_type_suffix(enum vkd3d_shader_source_type t
     }
 }
 
-void vkd3d_shader_dump_shader(enum vkd3d_shader_source_type source_type,
-        enum vkd3d_shader_type shader_type, const struct vkd3d_shader_code *shader)
+void vkd3d_shader_dump_shader(const struct vkd3d_shader_compile_info *compile_info)
 {
+    const struct vkd3d_shader_code *shader = &compile_info->source;
+    const struct vkd3d_shader_hlsl_source_info *hlsl_source_info;
+    const struct hlsl_profile_info *profile;
+    const char *profile_name = NULL;
     static bool enabled = true;
     const char *path;
 
@@ -438,8 +445,19 @@ void vkd3d_shader_dump_shader(enum vkd3d_shader_source_type source_type,
         return;
     }
 
-    vkd3d_shader_dump_blob(path, shader_get_type_prefix(shader_type),
-            shader_get_source_type_suffix(source_type), shader->code, shader->size);
+    if (compile_info->source_type == VKD3D_SHADER_SOURCE_HLSL)
+    {
+        if (!(hlsl_source_info = vkd3d_find_struct(compile_info->next, HLSL_SOURCE_INFO)))
+            return;
+
+        if (!(profile = hlsl_get_target_info(hlsl_source_info->profile)))
+            return;
+
+        profile_name = profile->name;
+    }
+
+    vkd3d_shader_dump_blob(path, profile_name, shader_get_source_type_suffix(compile_info->source_type),
+            shader->code, shader->size);
 }
 
 static void init_scan_signature_info(const struct vkd3d_shader_compile_info *info)
@@ -454,6 +472,25 @@ static void init_scan_signature_info(const struct vkd3d_shader_compile_info *inf
     }
 }
 
+static const struct vkd3d_debug_option vkd3d_shader_config_options[] =
+{
+    {"force_validation", VKD3D_SHADER_CONFIG_FLAG_FORCE_VALIDATION}, /* force validation of internal shader representations */
+};
+
+static uint64_t vkd3d_shader_init_config_flags(void)
+{
+    uint64_t config_flags;
+    const char *config;
+
+    config = getenv("VKD3D_SHADER_CONFIG");
+    config_flags = vkd3d_parse_debug_options(config, vkd3d_shader_config_options, ARRAY_SIZE(vkd3d_shader_config_options));
+
+    if (config_flags)
+        TRACE("VKD3D_SHADER_CONFIG='%s'.\n", config);
+
+    return config_flags;
+}
+
 bool vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
         struct vkd3d_shader_message_context *message_context, const char *source_name,
         const struct vkd3d_shader_version *version, const struct vkd3d_shader_parser_ops *ops,
@@ -465,6 +502,7 @@ bool vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
     parser->location.column = 0;
     parser->shader_version = *version;
     parser->ops = ops;
+    parser->config_flags = vkd3d_shader_init_config_flags();
     return shader_instruction_array_init(&parser->instructions, instruction_reserve);
 }
 
@@ -764,6 +802,9 @@ static struct vkd3d_shader_descriptor_info1 *vkd3d_shader_scan_add_descriptor(st
     struct vkd3d_shader_scan_descriptor_info1 *info = context->scan_descriptor_info;
     struct vkd3d_shader_descriptor_info1 *d;
 
+    if (!info)
+        return NULL;
+
     if (!vkd3d_array_reserve((void **)&info->descriptors, &context->descriptors_size,
             info->descriptor_count + 1, sizeof(*info->descriptors)))
     {
@@ -791,13 +832,10 @@ static void vkd3d_shader_scan_constant_buffer_declaration(struct vkd3d_shader_sc
     const struct vkd3d_shader_constant_buffer *cb = &instruction->declaration.cb;
     struct vkd3d_shader_descriptor_info1 *d;
 
-    if (!context->scan_descriptor_info)
-        return;
-
     if (!(d = vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,
             &cb->src.reg, &cb->range, VKD3D_SHADER_RESOURCE_BUFFER, VKD3D_SHADER_RESOURCE_DATA_UINT)))
         return;
-    d->buffer_size = cb->size * 16;
+    d->buffer_size = cb->size;
 }
 
 static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_context *context,
@@ -805,9 +843,6 @@ static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_conte
 {
     const struct vkd3d_shader_sampler *sampler = &instruction->declaration.sampler;
     struct vkd3d_shader_descriptor_info1 *d;
-
-    if (!context->scan_descriptor_info)
-        return;
 
     if (!(d = vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER,
             &sampler->src.reg, &sampler->range, VKD3D_SHADER_RESOURCE_NONE, VKD3D_SHADER_RESOURCE_DATA_UINT)))
@@ -817,6 +852,15 @@ static void vkd3d_shader_scan_sampler_declaration(struct vkd3d_shader_scan_conte
         d->flags |= VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_SAMPLER_COMPARISON_MODE;
 }
 
+static void vkd3d_shader_scan_combined_sampler_declaration(
+        struct vkd3d_shader_scan_context *context, const struct vkd3d_shader_semantic *semantic)
+{
+    vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER, &semantic->resource.reg.reg,
+            &semantic->resource.range, VKD3D_SHADER_RESOURCE_NONE, VKD3D_SHADER_RESOURCE_DATA_UINT);
+    vkd3d_shader_scan_add_descriptor(context, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV, &semantic->resource.reg.reg,
+            &semantic->resource.range, semantic->resource_type, VKD3D_SHADER_RESOURCE_DATA_FLOAT);
+}
+
 static void vkd3d_shader_scan_resource_declaration(struct vkd3d_shader_scan_context *context,
         const struct vkd3d_shader_resource *resource, enum vkd3d_shader_resource_type resource_type,
         enum vkd3d_shader_resource_data_type resource_data_type,
@@ -824,9 +868,6 @@ static void vkd3d_shader_scan_resource_declaration(struct vkd3d_shader_scan_cont
 {
     struct vkd3d_shader_descriptor_info1 *d;
     enum vkd3d_shader_descriptor_type type;
-
-    if (!context->scan_descriptor_info)
-        return;
 
     if (resource->reg.reg.type == VKD3DSPR_UAV)
         type = VKD3D_SHADER_DESCRIPTOR_TYPE_UAV;
@@ -925,6 +966,12 @@ static int vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_context *conte
             vkd3d_shader_scan_sampler_declaration(context, instruction);
             break;
         case VKD3DSIH_DCL:
+            if (instruction->declaration.semantic.resource.reg.reg.type == VKD3DSPR_COMBINED_SAMPLER)
+            {
+                vkd3d_shader_scan_combined_sampler_declaration(context, &instruction->declaration.semantic);
+                break;
+            }
+            /* fall through */
         case VKD3DSIH_DCL_UAV_TYPED:
             vkd3d_shader_scan_typed_resource_declaration(context, instruction);
             break;
@@ -1278,6 +1325,8 @@ int vkd3d_shader_scan(const struct vkd3d_shader_compile_info *compile_info, char
 
     vkd3d_shader_message_context_init(&message_context, compile_info->log_level);
 
+    vkd3d_shader_dump_shader(compile_info);
+
     switch (compile_info->source_type)
     {
         case VKD3D_SHADER_SOURCE_DXBC_TPF:
@@ -1318,8 +1367,6 @@ static int vkd3d_shader_parser_compile(struct vkd3d_shader_parser *parser,
     struct vkd3d_glsl_generator *glsl_generator;
     struct vkd3d_shader_compile_info scan_info;
     int ret;
-
-    vkd3d_shader_dump_shader(compile_info->source_type, parser->shader_version.type, &compile_info->source);
 
     scan_info = *compile_info;
 
@@ -1404,8 +1451,6 @@ static int compile_d3d_bytecode(const struct vkd3d_shader_compile_info *compile_
         return ret;
     }
 
-    vkd3d_shader_dump_shader(compile_info->source_type, parser->shader_version.type, &compile_info->source);
-
     if (compile_info->target_type == VKD3D_SHADER_TARGET_D3D_ASM)
     {
         ret = vkd3d_dxbc_binary_to_text(&parser->instructions, &parser->shader_version, compile_info, out);
@@ -1451,6 +1496,8 @@ int vkd3d_shader_compile(const struct vkd3d_shader_compile_info *compile_info,
     init_scan_signature_info(compile_info);
 
     vkd3d_shader_message_context_init(&message_context, compile_info->log_level);
+
+    vkd3d_shader_dump_shader(compile_info);
 
     switch (compile_info->source_type)
     {
@@ -1647,7 +1694,9 @@ const enum vkd3d_shader_source_type *vkd3d_shader_get_supported_source_types(uns
         VKD3D_SHADER_SOURCE_DXBC_TPF,
         VKD3D_SHADER_SOURCE_HLSL,
         VKD3D_SHADER_SOURCE_D3D_BYTECODE,
+#ifdef VKD3D_SHADER_UNSUPPORTED_DXIL
         VKD3D_SHADER_SOURCE_DXBC_DXIL,
+#endif
     };
 
     TRACE("count %p.\n", count);
@@ -1686,7 +1735,9 @@ const enum vkd3d_shader_target_type *vkd3d_shader_get_supported_target_types(
 
     switch (source_type)
     {
+#ifdef VKD3D_SHADER_UNSUPPORTED_DXIL
         case VKD3D_SHADER_SOURCE_DXBC_DXIL:
+#endif
         case VKD3D_SHADER_SOURCE_DXBC_TPF:
             *count = ARRAY_SIZE(dxbc_tpf_types);
             return dxbc_tpf_types;
@@ -1749,7 +1800,7 @@ static struct vkd3d_shader_param_node *shader_param_allocator_node_create(
 static void shader_param_allocator_init(struct vkd3d_shader_param_allocator *allocator,
         unsigned int count, unsigned int stride)
 {
-    allocator->count = max(count, 4);
+    allocator->count = max(count, MAX_REG_OUTPUT);
     allocator->stride = stride;
     allocator->head = NULL;
     allocator->current = NULL;
@@ -1813,14 +1864,14 @@ bool shader_instruction_array_reserve(struct vkd3d_shader_instruction_array *ins
     return true;
 }
 
-bool shader_instruction_array_add_icb(struct vkd3d_shader_instruction_array *instructions,
+unsigned int shader_instruction_array_add_icb(struct vkd3d_shader_instruction_array *instructions,
         struct vkd3d_shader_immediate_constant_buffer *icb)
 {
     if (!vkd3d_array_reserve((void **)&instructions->icbs, &instructions->icb_capacity, instructions->icb_count + 1,
             sizeof(*instructions->icbs)))
-        return false;
-    instructions->icbs[instructions->icb_count++] = icb;
-    return true;
+        return UINT_MAX;
+    instructions->icbs[instructions->icb_count] = icb;
+    return instructions->icb_count++;
 }
 
 static struct vkd3d_shader_src_param *shader_instruction_array_clone_src_params(

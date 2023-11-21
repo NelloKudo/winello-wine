@@ -48,6 +48,8 @@ static HDC (WINAPI *pGetBufferedPaintTargetDC)(HPAINTBUFFER);
 static HRESULT (WINAPI *pGetBufferedPaintTargetRect)(HPAINTBUFFER, RECT *);
 static HRESULT (WINAPI *pGetThemeIntList)(HTHEME, int, int, int, INTLIST *);
 static HRESULT (WINAPI *pGetThemeTransitionDuration)(HTHEME, int, int, int, int, DWORD *);
+static BOOL (WINAPI *pShouldSystemUseDarkMode)(void);
+static BOOL (WINAPI *pShouldAppsUseDarkMode)(void);
 
 static LONG (WINAPI *pDisplayConfigGetDeviceInfo)(DISPLAYCONFIG_DEVICE_INFO_HEADER *);
 static LONG (WINAPI *pDisplayConfigSetDeviceInfo)(DISPLAYCONFIG_DEVICE_INFO_HEADER *);
@@ -73,6 +75,9 @@ static void init_funcs(void)
     HMODULE user32 = GetModuleHandleA("user32.dll");
     HMODULE gdi32 = GetModuleHandleA("gdi32.dll");
     HMODULE uxtheme = GetModuleHandleA("uxtheme.dll");
+
+    pShouldSystemUseDarkMode = (void *)GetProcAddress(uxtheme, MAKEINTRESOURCEA(138));
+    pShouldAppsUseDarkMode = (void *)GetProcAddress(uxtheme, MAKEINTRESOURCEA(132));
 
 #define GET_PROC(module, func)                       \
     p##func = (void *)GetProcAddress(module, #func); \
@@ -553,16 +558,45 @@ static void test_OpenThemeData(void)
 
     /* Only do the next checks if we have an active theme */
 
+    hRes = SetWindowTheme(hWnd, L"explorer", NULL);
+    ok(hRes == S_OK, "Got unexpected hr %#lx.\n", hRes);
+    SetLastError(0xdeadbeef);
+    hTheme = OpenThemeData(hWnd, L"explorer::treeview");
+    ok(!hTheme, "OpenThemeData() should fail\n");
+    ok(GetLastError() == E_PROP_ID_UNSUPPORTED, "Got unexpected %#lx.\n", GetLastError());
+    SetWindowTheme(hWnd, NULL, NULL);
+
+    SetLastError(0xdeadbeef);
+    hTheme = OpenThemeData(hWnd, L"dead::beef;explorer::treeview");
+    todo_wine
+    ok(!hTheme, "OpenThemeData() should fail\n");
+    todo_wine
+    ok(GetLastError() == E_PROP_ID_UNSUPPORTED, "Got unexpected %#lx.\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    hTheme = OpenThemeData(hWnd, L"explorer::treeview");
+    ok(hTheme != NULL, "OpenThemeData() failed\n");
+    ok(GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got 0x%08lx\n", GetLastError());
+    CloseThemeData(hTheme);
+
+    SetLastError(0xdeadbeef);
+    hTheme = OpenThemeData(hWnd, L"deadbeef::treeview;dead::beef");
+    ok(hTheme != NULL, "OpenThemeData() failed\n");
+    ok(GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got 0x%08lx\n", GetLastError());
+    CloseThemeData(hTheme);
+
     SetLastError(0xdeadbeef);
     hTheme = OpenThemeData(hWnd, szButtonClassList);
     ok( hTheme != NULL, "got NULL, expected a HTHEME handle\n");
     ok( GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got 0x%08lx\n", GetLastError() );
+    CloseThemeData(hTheme);
 
     /* Test with bUtToN instead of Button */
     SetLastError(0xdeadbeef);
     hTheme = OpenThemeData(hWnd, szButtonClassList2);
     ok( hTheme != NULL, "got NULL, expected a HTHEME handle\n");
     ok( GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got 0x%08lx\n", GetLastError() );
+    CloseThemeData(hTheme);
 
     SetLastError(0xdeadbeef);
     hTheme = OpenThemeData(hWnd, szClassList);
@@ -577,6 +611,12 @@ static void test_OpenThemeData(void)
     ok( GetLastError() == 0xdeadbeef,
         "Expected 0xdeadbeef, got 0x%08lx\n",
         GetLastError());
+
+    SetLastError(0xdeadbeef);
+    bTPDefined = IsThemePartDefined(hTheme, 0, 0);
+    todo_wine
+    ok( bTPDefined == FALSE, "Expected FALSE\n" );
+    ok( GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got 0x%08lx\n", GetLastError() );
 
     hRes = CloseThemeData(hTheme);
     ok( hRes == S_OK, "Expected S_OK, got 0x%08lx\n", hRes);
@@ -594,12 +634,6 @@ static void test_OpenThemeData(void)
     ok( GetLastError() == 0xdeadbeef,
         "Expected 0xdeadbeef, got 0x%08lx\n",
         GetLastError());
-
-    SetLastError(0xdeadbeef);
-    bTPDefined = IsThemePartDefined(hTheme, 0 , 0);
-    todo_wine
-    ok( bTPDefined == FALSE, "Expected FALSE\n" );
-    ok( GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got 0x%08lx\n", GetLastError() );
 
     DestroyWindow(hWnd);
 }
@@ -2586,7 +2620,7 @@ static void test_theme(void)
     /* > XP use opaque scrollbar arrow parts, but TMT_TRANSPARENT is TRUE */
     else
     {
-        ok(hr == S_OK, "Got unexpected hr %#lx,\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
         ok(transparent, "Expected transparent.\n");
 
         transparent = IsThemeBackgroundPartiallyTransparent(htheme, SBP_ARROWBTN, 0);
@@ -2595,6 +2629,64 @@ static void test_theme(void)
     CloseThemeData(htheme);
 
     DestroyWindow(hwnd);
+}
+
+static void test_ShouldSystemUseDarkMode(void)
+{
+    DWORD light_theme, light_theme_size = sizeof(light_theme), last_error;
+    BOOL result;
+    LSTATUS ls;
+
+    if (!pShouldSystemUseDarkMode)
+    {
+        win_skip("ShouldSystemUseDarkMode() is unavailable.\n");
+        return;
+    }
+
+    ls = RegGetValueW(HKEY_CURRENT_USER,
+                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      L"SystemUsesLightTheme", RRF_RT_REG_DWORD, NULL, &light_theme, &light_theme_size);
+    if (ls == ERROR_FILE_NOT_FOUND)
+    {
+        skip("SystemUsesLightTheme registry value not found.\n");
+        return;
+    }
+    ok(ls == 0, "RegGetValue failed: %ld.\n", ls);
+
+    SetLastError(0xdeadbeef);
+    result = pShouldSystemUseDarkMode();
+    last_error = GetLastError();
+    ok(last_error == 0xdeadbeef, "ShouldSystemUseDarkMode set last error: %ld.\n", last_error);
+    ok(result == !light_theme, "Expected value %d, got %d.\n", !light_theme, result);
+}
+
+static void test_ShouldAppsUseDarkMode(void)
+{
+    DWORD light_theme, light_theme_size = sizeof(light_theme), last_error;
+    BOOL result;
+    LSTATUS ls;
+
+    if (!pShouldAppsUseDarkMode)
+    {
+        win_skip("ShouldAppsUseDarkMode() is unavailable\n");
+        return;
+    }
+
+    ls = RegGetValueW(HKEY_CURRENT_USER,
+                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      L"AppsUseLightTheme", RRF_RT_REG_DWORD, NULL, &light_theme, &light_theme_size);
+    if (ls == ERROR_FILE_NOT_FOUND)
+    {
+        skip("AppsUseLightTheme registry value not found.\n");
+        return;
+    }
+    ok(ls == 0, "RegGetValue failed: %ld.\n", ls);
+
+    SetLastError(0xdeadbeef);
+    result = pShouldAppsUseDarkMode();
+    last_error = GetLastError();
+    ok(last_error == 0xdeadbeef, "ShouldAppsUseDarkMode set last error: %ld.\n", last_error);
+    ok(result == !light_theme, "Expected value %d, got %d\n", !light_theme, result);
 }
 
 START_TEST(system)
@@ -2622,6 +2714,8 @@ START_TEST(system)
     test_DrawThemeBackgroundEx();
     test_GetThemeBackgroundRegion();
     test_theme();
+    test_ShouldSystemUseDarkMode();
+    test_ShouldAppsUseDarkMode();
 
     if (load_v6_module(&ctx_cookie, &ctx))
     {

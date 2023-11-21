@@ -611,7 +611,8 @@ static BOOL fetch_next_frame(struct cpu_stack_walk *csw, union ctx *pcontext,
     DWORD64 cfa;
     RUNTIME_FUNCTION*       rtf;
     DWORD64                 base;
-    CONTEXT *context = &pcontext->ctx;
+    CONTEXT                *context = &pcontext->ctx;
+    DWORD64                 input_Rip = context->Rip;
 
     if (!curr_pc || !(base = sw_module_base(csw, curr_pc))) return FALSE;
     rtf = sw_table_access(csw, curr_pc);
@@ -620,7 +621,7 @@ static BOOL fetch_next_frame(struct cpu_stack_walk *csw, union ctx *pcontext,
     {
         return interpret_function_table_entry(csw, context, rtf, base);
     }
-    else if (dwarf2_virtual_unwind(csw, curr_pc, pcontext, &cfa))
+    else if (dwarf2_virtual_unwind(csw, curr_pc, pcontext, &cfa) && input_Rip != context->Rip)
     {
         context->Rsp = cfa;
         TRACE("next function rip=%016Ix\n", context->Rip);
@@ -961,7 +962,7 @@ static BOOL x86_64_fetch_minidump_module(struct dump_context* dc, unsigned index
         ULONG                   size;
 
         if (!(pcs = process_find_by_handle(dc->process->handle)) ||
-            !(module = module_find_by_addr(pcs, dc->modules[index].base, DMT_UNKNOWN)))
+            !(module = module_find_by_addr(pcs, dc->modules[index].base)))
             return FALSE;
         rtf = (const RUNTIME_FUNCTION*)pe_map_directory(module, IMAGE_DIRECTORY_ENTRY_EXCEPTION, &size);
         if (rtf)

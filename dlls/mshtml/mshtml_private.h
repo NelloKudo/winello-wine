@@ -813,20 +813,14 @@ struct GeckoBrowser {
 
 typedef struct {
     const CLSID *clsid;
-    void *(*qi)(HTMLDOMNode*,REFIID);
-    void (*destructor)(HTMLDOMNode*);
     const cpc_entry_t *cpc_entries;
     HRESULT (*clone)(HTMLDOMNode*,nsIDOMNode*,HTMLDOMNode**);
-    HRESULT (*handle_event)(HTMLDOMNode*,DWORD,nsIDOMEvent*,BOOL*);
     HRESULT (*get_attr_col)(HTMLDOMNode*,HTMLAttributeCollection**);
     EventTarget *(*get_event_prop_target)(HTMLDOMNode*,int);
     HRESULT (*put_disabled)(HTMLDOMNode*,VARIANT_BOOL);
     HRESULT (*get_disabled)(HTMLDOMNode*,VARIANT_BOOL*);
     HRESULT (*get_document)(HTMLDOMNode*,IDispatch**);
     HRESULT (*get_readystate)(HTMLDOMNode*,BSTR*);
-    HRESULT (*get_dispid)(HTMLDOMNode*,BSTR,DWORD,DISPID*);
-    HRESULT (*get_name)(HTMLDOMNode*,DISPID,BSTR*);
-    HRESULT (*invoke)(HTMLDOMNode*,DISPID,LCID,WORD,DISPPARAMS*,VARIANT*,EXCEPINFO*,IServiceProvider*);
     HRESULT (*bind_to_tree)(HTMLDOMNode*);
     BOOL (*is_text_edit)(HTMLDOMNode*);
     BOOL (*is_settable)(HTMLDOMNode*,DISPID);
@@ -888,6 +882,7 @@ typedef struct {
     IHTMLElement4_tid,      \
     IHTMLUniqueName_tid
 
+extern const tid_t HTMLElement_iface_tids[];
 extern cp_static_data_t HTMLElementEvents2_data;
 #define HTMLELEMENT_CPC {&DIID_HTMLElementEvents2, &HTMLElementEvents2_data}
 extern const cpc_entry_t HTMLElement_cpc[];
@@ -1003,9 +998,7 @@ HRESULT create_history(HTMLInnerWindow*,OmHistory**);
 HRESULT create_namespace_collection(compat_mode_t,IHTMLNamespaceCollection**);
 HRESULT create_dom_implementation(HTMLDocumentNode*,IHTMLDOMImplementation**);
 void detach_dom_implementation(IHTMLDOMImplementation*);
-
 HRESULT create_html_storage(HTMLInnerWindow*,BOOL,IHTMLStorage**);
-void detach_html_storage(IHTMLStorage*);
 
 void HTMLDocument_View_Init(HTMLDocumentObj*);
 void HTMLDocumentObj_Persist_Init(HTMLDocumentObj*);
@@ -1203,22 +1196,19 @@ void EventTarget_Init(EventTarget*,dispex_static_data_t*,compat_mode_t);
 void *EventTarget_query_interface(EventTarget*,REFIID);
 void EventTarget_init_dispex_info(dispex_data_t*,compat_mode_t);
 
-void *HTMLDOMNode_QI(HTMLDOMNode*,REFIID);
 void *HTMLDOMNode_query_interface(DispatchEx*,REFIID);
 void HTMLDOMNode_destructor(DispatchEx*);
 void HTMLDOMNode_traverse(DispatchEx*,nsCycleCollectionTraversalCallback*);
 void HTMLDOMNode_unlink(DispatchEx*);
 void HTMLDOMNode_init_dispex_info(dispex_data_t*,compat_mode_t);
 
-void *HTMLElement_QI(HTMLDOMNode*,REFIID);
-void HTMLElement_destructor(HTMLDOMNode*);
-HRESULT HTMLElement_get_dispid(DispatchEx*,BSTR,DWORD,DISPID*);
-HRESULT HTMLElement_get_name(DispatchEx*,DISPID,BSTR*);
-HRESULT HTMLElement_invoke(DispatchEx*,DISPID,LCID,WORD,DISPPARAMS*,VARIANT*,EXCEPINFO*,IServiceProvider*);
+void *HTMLElement_query_interface(DispatchEx*,REFIID);
+void HTMLElement_destructor(DispatchEx*);
+void HTMLElement_traverse(DispatchEx*,nsCycleCollectionTraversalCallback*);
+void HTMLElement_unlink(DispatchEx*);
 HRESULT HTMLElement_populate_props(DispatchEx*);
 HRESULT HTMLElement_clone(HTMLDOMNode*,nsIDOMNode*,HTMLDOMNode**);
 HRESULT HTMLElement_get_attr_col(HTMLDOMNode*,HTMLAttributeCollection**);
-HRESULT HTMLElement_handle_event(HTMLDOMNode*,DWORD,nsIDOMEvent*,BOOL*);
 void HTMLElement_init_dispex_info(dispex_data_t*,compat_mode_t);
 
 HRESULT get_node(nsIDOMNode*,BOOL,HTMLDOMNode**);

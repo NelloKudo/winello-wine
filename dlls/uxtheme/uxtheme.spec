@@ -42,6 +42,10 @@
 61 stdcall OpenThemeDataEx(ptr wstr long)
 62 stub -noname ServerClearStockObjects
 63 stub -noname MarkSelection
+132 stdcall -noname ShouldAppsUseDarkMode()
+133 stdcall -noname AllowDarkModeForWindow(ptr long)
+135 stdcall -noname SetPreferredAppMode(long)
+138 stdcall -noname ShouldSystemUseDarkMode()
 
 # Standard functions
 @ stdcall BeginBufferedAnimation(ptr ptr ptr long ptr ptr ptr ptr)

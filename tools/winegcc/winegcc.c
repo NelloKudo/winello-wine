@@ -409,6 +409,8 @@ static struct strarray get_link_args( struct options *opts, const char *output_n
 
         strarray_add( &flags, "-Wl,--exclude-all-symbols" );
         strarray_add( &flags, "-Wl,--nxcompat" );
+        strarray_add( &flags, "-Wl,--dynamicbase" );
+        strarray_add( &flags, "-Wl,--disable-auto-image-base" );
 
         if (opts->image_base) strarray_add( &flags, strmake("-Wl,--image-base,%s", opts->image_base ));
 
@@ -463,6 +465,8 @@ static struct strarray get_link_args( struct options *opts, const char *output_n
 
         if (opts->out_implib)
             strarray_add(&link_args, strmake("-Wl,-implib:%s", opts->out_implib));
+        else
+            strarray_add(&link_args, strmake("-Wl,-implib:%s", make_temp_file( output_name, ".lib" )));
 
         strarray_add( &link_args, strmake( "-Wl,-filealign:%s", opts->file_align ? opts->file_align : "0x1000" ));
 

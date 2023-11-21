@@ -437,7 +437,7 @@ static void test_dmsynth(void)
     ok(params.dwValidParams == all_params, "dwValidParams: %#lx\n", params.dwValidParams);
     ok(params.dwVoices == 1, "dwVoices: %ld\n", params.dwVoices);
     ok(params.dwChannelGroups == 1, "dwChannelGroups: %ld\n", params.dwChannelGroups);
-    ok(params.dwAudioChannels == 1, "dwAudioChannels: %ld\n", params.dwAudioChannels);
+    todo_wine ok(params.dwAudioChannels == 1, "dwAudioChannels: %ld\n", params.dwAudioChannels);
     ok(params.dwSampleRate == 11025, "dwSampleRate: %ld\n", params.dwSampleRate);
     test_synth_getformat(dmsynth, &params, "min");
     IDirectMusicSynth_Close(dmsynth);
@@ -525,7 +525,7 @@ static void test_dmsynth(void)
     params.dwValidParams = DMUS_PORTPARAMS_AUDIOCHANNELS;
     params.dwAudioChannels = 1;
     hr = IDirectMusicSynth_Open(dmsynth, &params);
-    ok(hr == S_OK, "Open failed: %#lx\n", hr);
+    todo_wine_if(SUCCEEDED(hr)) ok(hr == S_OK, "Open failed: %#lx\n", hr);
     hr = IDirectMusicSynthSink_GetDesiredBufferSize(dmsynth_sink, &size);
     ok(hr == S_OK, "IDirectMusicSynthSink_GetDesiredBufferSize returned: %#lx\n", hr);
     ok(size == params.dwSampleRate * params.dwAudioChannels * 4, "size: %ld\n", size);
@@ -1036,19 +1036,19 @@ static void test_IDirectMusicSynth(void)
 
     /* SetMasterClock does nothing */
     hr = IDirectMusicSynth_SetMasterClock(synth, NULL);
-    todo_wine ok(hr == E_POINTER, "got %#lx\n", hr);
+    ok(hr == E_POINTER, "got %#lx\n", hr);
     hr = IDirectMusicSynth_SetMasterClock(synth, clock);
     ok(hr == S_OK, "got %#lx\n", hr);
     ref = get_refcount(clock);
     todo_wine ok(ref == 1, "got %lu\n", ref);
     hr = IDirectMusicSynth_Activate(synth, TRUE);
-    todo_wine ok(hr == DMUS_E_SYNTHNOTCONFIGURED, "got %#lx\n", hr);
+    ok(hr == DMUS_E_SYNTHNOTCONFIGURED, "got %#lx\n", hr);
 
     /* SetMasterClock needs to be called on the sink */
     hr = IDirectMusicSynthSink_SetMasterClock(sink, clock);
     ok(hr == S_OK, "got %#lx\n", hr);
     hr = IDirectMusicSynth_Activate(synth, TRUE);
-    todo_wine ok(hr == S_OK, "got %#lx\n", hr);
+    ok(hr == S_OK, "got %#lx\n", hr);
     hr = IDirectMusicSynth_Activate(synth, TRUE);
     ok(hr == S_FALSE, "got %#lx\n", hr);
 
@@ -1294,7 +1294,7 @@ static void test_IDirectMusicSynthSink(void)
     hr = IDirectMusicSynthSink_Activate(sink, TRUE);
     ok(hr == DMUS_E_SYNTHACTIVE, "got %#lx\n", hr);
     ref = get_refcount(synth);
-    ok(ref == 1, "got %#lx\n", ref);
+    todo_wine ok(ref == 1, "got %#lx\n", ref);
 
     hr = IDirectMusicSynthSink_GetDesiredBufferSize(sink, &size);
     ok(hr == S_OK, "got %#lx\n", hr);
@@ -1317,7 +1317,7 @@ static void test_IDirectMusicSynthSink(void)
     tmp_time = time;
     hr = IReferenceClock_GetTime(latency_clock, &tmp_time);
     ok(hr == S_OK, "got %#lx\n", hr);
-    todo_wine ok(tmp_time > time, "got %I64d\n", tmp_time - time);
+    ok(tmp_time > time, "got %I64d\n", tmp_time - time);
     ok(tmp_time - time <= 2000000, "got %I64d\n", tmp_time - time);
 
     /* setting the clock while active is fine */
@@ -1328,7 +1328,7 @@ static void test_IDirectMusicSynthSink(void)
     hr = IDirectMusicSynthSink_Init(sink, NULL);
     ok(hr == S_OK, "got %#lx\n", hr);
     ref = get_refcount(synth);
-    ok(ref == 1, "got %#lx\n", ref);
+    todo_wine ok(ref == 1, "got %#lx\n", ref);
     hr = IDirectMusicSynthSink_Activate(sink, TRUE);
     ok(hr == DMUS_E_SYNTHNOTCONFIGURED, "got %#lx\n", hr);
 

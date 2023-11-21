@@ -802,6 +802,8 @@ static BOOL X11DRV_FocusIn( HWND hwnd, XEvent *xev )
     if (is_virtual_desktop() && hwnd == NtUserGetDesktopWindow()) retry_grab_clipping_window();
     if (hwnd == NtUserGetDesktopWindow()) return FALSE;
 
+    x11drv_thread_data()->keymapnotify_hwnd = hwnd;
+
     /* when keyboard grab is released, re-apply the cursor clipping rect */
     was_grabbed = keyboard_grabbed;
     keyboard_grabbed = event->mode == NotifyGrab || event->mode == NotifyWhileGrabbed;
@@ -872,7 +874,13 @@ static BOOL X11DRV_FocusOut( HWND hwnd, XEvent *xev )
 
     if (event->detail == NotifyPointer)
     {
-        if (!hwnd && event->window == x11drv_thread_data()->clip_window) NtUserClipCursor( NULL );
+        if (!hwnd && event->window == x11drv_thread_data()->clip_window)
+        {
+            NtUserClipCursor( NULL );
+            /* NtUserClipCursor will ask the foreground window to ungrab the cursor, but
+             * it might not be responsive, so unmap the clipping window ourselves too */
+            XUnmapWindow( event->display, event->window );
+        }
         return TRUE;
     }
     if (!hwnd) return FALSE;

@@ -658,16 +658,6 @@ static inline HTMLImg *impl_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLImg, element.node);
 }
 
-static void *HTMLImgElement_QI(HTMLDOMNode *iface, REFIID riid)
-{
-    HTMLImg *This = impl_from_HTMLDOMNode(iface);
-
-    if(IsEqualGUID(&IID_IHTMLImgElement, riid))
-        return &This->IHTMLImgElement_iface;
-
-    return HTMLElement_QI(&This->element.node, riid);
-}
-
 static HRESULT HTMLImgElement_get_readystate(HTMLDOMNode *iface, BSTR *p)
 {
     HTMLImg *This = impl_from_HTMLDOMNode(iface);
@@ -680,10 +670,20 @@ static inline HTMLImg *HTMLImg_from_DispatchEx(DispatchEx *iface)
     return CONTAINING_RECORD(iface, HTMLImg, element.node.event_target.dispex);
 }
 
+static void *HTMLImgElement_query_interface(DispatchEx *dispex, REFIID riid)
+{
+    HTMLImg *This = HTMLImg_from_DispatchEx(dispex);
+
+    if(IsEqualGUID(&IID_IHTMLImgElement, riid))
+        return &This->IHTMLImgElement_iface;
+
+    return HTMLElement_query_interface(&This->element.node.event_target.dispex, riid);
+}
+
 static void HTMLImgElement_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
 {
     HTMLImg *This = HTMLImg_from_DispatchEx(dispex);
-    HTMLDOMNode_traverse(dispex, cb);
+    HTMLElement_traverse(dispex, cb);
 
     if(This->nsimg)
         note_cc_edge((nsISupports*)This->nsimg, "nsimg", cb);
@@ -692,17 +692,14 @@ static void HTMLImgElement_traverse(DispatchEx *dispex, nsCycleCollectionTravers
 static void HTMLImgElement_unlink(DispatchEx *dispex)
 {
     HTMLImg *This = HTMLImg_from_DispatchEx(dispex);
-    HTMLDOMNode_unlink(dispex);
+    HTMLElement_unlink(dispex);
     unlink_ref(&This->nsimg);
 }
 
 static const NodeImplVtbl HTMLImgElementImplVtbl = {
     .clsid                 = &CLSID_HTMLImg,
-    .qi                    = HTMLImgElement_QI,
-    .destructor            = HTMLElement_destructor,
     .cpc_entries           = HTMLElement_cpc,
     .clone                 = HTMLElement_clone,
-    .handle_event          = HTMLElement_handle_event,
     .get_attr_col          = HTMLElement_get_attr_col,
     .get_readystate        = HTMLImgElement_get_readystate,
 };
@@ -710,10 +707,13 @@ static const NodeImplVtbl HTMLImgElementImplVtbl = {
 static const event_target_vtbl_t HTMLImgElement_event_target_vtbl = {
     {
         HTMLELEMENT_DISPEX_VTBL_ENTRIES,
+        .query_interface= HTMLImgElement_query_interface,
+        .destructor     = HTMLElement_destructor,
         .traverse       = HTMLImgElement_traverse,
         .unlink         = HTMLImgElement_unlink
     },
     HTMLELEMENT_EVENT_TARGET_VTBL_ENTRIES,
+    .handle_event       = HTMLElement_handle_event
 };
 
 static const tid_t HTMLImgElement_iface_tids[] = {
@@ -846,7 +846,7 @@ static HRESULT WINAPI HTMLImageElementFactory_create(IHTMLImageElementFactory *i
         VARIANT width, VARIANT height, IHTMLImgElement **img_elem)
 {
     HTMLImageElementFactory *This = impl_from_IHTMLImageElementFactory(iface);
-    HTMLDocumentNode *doc;
+    HTMLDocumentNode *doc = This->window->doc;
     IHTMLImgElement *img;
     HTMLElement *elem;
     nsIDOMElement *nselem;
@@ -855,13 +855,6 @@ static HRESULT WINAPI HTMLImageElementFactory_create(IHTMLImageElementFactory *i
 
     TRACE("(%p)->(%s %s %p)\n", This, debugstr_variant(&width),
             debugstr_variant(&height), img_elem);
-
-    if(!This->window || !This->window->doc) {
-        WARN("NULL doc\n");
-        return E_UNEXPECTED;
-    }
-
-    doc = This->window->doc;
 
     *img_elem = NULL;
 
@@ -921,6 +914,25 @@ static void *HTMLImageElementFactory_query_interface(DispatchEx *dispex, REFIID 
     return NULL;
 }
 
+static void HTMLImageElementFactory_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
+{
+    HTMLImageElementFactory *This = impl_from_DispatchEx(dispex);
+
+    if(This->window)
+        note_cc_edge((nsISupports*)&This->window->base.IHTMLWindow2_iface, "window", cb);
+}
+
+static void HTMLImageElementFactory_unlink(DispatchEx *dispex)
+{
+    HTMLImageElementFactory *This = impl_from_DispatchEx(dispex);
+
+    if(This->window) {
+        HTMLInnerWindow *window = This->window;
+        This->window = NULL;
+        IHTMLWindow2_Release(&window->base.IHTMLWindow2_iface);
+    }
+}
+
 static void HTMLImageElementFactory_destructor(DispatchEx *dispex)
 {
     HTMLImageElementFactory *This = impl_from_DispatchEx(dispex);
@@ -963,6 +975,8 @@ static const tid_t HTMLImageElementFactory_iface_tids[] = {
 static const dispex_static_data_vtbl_t HTMLImageElementFactory_dispex_vtbl = {
     .query_interface  = HTMLImageElementFactory_query_interface,
     .destructor       = HTMLImageElementFactory_destructor,
+    .traverse         = HTMLImageElementFactory_traverse,
+    .unlink           = HTMLImageElementFactory_unlink,
     .value            = HTMLImageElementFactory_value,
 };
 
@@ -983,6 +997,7 @@ HRESULT HTMLImageElementFactory_Create(HTMLInnerWindow *window, HTMLImageElement
 
     ret->IHTMLImageElementFactory_iface.lpVtbl = &HTMLImageElementFactoryVtbl;
     ret->window = window;
+    IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
 
     init_dispatch(&ret->dispex, &HTMLImageElementFactory_dispex, dispex_compat_mode(&window->event_target.dispex));
 

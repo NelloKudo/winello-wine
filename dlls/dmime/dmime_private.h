@@ -42,6 +42,8 @@
 #include "dmusics.h"
 #include "dmusicc.h"
 
+#include "dmobject.h"
+
 /*****************************************************************************
  * Interfaces
  */
@@ -70,19 +72,27 @@ extern void set_audiopath_perf_pointer(IDirectMusicAudioPath*,IDirectMusicPerfor
 extern void set_audiopath_dsound_buffer(IDirectMusicAudioPath*,IDirectSoundBuffer*);
 extern void set_audiopath_primary_dsound_buffer(IDirectMusicAudioPath*,IDirectSoundBuffer*);
 
-extern IDirectSound *get_dsound_interface(IDirectMusicPerformance8*);
-extern IDirectSoundBuffer *get_segment_buffer(IDirectMusicSegment8 *iface);
+extern HRESULT segment_state_create(IDirectMusicSegment *segment, MUSIC_TIME start_time,
+        IDirectMusicPerformance8 *performance, IDirectMusicSegmentState **ret_iface);
+extern HRESULT segment_state_play(IDirectMusicSegmentState *iface, IDirectMusicPerformance8 *performance);
+extern HRESULT segment_state_tick(IDirectMusicSegmentState *iface, IDirectMusicPerformance8 *performance);
+extern HRESULT segment_state_end_play(IDirectMusicSegmentState *iface, IDirectMusicPerformance8 *performance);
+extern BOOL segment_state_has_segment(IDirectMusicSegmentState *iface, IDirectMusicSegment *segment);
+
+extern HRESULT wave_track_create_from_chunk(IStream *stream, struct chunk_entry *parent,
+        IDirectMusicTrack8 **ret_iface);
+
+extern HRESULT performance_get_dsound(IDirectMusicPerformance8 *iface, IDirectSound **dsound);
+extern HRESULT performance_send_segment_start(IDirectMusicPerformance8 *iface, MUSIC_TIME music_time,
+        IDirectMusicSegmentState *state);
+extern HRESULT performance_send_segment_tick(IDirectMusicPerformance8 *iface, MUSIC_TIME music_time,
+        IDirectMusicSegmentState *state);
+extern HRESULT performance_send_segment_end(IDirectMusicPerformance8 *iface, MUSIC_TIME music_time,
+        IDirectMusicSegmentState *state);
 
 /*****************************************************************************
  * Auxiliary definitions
  */
-typedef struct _DMUS_PRIVATE_SEGMENT_TRACK {
-  struct list entry; /* for listing elements */
-  DWORD dwGroupBits;
-  DWORD flags;
-  IDirectMusicTrack* pTrack;
-} DMUS_PRIVATE_SEGMENT_TRACK, *LPDMUS_PRIVATE_SEGMENT_TRACK;
-
 typedef struct _DMUS_PRIVATE_TEMPO_ITEM {
   struct list entry; /* for listing elements */
   DMUS_IO_TEMPO_ITEM item;

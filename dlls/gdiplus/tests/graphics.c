@@ -176,7 +176,7 @@ typedef struct node{
 /* Linked list prepend function. */
 static void log_state(GraphicsState data, node ** log)
 {
-    node * new_entry = HeapAlloc(GetProcessHeap(), 0, sizeof(node));
+    node * new_entry = malloc(sizeof(node));
 
     new_entry->data = data;
     new_entry->next = *log;
@@ -209,7 +209,7 @@ static void check_no_duplicates(node * log)
     temp = orig;
     do{
         temp2 = temp->next;
-        HeapFree(GetProcessHeap(), 0, temp);
+        free(temp);
         temp = temp2;
     }while(temp);
 
@@ -1828,6 +1828,8 @@ static void test_Get_Release_DC(void)
     /* GdipMeasureString */
     status = GdipResetClip(graphics);
     expect(ObjectBusy, status);
+    status = GdipResetPageTransform(graphics);
+    expect(ObjectBusy, status);
     status = GdipResetWorldTransform(graphics);
     expect(ObjectBusy, status);
     /* GdipRestoreGraphics */
@@ -1843,6 +1845,8 @@ static void test_Get_Release_DC(void)
     status = GdipSetInterpolationMode(graphics, InterpolationModeDefault);
     expect(ObjectBusy, status);
     status = GdipSetPageScale(graphics, 1.0);
+    expect(ObjectBusy, status);
+    status = GdipSetPageScale(graphics, 0.0);
     expect(ObjectBusy, status);
     status = GdipSetPageUnit(graphics, UnitWorld);
     expect(ObjectBusy, status);
@@ -4056,6 +4060,91 @@ static void test_transform(void)
         status = GdipDisposeImage(image);
         expect(Ok, status);
     }
+}
+
+static void test_set_page_transform(void)
+{
+    static const struct
+    {
+        GpUnit unit;
+        BOOL isInvalid;
+    } td_unit[] =
+    {
+        {UnitWorld, TRUE},
+        {UnitDisplay},
+        {UnitPixel},
+        {UnitPoint},
+        {UnitInch},
+        {UnitDocument},
+        {UnitMillimeter},
+        {UnitMillimeter + 1, TRUE},
+    };
+    static const struct {
+        REAL scale;
+        BOOL isInvalid;
+    } td_scale[] =
+    {
+        {-1.0, TRUE},
+        {0.0, TRUE},
+        {0.5},
+        {1.0},
+        {2.0},
+    };
+    GpStatus status;
+    GpGraphics *graphics;
+    HDC hdc = GetDC( hwnd );
+    GpUnit unit;
+    REAL scale;
+    UINT i;
+
+    status = GdipCreateFromHDC(hdc, &graphics);
+    expect(Ok, status);
+
+    for (i = 0; i < ARRAY_SIZE(td_unit); i++)
+    {
+        winetest_push_context("%u", i);
+        status = GdipSetPageUnit(graphics, td_unit[i].unit);
+        expect(td_unit[i].isInvalid ? InvalidParameter : Ok, status);
+        if (status == Ok)
+        {
+            status = GdipGetPageUnit(graphics, &unit);
+            expect(Ok, status);
+            expect(td_unit[i].unit, unit);
+        }
+        winetest_pop_context();
+    }
+
+    for (i = 0; i < ARRAY_SIZE(td_scale); i++)
+    {
+        winetest_push_context("%u", i);
+        status = GdipSetPageScale(graphics, td_scale[i].scale);
+        expect(td_scale[i].isInvalid ? InvalidParameter : Ok, status);
+        if (status == Ok)
+        {
+            status = GdipGetPageScale(graphics, &scale);
+            expect(Ok, status);
+            expectf_(td_scale[i].scale, scale, 0);
+        }
+        winetest_pop_context();
+    }
+
+    status = GdipGetPageUnit(graphics, &unit);
+    expect(Ok, status);
+    expect(UnitMillimeter, unit);
+    status = GdipGetPageScale(graphics, &scale);
+    expect(Ok, status);
+    expectf_(2.0, scale, 0);
+    status = GdipResetPageTransform(graphics);
+    expect(Ok, status);
+    status = GdipGetPageUnit(graphics, &unit);
+    expect(Ok, status);
+    expect(UnitDisplay, unit);
+    status = GdipGetPageScale(graphics, &scale);
+    expect(Ok, status);
+    expectf_(1.0, scale, 0);
+
+    GdipDeleteGraphics(graphics);
+    ReleaseDC(hwnd, hdc);
 }
 
 static void test_pen_thickness(void)
@@ -7109,19 +7198,19 @@ static HDC create_printer_dc(void)
     if (!pOpenPrinterA(buffer, &hprn, NULL)) goto done;
 
     pGetPrinterA(hprn, 2, NULL, 0, &len);
-    pbuf = HeapAlloc(GetProcessHeap(), 0, len);
+    pbuf = malloc(len);
     if (!pGetPrinterA(hprn, 2, (LPBYTE)pbuf, len, &len)) goto done;
 
     pGetPrinterDriverA(hprn, NULL, 3, NULL, 0, &len);
-    dbuf = HeapAlloc(GetProcessHeap(), 0, len);
+    dbuf = malloc(len);
     if (!pGetPrinterDriverA(hprn, NULL, 3, (LPBYTE)dbuf, len, &len)) goto done;
 
     hdc = CreateDCA(dbuf->pDriverPath, pbuf->pPrinterName, pbuf->pPortName, pbuf->pDevMode);
     trace("hdc %p for driver '%s' printer '%s' port '%s'\n", hdc,
           dbuf->pDriverPath, pbuf->pPrinterName, pbuf->pPortName);
 done:
-    HeapFree(GetProcessHeap(), 0, dbuf);
-    HeapFree(GetProcessHeap(), 0, pbuf);
+    free(dbuf);
+    free(pbuf);
     if (hprn) pClosePrinter(hprn);
     if (winspool) FreeLibrary(winspool);
     return hdc;
@@ -7275,6 +7364,7 @@ START_TEST(graphics)
     test_measure_string();
     test_font_height_scaling();
     test_transform();
+    test_set_page_transform();
     test_pen_thickness();
     test_GdipMeasureString();
     test_constructor_destructor();

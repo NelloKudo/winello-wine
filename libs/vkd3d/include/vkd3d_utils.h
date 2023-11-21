@@ -20,6 +20,7 @@
 #define __VKD3D_UTILS_H
 
 #include <vkd3d.h>
+#include <vkd3d_d3dcompiler_types.h>
 
 #ifndef VKD3D_UTILS_API_VERSION
 #define VKD3D_UTILS_API_VERSION VKD3D_API_VERSION_1_0
@@ -100,6 +101,20 @@ VKD3D_UTILS_API HRESULT WINAPI D3DPreprocess(const void *data, SIZE_T size, cons
  * \since 1.4
  */
 VKD3D_UTILS_API void vkd3d_utils_set_log_callback(PFN_vkd3d_log callback);
+
+/** \since 1.10 */
+VKD3D_UTILS_API HRESULT WINAPI D3DGetBlobPart(const void *data,
+        SIZE_T data_size, D3D_BLOB_PART part, UINT flags, ID3DBlob **blob);
+/** \since 1.10 */
+VKD3D_UTILS_API HRESULT WINAPI D3DGetDebugInfo(const void *data, SIZE_T data_size, ID3DBlob **blob);
+/** \since 1.10 */
+VKD3D_UTILS_API HRESULT WINAPI D3DGetInputAndOutputSignatureBlob(const void *data, SIZE_T data_size, ID3DBlob **blob);
+/** \since 1.10 */
+VKD3D_UTILS_API HRESULT WINAPI D3DGetInputSignatureBlob(const void *data, SIZE_T data_size, ID3DBlob **blob);
+/** \since 1.10 */
+VKD3D_UTILS_API HRESULT WINAPI D3DGetOutputSignatureBlob(const void *data, SIZE_T data_size, ID3DBlob **blob);
+/** \since 1.10 */
+VKD3D_UTILS_API HRESULT WINAPI D3DStripShader(const void *data, SIZE_T data_size, UINT flags, ID3DBlob **blob);
 
 #ifdef __cplusplus
 }

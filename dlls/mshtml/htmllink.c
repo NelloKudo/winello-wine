@@ -374,16 +374,6 @@ static inline HTMLLinkElement *impl_from_HTMLDOMNode(HTMLDOMNode *iface)
     return CONTAINING_RECORD(iface, HTMLLinkElement, element.node);
 }
 
-static void *HTMLLinkElement_QI(HTMLDOMNode *iface, REFIID riid)
-{
-    HTMLLinkElement *This = impl_from_HTMLDOMNode(iface);
-
-    if(IsEqualGUID(&IID_IHTMLLinkElement, riid))
-        return &This->IHTMLLinkElement_iface;
-
-    return HTMLElement_QI(&This->element.node, riid);
-}
-
 static HRESULT HTMLLinkElementImpl_put_disabled(HTMLDOMNode *iface, VARIANT_BOOL v)
 {
     HTMLLinkElement *This = impl_from_HTMLDOMNode(iface);
@@ -401,10 +391,20 @@ static inline HTMLLinkElement *impl_from_DispatchEx(DispatchEx *iface)
     return CONTAINING_RECORD(iface, HTMLLinkElement, element.node.event_target.dispex);
 }
 
+static void *HTMLLinkElement_query_interface(DispatchEx *dispex, REFIID riid)
+{
+    HTMLLinkElement *This = impl_from_DispatchEx(dispex);
+
+    if(IsEqualGUID(&IID_IHTMLLinkElement, riid))
+        return &This->IHTMLLinkElement_iface;
+
+    return HTMLElement_query_interface(&This->element.node.event_target.dispex, riid);
+}
+
 static void HTMLLinkElement_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
 {
     HTMLLinkElement *This = impl_from_DispatchEx(dispex);
-    HTMLDOMNode_traverse(dispex, cb);
+    HTMLElement_traverse(dispex, cb);
 
     if(This->nslink)
         note_cc_edge((nsISupports*)This->nslink, "nslink", cb);
@@ -413,16 +413,13 @@ static void HTMLLinkElement_traverse(DispatchEx *dispex, nsCycleCollectionTraver
 static void HTMLLinkElement_unlink(DispatchEx *dispex)
 {
     HTMLLinkElement *This = impl_from_DispatchEx(dispex);
-    HTMLDOMNode_unlink(dispex);
+    HTMLElement_unlink(dispex);
     unlink_ref(&This->nslink);
 }
 static const NodeImplVtbl HTMLLinkElementImplVtbl = {
     .clsid                 = &CLSID_HTMLLinkElement,
-    .qi                    = HTMLLinkElement_QI,
-    .destructor            = HTMLElement_destructor,
     .cpc_entries           = HTMLElement_cpc,
     .clone                 = HTMLElement_clone,
-    .handle_event          = HTMLElement_handle_event,
     .get_attr_col          = HTMLElement_get_attr_col,
     .put_disabled          = HTMLLinkElementImpl_put_disabled,
     .get_disabled          = HTMLLinkElementImpl_get_disabled,
@@ -431,10 +428,13 @@ static const NodeImplVtbl HTMLLinkElementImplVtbl = {
 static const event_target_vtbl_t HTMLLinkElement_event_target_vtbl = {
     {
         HTMLELEMENT_DISPEX_VTBL_ENTRIES,
+        .query_interface= HTMLLinkElement_query_interface,
+        .destructor     = HTMLElement_destructor,
         .traverse       = HTMLLinkElement_traverse,
         .unlink         = HTMLLinkElement_unlink
     },
     HTMLELEMENT_EVENT_TARGET_VTBL_ENTRIES,
+    .handle_event       = HTMLElement_handle_event
 };
 
 static const tid_t HTMLLinkElement_iface_tids[] = {

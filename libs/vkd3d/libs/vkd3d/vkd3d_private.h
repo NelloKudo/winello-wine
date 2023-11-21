@@ -22,6 +22,7 @@
 #define COBJMACROS
 #define NONAMELESSUNION
 #define VK_NO_PROTOTYPES
+#define CONST_VTABLE
 
 #ifdef _WIN32
 # define _WIN32_WINNT 0x0600  /* for condition variables */
@@ -121,6 +122,7 @@ struct vkd3d_vulkan_info
     bool KHR_draw_indirect_count;
     bool KHR_get_memory_requirements2;
     bool KHR_image_format_list;
+    bool KHR_maintenance2;
     bool KHR_maintenance3;
     bool KHR_push_descriptor;
     bool KHR_sampler_mirror_clamp_to_edge;
@@ -680,7 +682,7 @@ struct d3d12_heap
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        const struct d3d12_resource *resource, struct d3d12_heap **heap);
+        const struct d3d12_resource *resource, ID3D12ProtectedResourceSession *protected_session, struct d3d12_heap **heap);
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
 
 #define VKD3D_RESOURCE_PUBLIC_FLAGS \
@@ -716,7 +718,7 @@ struct d3d12_resource_tile_info
 /* ID3D12Resource */
 struct d3d12_resource
 {
-    ID3D12Resource ID3D12Resource_iface;
+    ID3D12Resource1 ID3D12Resource1_iface;
     LONG refcount;
     LONG internal_refcount;
 
@@ -748,7 +750,12 @@ struct d3d12_resource
 
 static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
 {
-    return CONTAINING_RECORD(iface, struct d3d12_resource, ID3D12Resource_iface);
+    return CONTAINING_RECORD(iface, struct d3d12_resource, ID3D12Resource1_iface);
+}
+
+static inline struct d3d12_resource *impl_from_ID3D12Resource1(ID3D12Resource1 *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_resource, ID3D12Resource1_iface);
 }
 
 static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
@@ -771,7 +778,8 @@ void d3d12_resource_get_tiling(struct d3d12_device *device, const struct d3d12_r
 HRESULT d3d12_committed_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+        const D3D12_CLEAR_VALUE *optimized_clear_value, ID3D12ProtectedResourceSession *protected_session,
+        struct d3d12_resource **resource);
 HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_heap *heap, uint64_t heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
@@ -835,6 +843,7 @@ struct vkd3d_texture_view_desc
     VkImageAspectFlags vk_image_aspect;
     VkComponentMapping components;
     bool allowed_swizzle;
+    VkImageUsageFlags usage;
 };
 
 struct vkd3d_desc_header
@@ -1426,7 +1435,7 @@ enum vkd3d_pipeline_bind_point
 /* ID3D12CommandList */
 struct d3d12_command_list
 {
-    ID3D12GraphicsCommandList3 ID3D12GraphicsCommandList3_iface;
+    ID3D12GraphicsCommandList5 ID3D12GraphicsCommandList5_iface;
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
@@ -1709,7 +1718,7 @@ struct vkd3d_desc_object_cache
 /* ID3D12Device */
 struct d3d12_device
 {
-    ID3D12Device1 ID3D12Device1_iface;
+    ID3D12Device5 ID3D12Device5_iface;
     LONG refcount;
 
     VkDevice vk_device;
@@ -1775,27 +1784,27 @@ struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device, D3
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
-struct d3d12_device *unsafe_impl_from_ID3D12Device1(ID3D12Device1 *iface);
+struct d3d12_device *unsafe_impl_from_ID3D12Device5(ID3D12Device5 *iface);
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device1_QueryInterface(&device->ID3D12Device1_iface, iid, object);
+    return ID3D12Device5_QueryInterface(&device->ID3D12Device5_iface, iid, object);
 }
 
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    return ID3D12Device1_AddRef(&device->ID3D12Device1_iface);
+    return ID3D12Device5_AddRef(&device->ID3D12Device5_iface);
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    return ID3D12Device1_Release(&device->ID3D12Device1_iface);
+    return ID3D12Device5_Release(&device->ID3D12Device5_iface);
 }
 
 static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(struct d3d12_device *device,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_type)
 {
-    return ID3D12Device1_GetDescriptorHandleIncrementSize(&device->ID3D12Device1_iface, descriptor_type);
+    return ID3D12Device5_GetDescriptorHandleIncrementSize(&device->ID3D12Device5_iface, descriptor_type);
 }
 
 /* utils */

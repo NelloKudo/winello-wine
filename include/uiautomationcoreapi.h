@@ -558,6 +558,8 @@ HRESULT WINAPI UiaAddEvent(HUIANODE huianode, EVENTID event_id, UiaEventCallback
 HRESULT WINAPI UiaRemoveEvent(HUIAEVENT huiaevent);
 HRESULT WINAPI UiaEventAddWindow(HUIAEVENT huiaevent, HWND hwnd);
 HRESULT WINAPI UiaEventRemoveWindow(HUIAEVENT huiaevent, HWND hwnd);
+BOOL WINAPI UiaHasServerSideProvider(HWND hwnd);
+BOOL WINAPI UiaClientsAreListening(void);
 
 #ifdef __cplusplus
 }

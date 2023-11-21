@@ -33,40 +33,30 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
-/* Protects access to the user data of xdg_surface */
-static pthread_mutex_t xdg_data_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static struct wayland_surface *wayland_surface_lock_xdg(struct xdg_surface *xdg_surface)
-{
-    struct wayland_surface *surface;
-
-    pthread_mutex_lock(&xdg_data_mutex);
-    surface = xdg_surface_get_user_data(xdg_surface);
-    if (surface) pthread_mutex_lock(&surface->mutex);
-    pthread_mutex_unlock(&xdg_data_mutex);
-
-    return surface;
-}
-
 static void xdg_surface_handle_configure(void *data, struct xdg_surface *xdg_surface,
                                          uint32_t serial)
 {
     struct wayland_surface *surface;
     BOOL initial_configure = FALSE;
-    HWND hwnd;
+    HWND hwnd = data;
 
     TRACE("serial=%u\n", serial);
 
-    if (!(surface = wayland_surface_lock_xdg(xdg_surface))) return;
+    if (!(surface = wayland_surface_lock_hwnd(hwnd))) return;
 
     /* Handle this event only if wayland_surface is still associated with
      * the target xdg_surface. */
     if (surface->xdg_surface == xdg_surface)
     {
-        initial_configure = surface->current_serial == 0;
-        hwnd = surface->hwnd;
-        surface->current_serial = serial;
-        xdg_surface_ack_configure(xdg_surface, serial);
+        /* If we have a previously requested config, we have already sent a
+         * WM_WAYLAND_CONFIGURE which hasn't been handled yet. In that case,
+         * avoid sending another message to reduce message queue traffic. */
+        BOOL should_post = surface->requested.serial == 0;
+        initial_configure = surface->current.serial == 0;
+        surface->pending.serial = serial;
+        surface->requested = surface->pending;
+        memset(&surface->pending, 0, sizeof(surface->pending));
+        if (should_post) NtUserPostMessage(hwnd, WM_WAYLAND_CONFIGURE, 0, 0);
     }
 
     pthread_mutex_unlock(&surface->mutex);
@@ -79,6 +69,65 @@ static void xdg_surface_handle_configure(void *data, struct xdg_surface *xdg_sur
 static const struct xdg_surface_listener xdg_surface_listener =
 {
     xdg_surface_handle_configure
+};
+
+static void xdg_toplevel_handle_configure(void *data,
+                                          struct xdg_toplevel *xdg_toplevel,
+                                          int32_t width, int32_t height,
+                                          struct wl_array *states)
+{
+    struct wayland_surface *surface;
+    HWND hwnd = data;
+    uint32_t *state;
+    enum wayland_surface_config_state config_state = 0;
+
+    wl_array_for_each(state, states)
+    {
+        switch(*state)
+        {
+        case XDG_TOPLEVEL_STATE_MAXIMIZED:
+            config_state |= WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED;
+            break;
+        case XDG_TOPLEVEL_STATE_RESIZING:
+            config_state |= WAYLAND_SURFACE_CONFIG_STATE_RESIZING;
+            break;
+        case XDG_TOPLEVEL_STATE_TILED_LEFT:
+        case XDG_TOPLEVEL_STATE_TILED_RIGHT:
+        case XDG_TOPLEVEL_STATE_TILED_TOP:
+        case XDG_TOPLEVEL_STATE_TILED_BOTTOM:
+            config_state |= WAYLAND_SURFACE_CONFIG_STATE_TILED;
+            break;
+        case XDG_TOPLEVEL_STATE_FULLSCREEN:
+            config_state |= WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN;
+            break;
+        default:
+            break;
+        }
+    }
+
+    TRACE("hwnd=%p %dx%d,%#x\n", hwnd, width, height, config_state);
+
+    if (!(surface = wayland_surface_lock_hwnd(hwnd))) return;
+
+    if (surface->xdg_toplevel == xdg_toplevel)
+    {
+        surface->pending.width = width;
+        surface->pending.height = height;
+        surface->pending.state = config_state;
+    }
+
+    pthread_mutex_unlock(&surface->mutex);
+}
+
+static void xdg_toplevel_handle_close(void *data, struct xdg_toplevel *xdg_toplevel)
+{
+    NtUserPostMessage((HWND)data, WM_SYSCOMMAND, SC_CLOSE, 0);
+}
+
+static const struct xdg_toplevel_listener xdg_toplevel_listener =
+{
+    xdg_toplevel_handle_configure,
+    xdg_toplevel_handle_close
 };
 
 /**********************************************************************
@@ -132,7 +181,6 @@ void wayland_surface_destroy(struct wayland_surface *surface)
     }
     pthread_mutex_unlock(&process_wayland.pointer.mutex);
 
-    pthread_mutex_lock(&xdg_data_mutex);
     pthread_mutex_lock(&surface->mutex);
 
     if (surface->xdg_toplevel)
@@ -143,7 +191,6 @@ void wayland_surface_destroy(struct wayland_surface *surface)
 
     if (surface->xdg_surface)
     {
-        xdg_surface_set_user_data(surface->xdg_surface, NULL);
         xdg_surface_destroy(surface->xdg_surface);
         surface->xdg_surface = NULL;
     }
@@ -155,7 +202,6 @@ void wayland_surface_destroy(struct wayland_surface *surface)
     }
 
     pthread_mutex_unlock(&surface->mutex);
-    pthread_mutex_unlock(&xdg_data_mutex);
 
     if (surface->latest_window_buffer)
         wayland_shm_buffer_unref(surface->latest_window_buffer);
@@ -179,10 +225,11 @@ void wayland_surface_make_toplevel(struct wayland_surface *surface)
     surface->xdg_surface =
         xdg_wm_base_get_xdg_surface(process_wayland.xdg_wm_base, surface->wl_surface);
     if (!surface->xdg_surface) goto err;
-    xdg_surface_add_listener(surface->xdg_surface, &xdg_surface_listener, surface);
+    xdg_surface_add_listener(surface->xdg_surface, &xdg_surface_listener, surface->hwnd);
 
     surface->xdg_toplevel = xdg_surface_get_toplevel(surface->xdg_surface);
     if (!surface->xdg_toplevel) goto err;
+    xdg_toplevel_add_listener(surface->xdg_toplevel, &xdg_toplevel_listener, surface->hwnd);
 
     wl_surface_commit(surface->wl_surface);
     wl_display_flush(process_wayland.wl_display);
@@ -217,7 +264,10 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
         surface->xdg_surface = NULL;
     }
 
-    surface->current_serial = 0;
+    memset(&surface->pending, 0, sizeof(surface->pending));
+    memset(&surface->requested, 0, sizeof(surface->requested));
+    memset(&surface->processing, 0, sizeof(surface->processing));
+    memset(&surface->current, 0, sizeof(surface->current));
 
     /* Ensure no buffer is attached, otherwise future role assignments may fail. */
     wl_surface_attach(surface->wl_surface, NULL, 0, 0);
@@ -266,6 +316,172 @@ void wayland_surface_attach_shm(struct wayland_surface *surface,
         }
         free(surface_damage);
     }
+}
+
+/**********************************************************************
+ *          wayland_surface_config_is_compatible
+ *
+ * Checks whether a wayland_surface_config object is compatible with the
+ * the provided arguments.
+ */
+BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf,
+                                          int width, int height,
+                                          enum wayland_surface_config_state state)
+{
+    static enum wayland_surface_config_state mask =
+        WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED;
+
+    /* We require the same state. */
+    if ((state & mask) != (conf->state & mask)) return FALSE;
+
+    /* The maximized state requires the configured size. During surface
+     * reconfiguration we can use surface geometry to provide smaller areas
+     * from larger sizes, so only smaller sizes are incompatible. */
+    if ((conf->state & WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED) &&
+        (width < conf->width || height < conf->height))
+    {
+        return FALSE;
+    }
+
+    /* The fullscreen state requires a size smaller or equal to the configured
+     * size. If we have a larger size, we can use surface geometry during
+     * surface reconfiguration to provide the smaller size, so we are always
+     * compatible with a fullscreen state. */
+
+    return TRUE;
+}
+
+/**********************************************************************
+ *          wayland_surface_get_rect_in_monitor
+ *
+ * Gets the largest rectangle within a surface's window (in window coordinates)
+ * that is visible in a monitor.
+ */
+static void wayland_surface_get_rect_in_monitor(struct wayland_surface *surface,
+                                                RECT *rect)
+{
+    HMONITOR hmonitor;
+    MONITORINFO mi;
+
+    mi.cbSize = sizeof(mi);
+    if (!(hmonitor = NtUserMonitorFromRect(&surface->window.rect, 0)) ||
+        !NtUserGetMonitorInfo(hmonitor, (MONITORINFO *)&mi))
+    {
+        SetRectEmpty(rect);
+        return;
+    }
+
+    intersect_rect(rect, &mi.rcMonitor, &surface->window.rect);
+    OffsetRect(rect, -surface->window.rect.left, -surface->window.rect.top);
+}
+
+/**********************************************************************
+ *          wayland_surface_reconfigure_geometry
+ *
+ * Sets the xdg_surface geometry
+ */
+static void wayland_surface_reconfigure_geometry(struct wayland_surface *surface)
+{
+    int width, height;
+    RECT rect;
+
+    width = surface->window.rect.right - surface->window.rect.left;
+    height = surface->window.rect.bottom - surface->window.rect.top;
+
+    /* If the window size is bigger than the current state accepts, use the
+     * largest visible (from Windows' perspective) subregion of the window. */
+    if ((surface->current.state & (WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED |
+                                   WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN)) &&
+        (width > surface->current.width || height > surface->current.height))
+    {
+        wayland_surface_get_rect_in_monitor(surface, &rect);
+
+        /* If the window rect in the monitor is smaller than required,
+         * fall back to an appropriately sized rect at the top-left. */
+        if ((surface->current.state & WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED) &&
+            (rect.right - rect.left < surface->current.width ||
+             rect.bottom - rect.top < surface->current.height))
+        {
+            SetRect(&rect, 0, 0, surface->current.width, surface->current.height);
+        }
+        else
+        {
+            rect.right = min(rect.right, rect.left + surface->current.width);
+            rect.bottom = min(rect.bottom, rect.top + surface->current.height);
+        }
+        TRACE("Window is too large for Wayland state, using subregion\n");
+    }
+    else
+    {
+        SetRect(&rect, 0, 0, width, height);
+    }
+
+    TRACE("hwnd=%p geometry=%s\n", surface->hwnd, wine_dbgstr_rect(&rect));
+
+    if (!IsRectEmpty(&rect))
+    {
+        xdg_surface_set_window_geometry(surface->xdg_surface,
+                                        rect.left, rect.top,
+                                        rect.right - rect.left,
+                                        rect.bottom - rect.top);
+    }
+}
+
+/**********************************************************************
+ *          wayland_surface_reconfigure
+ *
+ * Reconfigures the wayland surface as needed to match the latest requested
+ * state.
+ */
+BOOL wayland_surface_reconfigure(struct wayland_surface *surface)
+{
+    struct wayland_window_config *window = &surface->window;
+    int width, height;
+
+    if (!surface->xdg_toplevel) return TRUE;
+
+    width = surface->window.rect.right - surface->window.rect.left;
+    height = surface->window.rect.bottom - surface->window.rect.top;
+
+    TRACE("hwnd=%p window=%dx%d,%#x processing=%dx%d,%#x current=%dx%d,%#x\n",
+          surface->hwnd, width, height, window->state,
+          surface->processing.width, surface->processing.height,
+          surface->processing.state, surface->current.width,
+          surface->current.height, surface->current.state);
+
+    /* Acknowledge any compatible processed config. */
+    if (surface->processing.serial && surface->processing.processed &&
+        wayland_surface_config_is_compatible(&surface->processing,
+                                             width, height,
+                                             window->state))
+    {
+        surface->current = surface->processing;
+        memset(&surface->processing, 0, sizeof(surface->processing));
+        xdg_surface_ack_configure(surface->xdg_surface, surface->current.serial);
+    }
+    /* If this is the initial configure, and we have a compatible requested
+     * config, use that, in order to draw windows that don't go through the
+     * message loop (e.g., some splash screens). */
+    else if (!surface->current.serial && surface->requested.serial &&
+             wayland_surface_config_is_compatible(&surface->requested,
+                                                  width, height,
+                                                  window->state))
+    {
+        surface->current = surface->requested;
+        memset(&surface->requested, 0, sizeof(surface->requested));
+        xdg_surface_ack_configure(surface->xdg_surface, surface->current.serial);
+    }
+    else if (!surface->current.serial ||
+             !wayland_surface_config_is_compatible(&surface->current,
+                                                   width, height,
+                                                   window->state))
+    {
+        return FALSE;
+    }
+
+    wayland_surface_reconfigure_geometry(surface);
+
+    return TRUE;
 }
 
 /**********************************************************************

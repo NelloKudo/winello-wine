@@ -2332,7 +2332,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     if (is_inside_syscall( ucontext ))
     {
         DECLSPEC_ALIGN(64) XSTATE xs;
-        context.c.ContextFlags = CONTEXT_FULL;
+        context.c.ContextFlags = CONTEXT_FULL | CONTEXT_SEGMENTS;
         context_init_xstate( &context.c, &xs );
 
         NtGetContextThread( GetCurrentThread(), &context.c );
@@ -2761,8 +2761,6 @@ void DECLSPEC_HIDDEN call_init_thunk( LPTHREAD_START_ROUTINE entry, void *arg, B
  */
 __ASM_GLOBAL_FUNC( signal_start_thread,
                    "subq $56,%rsp\n\t"
-                   __ASM_SEH(".seh_stackalloc 56\n\t")
-                   __ASM_SEH(".seh_endprologue\n\t")
                    __ASM_CFI(".cfi_adjust_cfa_offset 56\n\t")
                    "movq %rbp,48(%rsp)\n\t"
                    __ASM_CFI(".cfi_rel_offset %rbp,48\n\t")

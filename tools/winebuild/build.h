@@ -216,8 +216,18 @@ static inline int is_pe(void)
 #define IMAGE_FILE_UP_SYSTEM_ONLY	   0x4000
 #define IMAGE_FILE_BYTES_REVERSED_HI	   0x8000
 
-#define IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE 0x0010 /* Wine extension */
-#define IMAGE_DLLCHARACTERISTICS_NX_COMPAT     0x0100
+#define IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE         0x0010 /* Wine extension */
+#define IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA       0x0020
+#define IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE          0x0040
+#define IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY       0x0080
+#define IMAGE_DLLCHARACTERISTICS_NX_COMPAT             0x0100
+#define IMAGE_DLLCHARACTERISTICS_NO_ISOLATION          0x0200
+#define IMAGE_DLLCHARACTERISTICS_NO_SEH                0x0400
+#define IMAGE_DLLCHARACTERISTICS_NO_BIND               0x0800
+#define IMAGE_DLLCHARACTERISTICS_APPCONTAINER          0x1000
+#define IMAGE_DLLCHARACTERISTICS_WDM_DRIVER            0x2000
+#define IMAGE_DLLCHARACTERISTICS_GUARD_CF              0x4000
+#define IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE 0x8000
 
 #define	IMAGE_SUBSYSTEM_NATIVE      1
 #define	IMAGE_SUBSYSTEM_WINDOWS_GUI 2
@@ -246,6 +256,8 @@ extern int output( const char *format, ... )
    __attribute__ ((__format__ (__printf__, 1, 2)));
 extern void output_cfi( const char *format, ... )
    __attribute__ ((__format__ (__printf__, 1, 2)));
+extern void output_seh( const char *format, ... )
+   __attribute__ ((__format__ (__printf__, 1, 2)));
 extern void output_rva( const char *format, ... )
    __attribute__ ((__format__ (__printf__, 1, 2)));
 extern void output_thunk_rva( int ordinal, const char *format, ... )
@@ -272,11 +284,9 @@ extern const char *get_stub_name( const ORDDEF *odp, const DLLSPEC *spec );
 extern const char *get_abi_name( const ORDDEF *odp, const char *name );
 extern const char *get_link_name( const ORDDEF *odp );
 extern int sort_func_list( ORDDEF **list, int count, int (*compare)(const void *, const void *) );
-extern unsigned int get_alignment(unsigned int align);
 extern unsigned int get_page_size(void);
 extern unsigned int get_args_size( const ORDDEF *odp );
 extern const char *asm_name( const char *func );
-extern const char *func_declaration( const char *func );
 extern const char *asm_globl( const char *func );
 extern const char *get_asm_ptr_keyword(void);
 extern const char *get_asm_string_keyword(void);
@@ -286,6 +296,7 @@ extern const char *get_asm_rsrc_section(void);
 extern const char *get_asm_string_section(void);
 extern const char *arm64_page( const char *sym );
 extern const char *arm64_pageoff( const char *sym );
+extern void output_function_header( const char *func, int global );
 extern void output_function_size( const char *name );
 extern void output_gnu_stack_note(void);
 

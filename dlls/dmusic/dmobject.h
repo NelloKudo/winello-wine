@@ -44,6 +44,9 @@ HRESULT stream_chunk_get_data(IStream *stream, const struct chunk_entry *chunk, 
 HRESULT stream_chunk_get_wstr(IStream *stream, const struct chunk_entry *chunk, WCHAR *str,
         ULONG size);
 
+HRESULT stream_get_loader(IStream *stream, IDirectMusicLoader **ret_loader);
+HRESULT stream_get_object(IStream *stream, DMUS_OBJECTDESC *desc, REFIID riid, void **ret_iface);
+
 static inline HRESULT stream_reset_chunk_data(IStream *stream, const struct chunk_entry *chunk)
 {
     LARGE_INTEGER offset;
@@ -118,10 +121,3 @@ HRESULT WINAPI unimpl_IPersistStream_GetSizeMax(IPersistStream *iface,
 const char *debugstr_chunk(const struct chunk_entry *chunk);
 const char *debugstr_dmguid(const GUID *id);
 void dump_DMUS_OBJECTDESC(DMUS_OBJECTDESC *desc);
-
-static inline const char *debugstr_fourcc(DWORD fourcc)
-{
-    if (!fourcc) return "''";
-    return wine_dbg_sprintf("'%c%c%c%c'", (char)(fourcc), (char)(fourcc >> 8),
-            (char)(fourcc >> 16), (char)(fourcc >> 24));
-}

@@ -1010,7 +1010,7 @@ static void state_texfactor(struct wined3d_context *context, const struct wined3
     wined3d_color_from_d3dcolor(&color, state->render_states[WINED3D_RS_TEXTUREFACTOR]);
 
     /* And now the default texture color as well */
-    for (i = 0; i < context->d3d_info->limits.ffp_blend_stages; ++i)
+    for (i = 0; i < context->d3d_info->ffp_fragment_caps.max_blend_stages; ++i)
     {
         /* Note the WINED3D_RS value applies to all textures, but GL has one
          * per texture, so apply it now ready to be used! */
@@ -3073,7 +3073,7 @@ static void tex_colorop(struct wined3d_context *context, const struct wined3d_st
 
     if (mapped_stage != WINED3D_UNMAPPED_STAGE)
     {
-        if (tex_used && mapped_stage >= gl_info->limits.textures)
+        if (tex_used && mapped_stage >= gl_info->limits.ffp_textures)
         {
             FIXME("Attempt to enable unsupported stage!\n");
             return;
@@ -3131,7 +3131,7 @@ void tex_alphaop(struct wined3d_context *context, const struct wined3d_state *st
     /* Do not care for enabled / disabled stages, just assign the settings. colorop disables / enables required stuff */
     if (mapped_stage != WINED3D_UNMAPPED_STAGE)
     {
-        if (tex_used && mapped_stage >= gl_info->limits.textures)
+        if (tex_used && mapped_stage >= gl_info->limits.ffp_textures)
         {
             FIXME("Attempt to enable unsupported stage!\n");
             return;
@@ -3232,7 +3232,7 @@ static void transform_texture(struct wined3d_context *context, const struct wine
     }
 
     if (mapped_stage == WINED3D_UNMAPPED_STAGE) return;
-    if (mapped_stage >= gl_info->limits.textures) return;
+    if (mapped_stage >= gl_info->limits.ffp_textures) return;
 
     wined3d_context_gl_active_texture(context_gl, gl_info, mapped_stage);
     gl_info->gl_ops.gl.p_glMatrixMode(GL_TEXTURE);
@@ -3435,7 +3435,7 @@ static void sampler_texmatrix(struct wined3d_context *context, const struct wine
      * wined3d_texture_apply_state_changes() multiplies the set matrix with a fixup matrix. Before the
      * scaling is reapplied or removed, the texture matrix has to be reapplied.
      */
-    if (sampler < WINED3D_MAX_TEXTURES)
+    if (sampler < WINED3D_MAX_FFP_TEXTURES)
     {
         const BOOL tex_is_pow2 = !(texture->flags & WINED3D_TEXTURE_POW2_MAT_IDENT);
 
@@ -3448,80 +3448,6 @@ static void sampler_texmatrix(struct wined3d_context *context, const struct wine
 
             transform_texture(context, state, STATE_TEXTURESTAGE(sampler, WINED3D_TSS_TEXTURE_TRANSFORM_FLAGS));
         }
-    }
-}
-
-static enum wined3d_texture_address wined3d_texture_gl_address_mode(const struct wined3d_texture_gl *texture_gl,
-        enum wined3d_texture_address t)
-{
-    if (t < WINED3D_TADDRESS_WRAP || t > WINED3D_TADDRESS_MIRROR_ONCE)
-    {
-        FIXME("Unrecognized or unsupported texture address mode %#x.\n", t);
-        return WINED3D_TADDRESS_WRAP;
-    }
-
-    /* Cubemaps are always set to clamp, regardless of the sampler state. */
-    if (texture_gl->target == GL_TEXTURE_CUBE_MAP_ARB || ((texture_gl->t.flags & WINED3D_TEXTURE_COND_NP2)
-            && t == WINED3D_TADDRESS_WRAP))
-        return WINED3D_TADDRESS_CLAMP;
-
-    return t;
-}
-
-static void wined3d_sampler_desc_from_sampler_states(struct wined3d_sampler_desc *desc,
-        const struct wined3d_context_gl *context_gl, const uint32_t *sampler_states,
-        const struct wined3d_texture_gl *texture_gl)
-{
-    union
-    {
-        float f;
-        DWORD d;
-    } lod_bias;
-
-    desc->address_u = wined3d_texture_gl_address_mode(texture_gl, sampler_states[WINED3D_SAMP_ADDRESS_U]);
-    desc->address_v = wined3d_texture_gl_address_mode(texture_gl, sampler_states[WINED3D_SAMP_ADDRESS_V]);
-    desc->address_w = wined3d_texture_gl_address_mode(texture_gl, sampler_states[WINED3D_SAMP_ADDRESS_W]);
-    wined3d_color_from_d3dcolor((struct wined3d_color *)desc->border_color,
-            sampler_states[WINED3D_SAMP_BORDER_COLOR]);
-    if (sampler_states[WINED3D_SAMP_MAG_FILTER] > WINED3D_TEXF_ANISOTROPIC)
-        FIXME("Unrecognized or unsupported WINED3D_SAMP_MAG_FILTER %#x.\n",
-                sampler_states[WINED3D_SAMP_MAG_FILTER]);
-    desc->mag_filter = min(max(sampler_states[WINED3D_SAMP_MAG_FILTER], WINED3D_TEXF_POINT), WINED3D_TEXF_LINEAR);
-    if (sampler_states[WINED3D_SAMP_MIN_FILTER] > WINED3D_TEXF_ANISOTROPIC)
-        FIXME("Unrecognized or unsupported WINED3D_SAMP_MIN_FILTER %#x.\n",
-                sampler_states[WINED3D_SAMP_MIN_FILTER]);
-    desc->min_filter = min(max(sampler_states[WINED3D_SAMP_MIN_FILTER], WINED3D_TEXF_POINT), WINED3D_TEXF_LINEAR);
-    if (sampler_states[WINED3D_SAMP_MIP_FILTER] > WINED3D_TEXF_ANISOTROPIC)
-        FIXME("Unrecognized or unsupported WINED3D_SAMP_MIP_FILTER %#x.\n",
-                sampler_states[WINED3D_SAMP_MIP_FILTER]);
-    desc->mip_filter = min(max(sampler_states[WINED3D_SAMP_MIP_FILTER], WINED3D_TEXF_NONE), WINED3D_TEXF_LINEAR);
-    lod_bias.d = sampler_states[WINED3D_SAMP_MIPMAP_LOD_BIAS];
-    desc->lod_bias = lod_bias.f;
-    desc->min_lod = -1000.0f;
-    desc->max_lod = 1000.0f;
-    desc->mip_base_level = sampler_states[WINED3D_SAMP_MAX_MIP_LEVEL];
-    desc->max_anisotropy = sampler_states[WINED3D_SAMP_MAX_ANISOTROPY];
-    if ((sampler_states[WINED3D_SAMP_MAG_FILTER] != WINED3D_TEXF_ANISOTROPIC
-                && sampler_states[WINED3D_SAMP_MIN_FILTER] != WINED3D_TEXF_ANISOTROPIC
-                && sampler_states[WINED3D_SAMP_MIP_FILTER] != WINED3D_TEXF_ANISOTROPIC)
-            || (texture_gl->t.flags & WINED3D_TEXTURE_COND_NP2))
-        desc->max_anisotropy = 1;
-    desc->compare = texture_gl->t.resource.format_caps & WINED3D_FORMAT_CAP_SHADOW;
-    desc->comparison_func = WINED3D_CMP_LESSEQUAL;
-    desc->srgb_decode = is_srgb_enabled(sampler_states);
-
-    if (!(texture_gl->t.resource.format_caps & WINED3D_FORMAT_CAP_FILTERING))
-    {
-        desc->mag_filter = WINED3D_TEXF_POINT;
-        desc->min_filter = WINED3D_TEXF_POINT;
-        desc->mip_filter = WINED3D_TEXF_NONE;
-    }
-
-    if (texture_gl->t.flags & WINED3D_TEXTURE_COND_NP2)
-    {
-        desc->mip_filter = WINED3D_TEXF_NONE;
-        if (context_gl->gl_info->supported[WINED3D_GL_NORMALIZED_TEXRECT])
-            desc->min_filter = WINED3D_TEXF_POINT;
     }
 }
 
@@ -3550,36 +3476,19 @@ static void sampler(struct wined3d_context *context, const struct wined3d_state 
     if (state->textures[sampler_idx])
     {
         struct wined3d_texture_gl *texture_gl = wined3d_texture_gl(state->textures[sampler_idx]);
-        const uint32_t *sampler_states = state->sampler_states[sampler_idx];
-        struct wined3d_device *device = context->device;
-        BOOL srgb = is_srgb_enabled(sampler_states);
-        struct wined3d_sampler_desc desc;
+        enum wined3d_shader_type shader_type = WINED3D_SHADER_TYPE_PIXEL;
+        unsigned int bind_idx = sampler_idx;
         struct wined3d_sampler *sampler;
-        struct wine_rb_entry *entry;
 
-        wined3d_sampler_desc_from_sampler_states(&desc, context_gl, sampler_states, texture_gl);
-
-        wined3d_texture_gl_bind(texture_gl, context_gl, srgb);
-
-        if ((entry = wine_rb_get(&device->samplers, &desc)))
+        if (sampler_idx >= WINED3D_VERTEX_SAMPLER_OFFSET)
         {
-            sampler = WINE_RB_ENTRY_VALUE(entry, struct wined3d_sampler, entry);
-        }
-        else
-        {
-            if (FAILED(wined3d_sampler_create(device, &desc, NULL, &wined3d_null_parent_ops, &sampler)))
-            {
-                ERR("Failed to create sampler.\n");
-                return;
-            }
-            if (wine_rb_put(&device->samplers, &desc, &sampler->entry) == -1)
-            {
-                ERR("Failed to insert sampler.\n");
-                wined3d_sampler_decref(sampler);
-                return;
-            }
+            bind_idx -= WINED3D_VERTEX_SAMPLER_OFFSET;
+            shader_type = WINED3D_SHADER_TYPE_VERTEX;
         }
 
+        sampler = state->sampler[shader_type][bind_idx];
+
+        wined3d_texture_gl_bind(texture_gl, context_gl, sampler->desc.srgb_decode);
         wined3d_sampler_gl_bind(wined3d_sampler_gl(sampler), mapped_stage, texture_gl, context_gl);
 
         /* Trigger shader constant reloading (for NP2 texcoord fixup) */
@@ -3626,7 +3535,7 @@ void apply_pixelshader(struct wined3d_context *context, const struct wined3d_sta
     {
         /* Disabled the pixel shader - color ops weren't applied while it was
          * enabled, so re-apply them. */
-        for (i = 0; i < context->d3d_info->limits.ffp_blend_stages; ++i)
+        for (i = 0; i < context->d3d_info->ffp_fragment_caps.max_blend_stages; ++i)
         {
             if (!isStateDirty(context, STATE_TEXTURESTAGE(i, WINED3D_TSS_COLOR_OP)))
                 context_apply_state(context, state, STATE_TEXTURESTAGE(i, WINED3D_TSS_COLOR_OP));
@@ -3680,7 +3589,7 @@ void clipplane(struct wined3d_context *context, const struct wined3d_state *stat
     UINT index = state_id - STATE_CLIPPLANE(0);
     GLdouble plane[4];
 
-    if (isStateDirty(context, STATE_TRANSFORM(WINED3D_TS_VIEW)) || index >= gl_info->limits.user_clip_distances)
+    if (index >= gl_info->limits.user_clip_distances)
         return;
 
     gl_info->gl_ops.gl.p_glMatrixMode(GL_MODELVIEW);
@@ -3927,7 +3836,7 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
     {
         unsigned int i;
 
-        for (i = 0; i < WINED3D_MAX_TEXTURES; ++i)
+        for (i = 0; i < WINED3D_MAX_FFP_TEXTURES; ++i)
         {
             if (!isStateDirty(context, STATE_TRANSFORM(WINED3D_TS_TEXTURE0 + i)))
                 transform_texture(context, state, STATE_TEXTURESTAGE(i, WINED3D_TSS_TEXTURE_TRANSFORM_FLAGS));
@@ -5150,7 +5059,7 @@ static void ffp_fragment_get_caps(const struct wined3d_adapter *adapter, struct 
 {
     const struct wined3d_gl_info *gl_info = &wined3d_adapter_gl_const(adapter)->gl_info;
 
-    caps->wined3d_caps = 0;
+    memset(caps, 0, sizeof(*caps));
     caps->PrimitiveMiscCaps = 0;
     caps->TextureOpCaps = WINED3DTEXOPCAPS_ADD
             | WINED3DTEXOPCAPS_ADDSIGNED
@@ -5185,8 +5094,8 @@ static void ffp_fragment_get_caps(const struct wined3d_adapter *adapter, struct 
     if (gl_info->supported[ARB_TEXTURE_ENV_DOT3])
         caps->TextureOpCaps |= WINED3DTEXOPCAPS_DOTPRODUCT3;
 
-    caps->MaxTextureBlendStages = gl_info->limits.textures;
-    caps->MaxSimultaneousTextures = gl_info->limits.textures;
+    caps->max_blend_stages = gl_info->limits.ffp_textures;
+    caps->max_textures = gl_info->limits.ffp_textures;
 }
 
 static unsigned int ffp_fragment_get_emul_mask(const struct wined3d_adapter *adapter)
@@ -5303,16 +5212,16 @@ static void prune_invalid_states(struct wined3d_state_entry *state_table, const 
 {
     unsigned int start, last, i;
 
-    start = STATE_TEXTURESTAGE(d3d_info->limits.ffp_blend_stages, 0);
-    last = STATE_TEXTURESTAGE(WINED3D_MAX_TEXTURES - 1, WINED3D_HIGHEST_TEXTURE_STATE);
+    start = STATE_TEXTURESTAGE(d3d_info->ffp_fragment_caps.max_blend_stages, 0);
+    last = STATE_TEXTURESTAGE(WINED3D_MAX_FFP_TEXTURES - 1, WINED3D_HIGHEST_TEXTURE_STATE);
     for (i = start; i <= last; ++i)
     {
         state_table[i].representative = 0;
         state_table[i].apply = state_undefined;
     }
 
-    start = STATE_TRANSFORM(WINED3D_TS_TEXTURE0 + d3d_info->limits.ffp_blend_stages);
-    last = STATE_TRANSFORM(WINED3D_TS_TEXTURE0 + WINED3D_MAX_TEXTURES - 1);
+    start = STATE_TRANSFORM(WINED3D_TS_TEXTURE0 + d3d_info->ffp_fragment_caps.max_blend_stages);
+    last = STATE_TRANSFORM(WINED3D_TS_TEXTURE0 + WINED3D_MAX_FFP_TEXTURES - 1);
     for (i = start; i <= last; ++i)
     {
         state_table[i].representative = 0;

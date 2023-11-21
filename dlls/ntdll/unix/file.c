@@ -1823,7 +1823,7 @@ static int fd_set_dos_attrib( int fd, UINT attr, BOOL force_set )
          * this format with more features, but retains compatibility with the
          * earlier format. */
         char data[11];
-        int len = sprintf( data, "0x%x", attr );
+        int len = snprintf( data, sizeof(data), "0x%x", attr );
         return xattr_fset( fd, SAMBA_XATTR_DOS_ATTRIB, data, len );
     }
     else return xattr_fremove( fd, SAMBA_XATTR_DOS_ATTRIB );
@@ -2315,10 +2315,8 @@ static unsigned int get_drives_info( struct file_identity info[MAX_DOS_DRIVES] )
         struct stat st;
         unsigned int i;
 
-        if ((buffer = malloc( strlen(config_dir) + sizeof("/dosdevices/a:") )))
+        if (asprintf( &buffer, "%s/dosdevices/a:", config_dir ) != -1)
         {
-            strcpy( buffer, config_dir );
-            strcat( buffer, "/dosdevices/a:" );
             p = buffer + strlen(buffer) - 2;
 
             for (i = nb_drives = 0; i < MAX_DOS_DRIVES; i++)
@@ -3115,9 +3113,7 @@ static void init_redirects(void)
     char *dir;
     struct stat st;
 
-    if (!(dir = malloc( strlen(config_dir) + sizeof(system_dir) ))) return;
-    strcpy( dir, config_dir );
-    strcat( dir, system_dir );
+    if (asprintf( &dir, "%s%s", config_dir, system_dir ) == -1) return;
     if (!stat( dir, &st ))
     {
         sysdir.dev = st.st_dev;
@@ -4979,11 +4975,9 @@ static NTSTATUS unmount_device( HANDLE handle )
 #else
                 static const char umount[] = "umount >/dev/null 2>&1 ";
 #endif
-                char *cmd = malloc( strlen(mount_point)+sizeof(umount));
-                if (cmd)
+                char *cmd;
+                if (asprintf( &cmd, "%s%s", umount, mount_point ) != -1)
                 {
-                    strcpy( cmd, umount );
-                    strcat( cmd, mount_point );
                     system( cmd );
                     free( cmd );
 #ifdef linux
@@ -5871,14 +5865,24 @@ NTSTATUS WINAPI NtSetInformationFile( HANDLE handle, IO_STATUS_BLOCK *io,
         break;
 
     case FileRenameInformation:
+    case FileRenameInformationEx:
         if (len >= sizeof(FILE_RENAME_INFORMATION))
         {
             FILE_RENAME_INFORMATION *info = ptr;
+            unsigned int flags;
             REPARSE_DATA_BUFFER *buffer = NULL;
             UNICODE_STRING name_str, redir;
             OBJECT_ATTRIBUTES attr;
             ULONG buffer_len = 0;
             char *unix_name;
+
+            if (class == FileRenameInformation)
+                flags = info->ReplaceIfExists ? FILE_RENAME_REPLACE_IF_EXISTS : 0;
+            else
+                flags = info->Flags;
+
+            if (flags & ~(FILE_RENAME_REPLACE_IF_EXISTS | FILE_RENAME_IGNORE_READONLY_ATTRIBUTE))
+                FIXME( "unsupported flags: %#x\n", flags );
 
             name_str.Buffer = info->FileName;
             name_str.Length = info->FileNameLength;
@@ -5908,7 +5912,7 @@ NTSTATUS WINAPI NtSetInformationFile( HANDLE handle, IO_STATUS_BLOCK *io,
                     req->rootdir  = wine_server_obj_handle( attr.RootDirectory );
                     req->namelen  = attr.ObjectName->Length;
                     req->link     = FALSE;
-                    req->replace  = info->ReplaceIfExists;
+                    req->flags    = flags;
                     wine_server_add_data( req, attr.ObjectName->Buffer, attr.ObjectName->Length );
                     wine_server_add_data( req, unix_name, strlen(unix_name) );
                     status = wine_server_call( req );
@@ -5928,12 +5932,22 @@ NTSTATUS WINAPI NtSetInformationFile( HANDLE handle, IO_STATUS_BLOCK *io,
         break;
 
     case FileLinkInformation:
+    case FileLinkInformationEx:
         if (len >= sizeof(FILE_LINK_INFORMATION))
         {
             FILE_LINK_INFORMATION *info = ptr;
+            unsigned int flags;
             UNICODE_STRING name_str, redir;
             OBJECT_ATTRIBUTES attr;
             char *unix_name;
+
+            if (class == FileLinkInformation)
+                flags = info->ReplaceIfExists ? FILE_LINK_REPLACE_IF_EXISTS : 0;
+            else
+                flags = info->Flags;
+
+            if (flags & ~(FILE_LINK_REPLACE_IF_EXISTS | FILE_LINK_IGNORE_READONLY_ATTRIBUTE))
+                FIXME( "unsupported flags: %#x\n", flags );
 
             name_str.Buffer = info->FileName;
             name_str.Length = info->FileNameLength;
@@ -5950,7 +5964,7 @@ NTSTATUS WINAPI NtSetInformationFile( HANDLE handle, IO_STATUS_BLOCK *io,
                     req->rootdir  = wine_server_obj_handle( attr.RootDirectory );
                     req->namelen  = attr.ObjectName->Length;
                     req->link     = TRUE;
-                    req->replace  = info->ReplaceIfExists;
+                    req->flags    = flags;
                     wine_server_add_data( req, attr.ObjectName->Buffer, attr.ObjectName->Length );
                     wine_server_add_data( req, unix_name, strlen(unix_name) );
                     status  = wine_server_call( req );

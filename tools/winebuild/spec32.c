@@ -222,7 +222,7 @@ static void output_relay_debug( DLLSPEC *spec )
     /* first the table of entry point offsets */
 
     output( "\t%s\n", get_asm_rodata_section() );
-    output( "\t.align %d\n", get_alignment(4) );
+    output( "\t.balign 4\n" );
     output( ".L__wine_spec_relay_entry_point_offsets:\n" );
 
     for (i = spec->base; i <= spec->limit; i++)
@@ -256,7 +256,7 @@ static void output_relay_debug( DLLSPEC *spec )
         switch (target.cpu)
         {
         case CPU_i386:
-            output( "\t.align %d\n", get_alignment(4) );
+            output( "\t.balign 4\n" );
             output( "\t.long 0x90909090,0x90909090\n" );
             output( "__wine_spec_relay_entry_point_%d:\n", i );
             output_cfi( ".cfi_startproc" );
@@ -298,9 +298,8 @@ static void output_relay_debug( DLLSPEC *spec )
                 for (j = 0; j < odp->u.func.nb_args && !has_float; j++)
                     has_float = is_float_arg( odp, j );
 
-            output( "\t.align %d\n", get_alignment(4) );
+            output( "\t.balign 4\n" );
             output( "__wine_spec_relay_entry_point_%d:\n", i );
-            output_cfi( ".cfi_startproc" );
             output( "\tpush {r0-r3}\n" );
             output( "\tmov r2, SP\n");
             if (has_float) output( "\tvpush {s0-s15}\n" );
@@ -324,7 +323,6 @@ static void output_relay_debug( DLLSPEC *spec )
             output( "\tadd SP, #%u\n", 24 + (has_float ? 64 : 0) );
             output( "\tbx IP\n");
             if (UsePIC) output( "2:\t.long .L__wine_spec_relay_descr-1b-%u\n", thumb_mode ? 4 : 8 );
-            output_cfi( ".cfi_endproc" );
             break;
         }
 
@@ -332,14 +330,14 @@ static void output_relay_debug( DLLSPEC *spec )
         {
             int stack_size = 16 * ((min(odp->u.func.nb_args, 8) + 1) / 2);
 
-            output( "\t.align %d\n", get_alignment(4) );
+            output( "\t.balign 4\n" );
             output( "__wine_spec_relay_entry_point_%d:\n", i );
-            output_cfi( ".seh_proc __wine_spec_relay_entry_point_%d", i );
+            output_seh( ".seh_proc __wine_spec_relay_entry_point_%d", i );
             output( "\tstp x29, x30, [sp, #-%u]!\n", stack_size + 16 );
-            output_cfi( ".seh_save_fplr_x %u", stack_size + 16 );
+            output_seh( ".seh_save_fplr_x %u", stack_size + 16 );
             output( "\tmov x29, sp\n" );
-            output_cfi( ".seh_set_fp" );
-            output_cfi( ".seh_endprologue" );
+            output_seh( ".seh_set_fp" );
+            output_seh( ".seh_endprologue" );
             switch (stack_size)
             {
             case 64: output( "\tstp x6, x7, [sp, #64]\n" );
@@ -363,15 +361,16 @@ static void output_relay_debug( DLLSPEC *spec )
             output( "\tmov sp, x29\n" );
             output( "\tldp x29, x30, [sp], #%u\n", stack_size + 16 );
             output( "\tret\n");
-            output_cfi( ".seh_endproc" );
+            output_seh( ".seh_endproc" );
             break;
         }
 
         case CPU_x86_64:
-            output( "\t.align %d\n", get_alignment(4) );
+            output( "\t.balign 4\n" );
             output( "\t.long 0x90909090,0x90909090\n" );
             output( "__wine_spec_relay_entry_point_%d:\n", i );
-            output_cfi( ".cfi_startproc" );
+            output_seh( ".seh_proc __wine_spec_relay_entry_point_%d", i );
+            output_seh( ".seh_endprologue" );
             switch (odp->u.func.nb_args)
             {
             default: output( "\tmovq %%%s,32(%%rsp)\n", is_float_arg( odp, 3 ) ? "xmm3" : "r9" );
@@ -388,7 +387,7 @@ static void output_relay_debug( DLLSPEC *spec )
             output( "\tleaq .L__wine_spec_relay_descr(%%rip),%%rcx\n" );
             output( "\tcallq *8(%%rcx)\n" );
             output( "\tret\n" );
-            output_cfi( ".cfi_endproc" );
+            output_seh( ".seh_endproc" );
             break;
 
         default:
@@ -415,7 +414,7 @@ void output_exports( DLLSPEC *spec )
 
     output( "\n/* export table */\n\n" );
     output( "\t%s\n", get_asm_export_section() );
-    output( "\t.align %d\n", get_alignment(4) );
+    output( "\t.balign 4\n" );
     output( ".L__wine_spec_exports:\n" );
 
     /* export directory header */
@@ -542,11 +541,11 @@ void output_exports( DLLSPEC *spec )
         if (is_pe())
         {
             output( "\t.data\n" );
-            output( "\t.align %d\n", get_alignment(get_ptr_size()) );
+            output( "\t.balign %u\n", get_ptr_size() );
         }
         else
         {
-            output( "\t.align %d\n", get_alignment(get_ptr_size()) );
+            output( "\t.balign %u\n", get_ptr_size() );
             output( ".L__wine_spec_exports_end:\n" );
         }
 
@@ -562,7 +561,7 @@ void output_exports( DLLSPEC *spec )
     }
     else if (!is_pe())
     {
-            output( "\t.align %d\n", get_alignment(get_ptr_size()) );
+            output( "\t.balign %u\n", get_ptr_size() );
             output( ".L__wine_spec_exports_end:\n" );
             output( "\t%s 0\n", get_asm_ptr_keyword() );
     }
@@ -579,11 +578,10 @@ void output_exports( DLLSPEC *spec )
 
         name = odp->name ? odp->name : odp->export_name;
 
-        output( "\t.align %d\n", get_alignment(4) );
+        output( "\t.balign 4\n" );
         output( "\t.long 0x90909090,0x90909090\n" );
         if (name) output( "%s_%s:\n", asm_name("__wine_spec_imp"), name );
         else output( "%s_%u:\n", asm_name("__wine_spec_imp"), i );
-        output_cfi( ".cfi_startproc" );
 
         switch (target.cpu)
         {
@@ -604,7 +602,6 @@ void output_exports( DLLSPEC *spec )
         default:
             assert(0);
         }
-        output_cfi( ".cfi_endproc" );
     }
 }
 
@@ -630,7 +627,7 @@ void output_module( DLLSPEC *spec )
         return;  /* nothing to do */
     case PLATFORM_APPLE:
         output( "\t.text\n" );
-        output( "\t.align %d\n", get_alignment(page_size) );
+        output( "\t.balign %u\n", page_size );
         output( "__wine_spec_pe_header:\n" );
         output( "\t.space 65536\n" );
         break;
@@ -665,7 +662,7 @@ void output_module( DLLSPEC *spec )
     /* Output the NT header */
 
     output( "\n\t.data\n" );
-    output( "\t.align %d\n", get_alignment(get_ptr_size()) );
+    output( "\t.balign %u\n", get_ptr_size() );
     output( "\t.globl %s\n", asm_name("__wine_spec_nt_header") );
     output( "%s:\n", asm_name("__wine_spec_nt_header") );
     output( ".L__wine_spec_rva_base:\n" );

@@ -2867,6 +2867,7 @@ static void output_source_idl( struct makefile *make, struct incl_file *source, 
         output_filenames( defines );
         output_filenames( get_expanded_make_var_array( make, "EXTRAIDLFLAGS" ));
         output_filenames( get_expanded_file_local_var( make, obj, "EXTRAIDLFLAGS" ));
+        if (arch) output_filenames( get_expanded_arch_var_array( make, "EXTRAIDLFLAGS", arch ));
         output_filename( source->filename );
         output( "\n" );
         strarray_addall( &deps, arch_deps );
@@ -3898,7 +3899,7 @@ static FILE *create_temp_file( const char *orig )
 
     for (i = 0; i < 100; i++)
     {
-        sprintf( name, "%s.tmp%08x", orig, id );
+        snprintf( name, strlen(orig) + 13, "%s.tmp%08x", orig, id );
         if ((fd = open( name, O_RDWR | O_CREAT | O_EXCL, 0666 )) != -1)
         {
             ret = fdopen( fd, "w" );

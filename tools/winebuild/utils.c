@@ -629,7 +629,7 @@ DLLSPEC *alloc_dll_spec(void)
     spec->subsystem_major    = 4;
     spec->subsystem_minor    = 0;
     spec->syscall_table      = 0;
-    spec->dll_characteristics = IMAGE_DLLCHARACTERISTICS_NX_COMPAT;
+    spec->dll_characteristics = IMAGE_DLLCHARACTERISTICS_NX_COMPAT | IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
     return spec;
 }
 
@@ -770,53 +770,6 @@ int sort_func_list( ORDDEF **list, int count, int (*compare)(const void *, const
 }
 
 
-/*****************************************************************
- *  Function:    get_alignment
- *
- *  Description:
- *    According to the info page for gas, the .align directive behaves
- * differently on different systems.  On some architectures, the
- * argument of a .align directive is the number of bytes to pad to, so
- * to align on an 8-byte boundary you'd say
- *     .align 8
- * On other systems, the argument is "the number of low-order zero bits
- * that the location counter must have after advancement."  So to
- * align on an 8-byte boundary you'd say
- *     .align 3
- *
- * The reason gas is written this way is that it's trying to mimic
- * native assemblers for the various architectures it runs on.  gas
- * provides other directives that work consistently across
- * architectures, but of course we want to work on all arches with or
- * without gas.  Hence this function.
- *
- *
- *  Parameters:
- *    align  --  the number of bytes to align to. Must be a power of 2.
- */
-unsigned int get_alignment(unsigned int align)
-{
-    unsigned int n;
-
-    assert( !(align & (align - 1)) );
-
-    switch (target.cpu)
-    {
-    case CPU_i386:
-    case CPU_x86_64:
-        if (target.platform != PLATFORM_APPLE) return align;
-        /* fall through */
-    case CPU_ARM:
-    case CPU_ARM64:
-        n = 0;
-        while ((1u << n) != align) n++;
-        return n;
-    }
-    /* unreached */
-    assert(0);
-    return 0;
-}
-
 /* return the page size for the target CPU */
 unsigned int get_page_size(void)
 {
@@ -876,38 +829,42 @@ const char *asm_name( const char *sym )
 }
 
 /* return an assembly function declaration for a C function name */
-const char *func_declaration( const char *func )
+void output_function_header( const char *func, int global )
 {
-    static char *buffer;
+    const char *name = asm_name( func );
+
+    output( "\t.text\n" );
 
     switch (target.platform)
     {
     case PLATFORM_APPLE:
-        return "";
+        if (global) output( "\t.globl %s\n\t.private_extern %s\n", name, name );
+        break;
     case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
-        free( buffer );
-        buffer = strmake( ".def %s\n\t.scl 2\n\t.type 32\n\t.endef%s", asm_name(func),
-                          thumb_mode ? "\n\t.thumb_func" : "" );
+        output( "\t.def %s\n\t.scl 2\n\t.type 32\n\t.endef\n", name );
+        if (global) output( "\t.globl %s\n", name );
+        if (thumb_mode) output( "\t.thumb_func\n" );
         break;
     default:
-        free( buffer );
         switch (target.cpu)
         {
         case CPU_ARM:
-            buffer = strmake( ".type %s,%%function%s", func,
-                              thumb_mode ? "\n\t.thumb_func" : "" );
+            output( "\t.type %s,%%function\n", name );
+            if (thumb_mode) output( "\t.thumb_func\n" );
             break;
         case CPU_ARM64:
-            buffer = strmake( ".type %s,%%function", func );
+            output( "\t.type %s,%%function\n", name );
             break;
         default:
-            buffer = strmake( ".type %s,@function", func );
+            output( "\t.type %s,@function\n", name );
             break;
         }
+        if (global) output( "\t.globl %s\n\t.hidden %s\n", name, name );
         break;
     }
-    return buffer;
+    output( "\t.balign 4\n" );
+    output( "%s:\n", name );
 }
 
 /* output a size declaration for an assembly function */
@@ -931,6 +888,19 @@ void output_cfi( const char *format, ... )
     va_list valist;
 
     if (!unwind_tables) return;
+    va_start( valist, format );
+    fputc( '\t', output_file );
+    vfprintf( output_file, format, valist );
+    fputc( '\n', output_file );
+    va_end( valist );
+}
+
+/* output a .seh directive */
+void output_seh( const char *format, ... )
+{
+    va_list valist;
+
+    if (!is_pe()) return;
     va_start( valist, format );
     fputc( '\t', output_file );
     vfprintf( output_file, format, valist );

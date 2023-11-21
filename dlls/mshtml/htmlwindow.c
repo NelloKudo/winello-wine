@@ -504,11 +504,12 @@ static HRESULT WINAPI HTMLWindow2_get_length(IHTMLWindow2 *iface, LONG *p)
 static HRESULT WINAPI HTMLWindow2_get_frames(IHTMLWindow2 *iface, IHTMLFramesCollection2 **p)
 {
     HTMLWindow *This = impl_from_IHTMLWindow2(iface);
+
     FIXME("(%p)->(%p): semi-stub\n", This, p);
 
     /* FIXME: Should return a separate Window object */
-    *p = (IHTMLFramesCollection2*)&This->IHTMLWindow2_iface;
-    IHTMLWindow2_AddRef(iface);
+    *p = (IHTMLFramesCollection2*)&This->outer_window->base.IHTMLWindow2_iface;
+    IHTMLWindow2_AddRef(&This->outer_window->base.IHTMLWindow2_iface);
     return S_OK;
 }
 
@@ -993,8 +994,8 @@ static HRESULT WINAPI HTMLWindow2_get_self(IHTMLWindow2 *iface, IHTMLWindow2 **p
     TRACE("(%p)->(%p)\n", This, p);
 
     /* FIXME: We should return kind of proxy window here. */
-    IHTMLWindow2_AddRef(&This->IHTMLWindow2_iface);
-    *p = &This->IHTMLWindow2_iface;
+    *p = &This->outer_window->base.IHTMLWindow2_iface;
+    IHTMLWindow2_AddRef(*p);
     return S_OK;
 }
 
@@ -1019,8 +1020,8 @@ static HRESULT WINAPI HTMLWindow2_get_window(IHTMLWindow2 *iface, IHTMLWindow2 *
     TRACE("(%p)->(%p)\n", This, p);
 
     /* FIXME: We should return kind of proxy window here. */
-    IHTMLWindow2_AddRef(&This->IHTMLWindow2_iface);
-    *p = &This->IHTMLWindow2_iface;
+    *p = &This->outer_window->base.IHTMLWindow2_iface;
+    IHTMLWindow2_AddRef(*p);
     return S_OK;
 }
 
@@ -2816,6 +2817,7 @@ static HRESULT WINAPI HTMLPrivateWindow_SuperNavigate(IHTMLPrivateWindow *iface,
         BSTR arg4, VARIANT *post_data_var, VARIANT *headers_var, ULONG flags)
 {
     HTMLWindow *This = impl_from_IHTMLPrivateWindow(iface);
+    DWORD binding_flags = BINDING_NAVIGATED|BINDING_NOFRAG;
     HTMLOuterWindow *window = This->outer_window;
     OLECHAR *translated_url = NULL;
     DWORD post_data_size = 0;
@@ -2827,8 +2829,11 @@ static HRESULT WINAPI HTMLPrivateWindow_SuperNavigate(IHTMLPrivateWindow *iface,
     TRACE("(%p)->(%s %s %s %s %s %s %lx)\n", This, debugstr_w(url), debugstr_w(arg2), debugstr_w(arg3), debugstr_w(arg4),
           debugstr_variant(post_data_var), debugstr_variant(headers_var), flags);
 
+    if(flags & ~2)
+        FIXME("unimplemented flags %lx\n", flags & ~2);
+
     if(!window || !window->browser)
-        return E_UNEXPECTED;
+        return E_FAIL;
 
     if(window->browser->doc->hostui) {
         hres = IDocHostUIHandler_TranslateUrl(window->browser->doc->hostui, 0, url, &translated_url);
@@ -2855,7 +2860,10 @@ static HRESULT WINAPI HTMLPrivateWindow_SuperNavigate(IHTMLPrivateWindow *iface,
         headers = V_BSTR(headers_var);
     }
 
-    hres = super_navigate(window, uri, BINDING_NAVIGATED|BINDING_NOFRAG, headers, post_data, post_data_size);
+    if(flags & 2)
+        binding_flags |= BINDING_REPLACE;
+
+    hres = super_navigate(window, uri, binding_flags, headers, post_data, post_data_size);
     IUri_Release(uri);
     if(post_data)
         SafeArrayUnaccessData(V_ARRAY(post_data_var));
@@ -2899,7 +2907,7 @@ static HRESULT WINAPI HTMLPrivateWindow_GetAddressBarUrl(IHTMLPrivateWindow *ifa
     if(!url)
         return E_INVALIDARG;
 
-    *url = SysAllocString(This->outer_window->url);
+    *url = SysAllocString(This->outer_window->url ? This->outer_window->url : L"about:blank");
     return S_OK;
 }
 
@@ -3922,6 +3930,7 @@ static void HTMLWindow_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCa
     HTMLInnerWindow *This = impl_from_DispatchEx(dispex);
     HTMLOuterWindow *child;
 
+    traverse_event_target(&This->event_target, cb);
     LIST_FOR_EACH_ENTRY(child, &This->children, HTMLOuterWindow, sibling_entry)
         note_cc_edge((nsISupports*)&child->base.IHTMLWindow2_iface, "child", cb);
     if(This->doc)
@@ -3960,7 +3969,6 @@ static void HTMLWindow_unlink(DispatchEx *dispex)
 
     if(This->doc) {
         HTMLDocumentNode *doc = This->doc;
-        This->doc->window = NULL;
         This->doc = NULL;
         IHTMLDOMNode_Release(&doc->node.IHTMLDOMNode_iface);
     }
@@ -3969,19 +3977,16 @@ static void HTMLWindow_unlink(DispatchEx *dispex)
 
     if(This->image_factory) {
         HTMLImageElementFactory *image_factory = This->image_factory;
-        This->image_factory->window = NULL;
         This->image_factory = NULL;
         IHTMLImageElementFactory_Release(&image_factory->IHTMLImageElementFactory_iface);
     }
     if(This->option_factory) {
         HTMLOptionElementFactory *option_factory = This->option_factory;
-        This->option_factory->window = NULL;
         This->option_factory = NULL;
         IHTMLOptionElementFactory_Release(&option_factory->IHTMLOptionElementFactory_iface);
     }
     if(This->xhr_factory) {
         HTMLXMLHttpRequestFactory *xhr_factory = This->xhr_factory;
-        This->xhr_factory->window = NULL;
         This->xhr_factory = NULL;
         IHTMLXMLHttpRequestFactory_Release(&xhr_factory->IHTMLXMLHttpRequestFactory_iface);
     }
@@ -3989,20 +3994,17 @@ static void HTMLWindow_unlink(DispatchEx *dispex)
     unlink_ref(&This->screen);
     if(This->history) {
         OmHistory *history = This->history;
-        This->history->window = NULL;
         This->history = NULL;
         IOmHistory_Release(&history->IOmHistory_iface);
     }
     unlink_ref(&This->navigator);
     if(This->session_storage) {
         IHTMLStorage *session_storage = This->session_storage;
-        detach_html_storage(session_storage);
         This->session_storage = NULL;
         IHTMLStorage_Release(session_storage);
     }
     if(This->local_storage) {
         IHTMLStorage *local_storage = This->local_storage;
-        detach_html_storage(local_storage);
         This->local_storage = NULL;
         IHTMLStorage_Release(local_storage);
     }
@@ -4130,7 +4132,7 @@ static HRESULT HTMLWindow_invoke(DispatchEx *dispex, DISPID id, LCID lcid, WORD 
                 return DISP_E_MEMBERNOTFOUND;
 
             V_VT(res) = VT_DISPATCH;
-            V_DISPATCH(res) = (IDispatch*)&frame->base.inner_window->base.IHTMLWindow2_iface;
+            V_DISPATCH(res) = (IDispatch*)&frame->base.IHTMLWindow2_iface;
             IDispatch_AddRef(V_DISPATCH(res));
             return S_OK;
         }
@@ -4556,10 +4558,12 @@ HRESULT update_window_doc(HTMLInnerWindow *window)
 
     if(is_main_content_window(outer_window) || !outer_window->browser->content_window) {
         HTMLDocumentObj *doc_obj = outer_window->browser->doc;
-        if(doc_obj->doc_node)
-            IHTMLDOMNode_Release(&doc_obj->doc_node->node.IHTMLDOMNode_iface);
-        doc_obj->doc_node = window->doc;
-        IHTMLDOMNode_AddRef(&window->doc->node.IHTMLDOMNode_iface);
+        if(doc_obj) {
+            if(doc_obj->doc_node)
+                IHTMLDOMNode_Release(&doc_obj->doc_node->node.IHTMLDOMNode_iface);
+            doc_obj->doc_node = window->doc;
+            IHTMLDOMNode_AddRef(&window->doc->node.IHTMLDOMNode_iface);
+        }
     }
 
     return hres;

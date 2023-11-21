@@ -18,7 +18,6 @@
  */
 
 #include "dmime_private.h"
-#include "dmobject.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmime);
 
@@ -196,8 +195,6 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_GetObjectInPath (IDirectMusicAud
 	      if (FAILED(hr))
 		return hr;
 	      IDirectMusicPerformance8_SetGraph(This->pPerf, pGraph);
-	      /* we need release as SetGraph do an AddRef */
-	      IDirectMusicGraph_Release(pGraph);
 	      pPerfoGraph = pGraph;
 	    }
 	    *ppObject = pPerfoGraph;
