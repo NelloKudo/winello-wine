@@ -72,9 +72,6 @@
 /* Define to 1 if you have the `futimesat' function. */
 #undef HAVE_FUTIMESAT
 
-/* Define to 1 if you have the <gcrypt.h> header file. */
-#undef HAVE_GCRYPT_H
-
 /* Define to 1 if you have the `getaddrinfo' function. */
 #undef HAVE_GETADDRINFO
 
@@ -92,9 +89,6 @@
 
 /* Define to 1 if you have the <gettext-po.h> header file. */
 #undef HAVE_GETTEXT_PO_H
-
-/* Define to 1 if you have the <gmp.h> header file. */
-#undef HAVE_GMP_H
 
 /* Define to 1 if you have the `gnutls_cipher_init' function. */
 #undef HAVE_GNUTLS_CIPHER_INIT
@@ -297,7 +291,7 @@
 /* Define to 1 if you have the <net/route.h> header file. */
 #undef HAVE_NET_ROUTE_H
 
-/* Define to 1 if you have the <CL/opencl.h> header file. */
+/* Define to 1 if you have the <OpenCL/opencl.h> header file. */
 #undef HAVE_OPENCL_OPENCL_H
 
 /* Define to 1 if `numaudioengines' is a member of `oss_sysinfo'. */
@@ -684,9 +678,6 @@
 /* Define to 1 if you have the <X11/extensions/XInput2.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XINPUT2_H
 
-/* Define to 1 if you have the <X11/extensions/Xpresent.h> header file. */
-#undef HAVE_X11_EXTENSIONS_XPRESENT_H
-
 /* Define to 1 if you have the <X11/extensions/Xrandr.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XRANDR_H
 
@@ -759,17 +750,11 @@
 /* Define to the soname of the libfreetype library. */
 #undef SONAME_LIBFREETYPE
 
-/* Define to the soname of the libgcrypt library. */
-#undef SONAME_LIBGCRYPT
-
 /* Define to the soname of the libGL library. */
 #undef SONAME_LIBGL
 
 /* Define to the soname of the libGLESv2 library. */
 #undef SONAME_LIBGLESV2
-
-/* Define to the soname of the libgmp library. */
-#undef SONAME_LIBGMP
 
 /* Define to the soname of the libgnutls library. */
 #undef SONAME_LIBGNUTLS
@@ -818,9 +803,6 @@
 
 /* Define to the soname of the libXinerama library. */
 #undef SONAME_LIBXINERAMA
-
-/* Define to the soname of the libXpresent library. */
-#undef SONAME_LIBXPRESENT
 
 /* Define to the soname of the libXrandr library. */
 #undef SONAME_LIBXRANDR

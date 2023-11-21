@@ -150,9 +150,6 @@
 /* Define to 1 if you have the <linux/filter.h> header file. */
 #undef HAVE_LINUX_FILTER_H
 
-/* Define to 1 if you have the <linux/futex.h> header file. */
-#undef HAVE_LINUX_FUTEX_H
-
 /* Define if Linux-style gethostbyname_r and gethostbyaddr_r are available */
 #undef HAVE_LINUX_GETHOSTBYNAME_R_6
 
@@ -182,9 +179,6 @@
 
 /* Define to 1 if you have the <linux/rtnetlink.h> header file. */
 #undef HAVE_LINUX_RTNETLINK_H
-
-/* Define to 1 if you have the <linux/seccomp.h> header file. */
-#undef HAVE_LINUX_SECCOMP_H
 
 /* Define to 1 if you have the <linux/serial.h> header file. */
 #undef HAVE_LINUX_SERIAL_H
@@ -332,12 +326,6 @@
 
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
-
-/* Define to 1 if you have the `renameat' function. */
-#undef HAVE_RENAMEAT
-
-/* Define to 1 if you have the `renameat2' function. */
-#undef HAVE_RENAMEAT2
 
 /* Define to 1 if the system has the type `request_sense'. */
 #undef HAVE_REQUEST_SENSE
