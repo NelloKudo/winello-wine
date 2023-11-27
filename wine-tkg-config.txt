@@ -1,21 +1,36 @@
-# Custom config this time, but with same tkg patches!
+# Last wine-tkg-staging-fsync-git configuration - Mon Nov 27 12:59:10 AM CET 2023 :
 
-Wine (plain) version: 8.20
-Using wine-staging patchset (version 8.20)
+Local cfg files used
+
+Wine (plain) version: 8.21.r0.g13c43cf3d06
+Using wine-staging patchset (version 8.21.r0.ge546e2f1)
 
 Disabled the local Esync patchset to use Staging impl instead.
 Not using vkd3d native library for d3d12 translation (allows using vkd3d-proton)
 
+Done applying backports hotfixes (if any) - list available in prepare.log
+Done applying reverting hotfixes (if any) - list available in prepare.log
+
 CSMT-toggle.patch -- ( Applied CSMT toggle logic patch )
-Staging overrides, if any: -W winepulse-PulseAudio_Support -W winepulse-aux_channels
+
+Staging overrides, if any: 
 
 fsync-unix-staging.patch -- ( Applied fsync patches (unix, staging) )
 fsync_futex_waitv.patch -- ( Applied patches for fsync to support futex_waitv )
 
 childwindow-proton.patch -- ( Applied child window for vk patch )
 LAA-unix-staging.patch -- ( Applied large address aware override support (legacy) )
+
 josh-flat-theme.patch -- ( Add Josh's better-theme )
+proton_battleye.patch -- ( Add support for Proton's Battleye runtime )
+proton-eac_bridge.patch -- ( Add support for Proton's EAC bridge )
+
 Applied hotfix Return_nt_filename_and_resolve_DOS_drive_path.mypatch
+Applied hotfix 0001-proton-bcrypt_rdr2_fixes7.mypatch
+Applied hotfix 0002-bcrypt-Add-support-for-calculating-secret-ecc-keys2.mypatch
+Applied hotfix 0003-bcrypt-Add-support-for-OAEP-padded-asymmetric-key-de3.mypatch
+Applied hotfix a608ef1.mypatch
 Applied hotfix opencl-fixup.mypatch
+Applied hotfix nostale_mouse_fix.mypatch
 
 wine-tkg-staging.patch -- ( Please don't report bugs about this wine build on winehq.org and use https://github.com/Frogging-Family/wine-tkg-git/issues instead. )

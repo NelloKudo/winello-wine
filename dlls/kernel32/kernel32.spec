@@ -620,7 +620,7 @@
 @ stdcall -import GetConsoleProcessList(ptr long)
 @ stdcall -import GetConsoleScreenBufferInfo(long ptr)
 @ stdcall -import GetConsoleScreenBufferInfoEx(long ptr)
-# @ stub GetConsoleSelectionInfo
+@ stdcall -import GetConsoleSelectionInfo(ptr)
 @ stdcall -import GetConsoleTitleA(ptr long)
 @ stdcall -import GetConsoleTitleW(ptr long)
 @ stdcall -import GetConsoleWindow()
@@ -1670,6 +1670,7 @@
 @ stdcall -import ZombifyActCtx(ptr)
 @ stdcall -arch=arm,x86_64 -private __C_specific_handler(ptr long ptr ptr) NTDLL.__C_specific_handler
 @ cdecl -arch=arm,x86_64 -norelay __chkstk() NTDLL.__chkstk
+@ cdecl -arch=arm64ec -norelay __chkstk_arm64ec() NTDLL.__chkstk_arm64ec
 @ stub _DebugOut
 @ stub _DebugPrintf
 @ stdcall _hread(long ptr long)
