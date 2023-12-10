@@ -1,9 +1,9 @@
-# Last wine-tkg-staging-fsync-git configuration - Mon Nov 27 12:59:10 AM CET 2023 :
+# Last wine-tkg-staging-fsync-git configuration - Sun Dec 10 03:50:14 AM CET 2023 :
 
 Local cfg files used
 
-Wine (plain) version: 8.21.r0.g13c43cf3d06
-Using wine-staging patchset (version 8.21.r0.ge546e2f1)
+Wine (plain) version: 9.0rc1.r0.g93f7ef86701
+Using wine-staging patchset (version 9.0rc1.r0.g2c4143bc)
 
 Disabled the local Esync patchset to use Staging impl instead.
 Not using vkd3d native library for d3d12 translation (allows using vkd3d-proton)
@@ -22,8 +22,6 @@ childwindow-proton.patch -- ( Applied child window for vk patch )
 LAA-unix-staging.patch -- ( Applied large address aware override support (legacy) )
 
 josh-flat-theme.patch -- ( Add Josh's better-theme )
-proton_battleye.patch -- ( Add support for Proton's Battleye runtime )
-proton-eac_bridge.patch -- ( Add support for Proton's EAC bridge )
 
 Applied hotfix Return_nt_filename_and_resolve_DOS_drive_path.mypatch
 Applied hotfix 0001-proton-bcrypt_rdr2_fixes7.mypatch

@@ -26,7 +26,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winnls.h"
-#include "winver.h"
 #include "wincontypes.h"
 #include "winternl.h"
 #include "winuser.h"
@@ -554,93 +553,6 @@ done:
     return ret;
 }
 
-static int battleye_launcher_redirect_hack(const WCHAR *app_name, WCHAR *new_name, DWORD new_name_len, WCHAR **cmd_line)
-{
-    static const WCHAR belauncherW[] = L"c:\\windows\\system32\\belauncher.exe";
-
-    WCHAR full_path[MAX_PATH];
-    WCHAR *p;
-    DWORD size;
-    void *block;
-    DWORD *translation;
-    char buf[100];
-    char *product_name;
-    WCHAR *new_cmd_line;
-
-    if (!GetLongPathNameW( app_name, full_path, MAX_PATH )) lstrcpynW( full_path, app_name, MAX_PATH );
-    if (!GetFullPathNameW( full_path, MAX_PATH, full_path, NULL )) lstrcpynW( full_path, app_name, MAX_PATH );
-
-    /* We detect the BattlEye launcher executable through the product name property, as the executable name varies */
-    size = GetFileVersionInfoSizeExW(0, full_path, NULL);
-    if (!size)
-        return 0;
-
-    block = HeapAlloc( GetProcessHeap(), 0, size );
-
-    if (!GetFileVersionInfoExW(0, full_path, 0, size, block))
-    {
-        HeapFree( GetProcessHeap(), 0, block );
-        return 0;
-    }
-
-    if (!VerQueryValueA(block, "\\VarFileInfo\\Translation", (void **) &translation, &size) || size != 4)
-    {
-        HeapFree( GetProcessHeap(), 0, block );
-        return 0;
-    }
-
-    sprintf(buf, "\\StringFileInfo\\%08x\\ProductName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
-
-    if (!VerQueryValueA(block, buf, (void **) &product_name, &size))
-    {
-        HeapFree( GetProcessHeap(), 0, block );
-        return 0;
-    }
-
-    if (strcmp(product_name, "BattlEye Launcher"))
-    {
-        HeapFree( GetProcessHeap(), 0, block);
-        return 0;
-    }
-
-    HeapFree( GetProcessHeap(), 0, block );
-
-    TRACE("Detected launch of a BattlEye Launcher, redirecting to Proton version.\n");
-
-    if (new_name_len < wcslen(belauncherW) + 1)
-    {
-        WARN("Game executable path doesn't fit in buffer.\n");
-        return 0;
-    }
-
-    wcscpy(new_name, belauncherW);
-
-    /* find and replace executable name in command line, and add BE argument */
-    p = *cmd_line;
-    if (p[0] == '\"')
-        p++;
-
-    if (!wcsncmp(p, app_name, wcslen(app_name)))
-    {
-        new_cmd_line = HeapAlloc( GetProcessHeap(), 0, ( wcslen(*cmd_line) + wcslen(belauncherW) + 1 - wcslen(app_name) ) * sizeof(WCHAR) );
-
-        wcscpy(new_cmd_line, *cmd_line);
-        p = new_cmd_line;
-        if (p[0] == '\"')
-            p++;
-
-        memmove( p + wcslen(belauncherW), p + wcslen(app_name), (wcslen(p) - wcslen(belauncherW)) * sizeof(WCHAR) );
-        memcpy( p, belauncherW, wcslen(belauncherW) * sizeof(WCHAR) );
-
-        TRACE("old command line %s.\n", debugstr_w(*cmd_line));
-        TRACE("new command line %s.\n", debugstr_w(new_cmd_line));
-
-        *cmd_line = new_cmd_line;
-    }
-
-    return 1;
-}
-
 /**********************************************************************
  *           CreateProcessInternalW   (kernelbase.@)
  */
@@ -680,14 +592,6 @@ BOOL WINAPI DECLSPEC_HOTPATCH CreateProcessInternalW( HANDLE token, const WCHAR 
     {
         if (!(tidy_cmdline = get_file_name( cmd_line, name, ARRAY_SIZE(name) ))) return FALSE;
         app_name = name;
-    }
-
-    p = tidy_cmdline;
-    if (battleye_launcher_redirect_hack( app_name, name, ARRAY_SIZE(name), &tidy_cmdline ))
-    {
-        app_name = name;
-        if (p != tidy_cmdline && p != cmd_line)
-            HeapFree( GetProcessHeap(), 0, p );
     }
 
     /* Warn if unsupported features are used */
@@ -1187,6 +1091,57 @@ BOOL WINAPI DECLSPEC_HOTPATCH IsWow64Process( HANDLE process, PBOOL wow64 )
     return set_ntstatus( status );
 }
 
+/*********************************************************************
+ *           GetProcessInformation   (kernelbase.@)
+ */
+BOOL WINAPI GetProcessInformation( HANDLE process, PROCESS_INFORMATION_CLASS info_class, void *data, DWORD size )
+{
+    switch (info_class)
+    {
+        case ProcessMachineTypeInfo:
+        {
+            PROCESS_MACHINE_INFORMATION *mi = data;
+            SYSTEM_SUPPORTED_PROCESSOR_ARCHITECTURES_INFORMATION machines[8];
+            NTSTATUS status;
+            ULONG i;
+
+            if (size != sizeof(*mi))
+            {
+                SetLastError(ERROR_BAD_LENGTH);
+                return FALSE;
+            }
+
+            status = NtQuerySystemInformationEx( SystemSupportedProcessorArchitectures, &process, sizeof(process),
+                    machines, sizeof(machines), NULL );
+            if (status) return set_ntstatus( status );
+
+            for (i = 0; machines[i].Machine; i++)
+            {
+                if (machines[i].Process)
+                {
+                    mi->ProcessMachine = machines[i].Machine;
+                    mi->Res0 = 0;
+                    mi->MachineAttributes = 0;
+                    if (machines[i].KernelMode)
+                        mi->MachineAttributes |= KernelEnabled;
+                    if (machines[i].UserMode)
+                        mi->MachineAttributes |= UserEnabled;
+                    if (machines[i].WoW64Container)
+                        mi->MachineAttributes |= Wow64Container;
+
+                    return TRUE;
+                }
+            }
+
+            break;
+        }
+        default:
+            FIXME("Unsupported information class %d.\n", info_class);
+    }
+
+    return FALSE;
+}
+
 
 /*********************************************************************
  *           OpenProcess   (kernelbase.@)
@@ -1403,7 +1358,6 @@ BOOL WINAPI DECLSPEC_HOTPATCH TerminateProcess( HANDLE handle, DWORD exit_code )
  ***********************************************************************/
 
 
-static STARTUPINFOW startup_infoW;
 static char *command_lineA;
 static WCHAR *command_lineW;
 
@@ -1413,25 +1367,6 @@ static WCHAR *command_lineW;
 void init_startup_info( RTL_USER_PROCESS_PARAMETERS *params )
 {
     ANSI_STRING ansi;
-
-    startup_infoW.cb              = sizeof(startup_infoW);
-    startup_infoW.lpReserved      = NULL;
-    startup_infoW.lpDesktop       = params->Desktop.Buffer;
-    startup_infoW.lpTitle         = params->WindowTitle.Buffer;
-    startup_infoW.dwX             = params->dwX;
-    startup_infoW.dwY             = params->dwY;
-    startup_infoW.dwXSize         = params->dwXSize;
-    startup_infoW.dwYSize         = params->dwYSize;
-    startup_infoW.dwXCountChars   = params->dwXCountChars;
-    startup_infoW.dwYCountChars   = params->dwYCountChars;
-    startup_infoW.dwFillAttribute = params->dwFillAttribute;
-    startup_infoW.dwFlags         = params->dwFlags;
-    startup_infoW.wShowWindow     = params->wShowWindow;
-    startup_infoW.cbReserved2     = params->RuntimeInfo.MaximumLength;
-    startup_infoW.lpReserved2     = params->RuntimeInfo.MaximumLength ? (void *)params->RuntimeInfo.Buffer : NULL;
-    startup_infoW.hStdInput       = params->hStdInput ? params->hStdInput : INVALID_HANDLE_VALUE;
-    startup_infoW.hStdOutput      = params->hStdOutput ? params->hStdOutput : INVALID_HANDLE_VALUE;
-    startup_infoW.hStdError       = params->hStdError ? params->hStdError : INVALID_HANDLE_VALUE;
 
     command_lineW = params->CommandLine.Buffer;
     if (!RtlUnicodeStringToAnsiString( &ansi, &params->CommandLine, TRUE )) command_lineA = ansi.Buffer;
@@ -1472,7 +1407,34 @@ LPWSTR WINAPI GetCommandLineW(void)
  */
 void WINAPI DECLSPEC_HOTPATCH GetStartupInfoW( STARTUPINFOW *info )
 {
-    *info = startup_infoW;
+    RTL_USER_PROCESS_PARAMETERS *params;
+
+    RtlAcquirePebLock();
+
+    params = RtlGetCurrentPeb()->ProcessParameters;
+
+    info->cb              = sizeof(*info);
+    info->lpReserved      = NULL;
+    info->lpDesktop       = params->Desktop.Buffer;
+    info->lpTitle         = params->WindowTitle.Buffer;
+    info->dwX             = params->dwX;
+    info->dwY             = params->dwY;
+    info->dwXSize         = params->dwXSize;
+    info->dwYSize         = params->dwYSize;
+    info->dwXCountChars   = params->dwXCountChars;
+    info->dwYCountChars   = params->dwYCountChars;
+    info->dwFillAttribute = params->dwFillAttribute;
+    info->dwFlags         = params->dwFlags;
+    info->wShowWindow     = params->wShowWindow;
+    info->cbReserved2     = params->RuntimeInfo.MaximumLength;
+    info->lpReserved2     = params->RuntimeInfo.MaximumLength ? (void *)params->RuntimeInfo.Buffer : NULL;
+    if (params->dwFlags & STARTF_USESTDHANDLES)
+    {
+        info->hStdInput   = params->hStdInput;
+        info->hStdOutput  = params->hStdOutput;
+        info->hStdError   = params->hStdError;
+    }
+    RtlReleasePebLock();
 }
 
 

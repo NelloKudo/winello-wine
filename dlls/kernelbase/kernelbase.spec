@@ -472,7 +472,6 @@
 @ stdcall GetConsoleProcessList(ptr long)
 @ stdcall GetConsoleScreenBufferInfo(long ptr)
 @ stdcall GetConsoleScreenBufferInfoEx(long ptr)
-@ stdcall GetConsoleSelectionInfo(ptr)
 @ stdcall GetConsoleTitleA(ptr long)
 @ stdcall GetConsoleTitleW(ptr long)
 @ stdcall GetConsoleWindow()
@@ -661,7 +660,7 @@
 @ stdcall GetProcessIdOfThread(long)
 @ stdcall GetProcessImageFileNameA(long ptr long)
 @ stdcall GetProcessImageFileNameW(long ptr long)
-# @ stub GetProcessInformation
+@ stdcall GetProcessInformation(long long ptr long)
 @ stdcall GetProcessMemoryInfo(long ptr long)
 @ stdcall GetProcessMitigationPolicy(long long ptr long)
 @ stdcall GetProcessPreferredUILanguages(long ptr ptr ptr)
