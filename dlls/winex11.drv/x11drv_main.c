@@ -51,7 +51,6 @@
 #include "winreg.h"
 #include "xcomposite.h"
 #include "xfixes.h"
-#include "xpresent.h"
 #include "wine/server.h"
 #include "wine/debug.h"
 #include "wine/list.h"
@@ -70,12 +69,11 @@ Atom systray_atom = 0;
 HWND systray_hwnd = 0;
 unsigned int screen_bpp;
 Window root_window;
-BOOL usexvidmode = TRUE;
+BOOL usexvidmode = FALSE;
 BOOL usexrandr = TRUE;
 BOOL usexcomposite = TRUE;
 BOOL use_xfixes = FALSE;
-BOOL use_xpresent = FALSE;
-BOOL use_take_focus = TRUE;
+BOOL use_take_focus = FALSE;
 BOOL use_primary_selection = FALSE;
 BOOL use_system_cursors = TRUE;
 BOOL grab_fullscreen = FALSE;
@@ -90,10 +88,16 @@ BOOL client_side_with_render = TRUE;
 BOOL shape_layered_windows = TRUE;
 int copy_default_colors = 128;
 int alloc_system_colors = 256;
+int limit_number_of_resolutions = 0;
 int xrender_error_base = 0;
 int xfixes_event_base = 0;
 char *process_name = NULL;
 WNDPROC client_foreign_window_proc = NULL;
+BOOL vulkan_disable_child_window_rendering_hack = FALSE;
+BOOL vulkan_gdi_blit_source_hack = FALSE;
+HANDLE steam_overlay_event;
+HANDLE steam_keyboard_event;
+BOOL layered_window_client_hack = FALSE;
 
 static x11drv_error_callback err_callback;   /* current callback for error */
 static Display *err_callback_display;        /* display callback is set for */
@@ -146,6 +150,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "TEXT",
     "TIMESTAMP",
     "UTF8_STRING",
+    "STRING",
     "RAW_ASCENT",
     "RAW_DESCENT",
     "RAW_CAP_HEIGHT",
@@ -153,6 +158,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "Rel Y",
     "WM_PROTOCOLS",
     "WM_DELETE_WINDOW",
+    "WM_NAME",
     "WM_STATE",
     "WM_TAKE_FOCUS",
     "DndProtocol",
@@ -160,13 +166,14 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "_ICC_PROFILE",
     "_KDE_NET_WM_STATE_SKIP_SWITCHER",
     "_MOTIF_WM_HINTS",
-    "_NET_ACTIVE_WINDOW",
     "_NET_STARTUP_INFO_BEGIN",
     "_NET_STARTUP_INFO",
     "_NET_SUPPORTED",
+    "_NET_SUPPORTING_WM_CHECK",
     "_NET_SYSTEM_TRAY_OPCODE",
     "_NET_SYSTEM_TRAY_S0",
     "_NET_SYSTEM_TRAY_VISUAL",
+    "_NET_WM_BYPASS_COMPOSITOR",
     "_NET_WM_FULLSCREEN_MONITORS",
     "_NET_WM_ICON",
     "_NET_WM_MOVERESIZE",
@@ -192,6 +199,8 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "_GTK_WORKAREAS_D0",
     "_XEMBED",
     "_XEMBED_INFO",
+    "_WINE_HWND_STYLE",
+    "_WINE_HWND_EXSTYLE",
     "XdndAware",
     "XdndEnter",
     "XdndPosition",
@@ -215,6 +224,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "WCF_SYLK",
     "WCF_TIFF",
     "WCF_WAVE",
+    "WINDOW",
     "image/bmp",
     "image/gif",
     "image/jpeg",
@@ -223,7 +233,9 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "text/plain",
     "text/rtf",
     "text/richtext",
-    "text/uri-list"
+    "text/uri-list",
+    "GAMESCOPE_FOCUSED_APP",
+    "GAMESCOPE_DISPLAY_EDID_PATH",
 };
 
 /***********************************************************************
@@ -322,6 +334,9 @@ static int error_handler( Display *display, XErrorEvent *error_evt )
              error_evt->serial, error_evt->request_code );
         assert( 0 );
     }
+    TRACE("passing on error %d req %d:%d res 0x%lx\n",
+            error_evt->error_code, error_evt->request_code,
+            error_evt->minor_code, error_evt->resourceid);
     old_error_handler( display, error_evt );
     return 0;
 }
@@ -616,6 +631,9 @@ static void setup_options(void)
     if (!get_config_key( hkey, appkey, "AllocSystemColors", buffer, sizeof(buffer) ))
         alloc_system_colors = wcstol( buffer, NULL, 0 );
 
+    if (!get_config_key( hkey, appkey, "LimitNumberOfResolutions", buffer, sizeof(buffer) ))
+        limit_number_of_resolutions = wcstol( buffer, NULL, 0 );
+
     get_config_key( hkey, appkey, "InputStyle", input_style, sizeof(input_style) );
 
     NtClose( appkey );
@@ -684,12 +702,13 @@ sym_not_found:
 #ifdef SONAME_LIBXFIXES
 
 #define MAKE_FUNCPTR(f) typeof(f) * p##f;
+MAKE_FUNCPTR(XFixesHideCursor)
 MAKE_FUNCPTR(XFixesQueryExtension)
 MAKE_FUNCPTR(XFixesQueryVersion)
 MAKE_FUNCPTR(XFixesCreateRegion)
 MAKE_FUNCPTR(XFixesCreateRegionFromGC)
-MAKE_FUNCPTR(XFixesDestroyRegion)
 MAKE_FUNCPTR(XFixesSelectSelectionInput)
+MAKE_FUNCPTR(XFixesShowCursor)
 #undef MAKE_FUNCPTR
 
 static void x11drv_load_xfixes(void)
@@ -710,12 +729,13 @@ static void x11drv_load_xfixes(void)
         dlclose(xfixes);                                      \
         return;                                               \
     }
+    LOAD_FUNCPTR(XFixesHideCursor)
     LOAD_FUNCPTR(XFixesQueryExtension)
     LOAD_FUNCPTR(XFixesQueryVersion)
     LOAD_FUNCPTR(XFixesCreateRegion)
     LOAD_FUNCPTR(XFixesCreateRegionFromGC)
-    LOAD_FUNCPTR(XFixesDestroyRegion)
     LOAD_FUNCPTR(XFixesSelectSelectionInput)
+    LOAD_FUNCPTR(XFixesShowCursor)
 #undef LOAD_FUNCPTR
 
     if (!pXFixesQueryExtension(gdi_display, &event, &error))
@@ -739,57 +759,6 @@ static void x11drv_load_xfixes(void)
     xfixes_event_base = event;
 }
 #endif /* SONAME_LIBXFIXES */
-
-#ifdef SONAME_LIBXPRESENT
-
-#define MAKE_FUNCPTR(f) typeof(f) * p##f;
-MAKE_FUNCPTR(XPresentQueryExtension)
-MAKE_FUNCPTR(XPresentQueryVersion)
-MAKE_FUNCPTR(XPresentPixmap)
-#undef MAKE_FUNCPTR
-
-static void x11drv_load_xpresent(void)
-{
-    int opcode, event, error, major = 1, minor = 0;
-    void *xpresent;
-
-    if (!(xpresent = dlopen( SONAME_LIBXPRESENT, RTLD_NOW )))
-    {
-        WARN( "Xpresent library %s not found, disabled.\n", SONAME_LIBXPRESENT );
-        return;
-    }
-
-#define LOAD_FUNCPTR(f) \
-    if (!(p##f = dlsym( xpresent, #f )))                          \
-    {                                                             \
-        WARN( "Xpresent function %s not found, disabled\n", #f ); \
-        dlclose( xpresent );                                      \
-        return;                                                   \
-    }
-    LOAD_FUNCPTR(XPresentQueryExtension)
-    LOAD_FUNCPTR(XPresentQueryVersion)
-    LOAD_FUNCPTR(XPresentPixmap)
-#undef LOAD_FUNCPTR
-
-    if (!pXPresentQueryExtension( gdi_display, &opcode, &event, &error ))
-    {
-        WARN("Xpresent extension not found, disabled.\n");
-        dlclose(xpresent);
-        return;
-    }
-
-    if (!pXPresentQueryVersion( gdi_display, &major, &minor ))
-    {
-        WARN("Xpresent version not found, disabled.\n");
-        dlclose(xpresent);
-        return;
-    }
-
-    TRACE( "Xpresent, opcode %d, error %d, event %d, version %d.%d found\n",
-           opcode, error, event, major, minor );
-    use_xpresent = TRUE;
-}
-#endif /* SONAME_LIBXPRESENT */
 
 static void init_visuals( Display *display, int screen )
 {
@@ -852,6 +821,25 @@ static NTSTATUS x11drv_init( void *arg )
     struct init_params *params = arg;
     Display *display;
     void *libx11 = dlopen( SONAME_LIBX11, RTLD_NOW|RTLD_GLOBAL );
+    OBJECT_ATTRIBUTES attr;
+    WCHAR buffer[MAX_PATH];
+    char path[MAX_PATH];
+    UNICODE_STRING str;
+
+    RtlInitUnicodeString( &str, buffer );
+    InitializeObjectAttributes( &attr, &str, OBJ_CASE_INSENSITIVE | OBJ_OPENIF, 0, NULL );
+
+    str.Length = sprintf( path, "\\Sessions\\%u\\BaseNamedObjects\\__wine_steamclient_GameOverlayActivated",
+                          (int)NtCurrentTeb()->Peb->SessionId );
+    ascii_to_unicode( buffer, path, str.Length + 1 );
+    str.Length *= sizeof(WCHAR);
+    NtCreateEvent( &steam_overlay_event, EVENT_ALL_ACCESS, &attr, NotificationEvent, FALSE );
+
+    str.Length = sprintf( path, "\\Sessions\\%u\\BaseNamedObjects\\__wine_steamclient_KeyboardActivated",
+                          (int)NtCurrentTeb()->Peb->SessionId );
+    ascii_to_unicode( buffer, path, str.Length + 1 );
+    str.Length *= sizeof(WCHAR);
+    NtCreateEvent( &steam_keyboard_event, EVENT_ALL_ACCESS, &attr, NotificationEvent, FALSE );
 
     if (!libx11)
     {
@@ -899,18 +887,51 @@ static NTSTATUS x11drv_init( void *arg )
 #ifdef SONAME_LIBXFIXES
     x11drv_load_xfixes();
 #endif
-#ifdef SONAME_LIBXPRESENT
-    x11drv_load_xpresent();
-#endif
 #ifdef SONAME_LIBXCOMPOSITE
     X11DRV_XComposite_Init();
 #endif
-    x11drv_xinput_load();
+    x11drv_xinput2_load();
 
     XkbUseExtension( gdi_display, NULL, NULL );
     X11DRV_InitKeyboard( gdi_display );
     X11DRV_InitMouse( gdi_display );
     if (use_xim) use_xim = xim_init( input_style );
+
+    {
+        const char *e = getenv("WINE_DISABLE_FULLSCREEN_HACK");
+        if (!e || *e == '\0' || *e == '0') fs_hack_init();
+    }
+
+    {
+        const char *sgi = getenv("SteamGameId");
+        const char *e = getenv("WINE_LAYERED_WINDOW_CLIENT_HACK");
+
+        e = getenv("WINE_VK_GDI_BLIT_SOURCE_HACK");
+        vulkan_gdi_blit_source_hack =
+            (sgi && (
+                !strcmp(sgi, "803600") /* Disgaea 5 Complete     */
+            )) ||
+            (e && *e != '\0' && *e != '0');
+
+        e = getenv("WINE_DISABLE_VK_CHILD_WINDOW_RENDERING_HACK");
+        vulkan_disable_child_window_rendering_hack =
+            (sgi && (
+                !strcmp(sgi, "429660") || /* Bug 21949 : Tales of Berseria video tearing */
+                !strcmp(sgi, "1009290")   /* Bug 21949 : SWORD ART ONLINE Alicization Lycoris video tearing */
+            )) ||
+            (e && *e != '\0' && *e != '0');
+    }
+
+    {
+        const char *sgi = getenv("SteamGameId");
+        const char *e = getenv("WINE_LAYERED_WINDOW_CLIENT_HACK");
+        layered_window_client_hack =
+            (sgi && (
+                strcmp(sgi, "435150") == 0 || /* Divinity: Original Sin 2 launcher */
+                strcmp(sgi, "227020") == 0 /* Rise of Venice launcher */
+            )) ||
+            (e && *e != '\0' && *e != '0');
+    }
 
     init_user_driver();
     X11DRV_DisplayDevices_Init(FALSE);
@@ -930,6 +951,7 @@ void X11DRV_ThreadDetach(void)
         vulkan_thread_detach();
         if (data->xim) XCloseIM( data->xim );
         if (data->font_set) XFreeFontSet( data->display, data->font_set );
+        XSync( gdi_display, False ); /* make sure XReparentWindow requests have completed before closing the thread display */
         XCloseDisplay( data->display );
         free( data );
         /* clear data in case we get re-entered from user32 before the thread is truly dead */
@@ -994,8 +1016,7 @@ struct x11drv_thread_data *x11drv_init_thread_data(void)
     NtUserGetThreadInfo()->driver_data = (UINT_PTR)data;
 
     if (use_xim) xim_thread_attach( data );
-
-    x11drv_xinput_init();
+    x11drv_xinput2_init( data );
 
     return data;
 }

@@ -15457,132 +15457,81 @@ static void test_enum_devices(void)
     ok(!refcount, "Device has %lu references left.\n", refcount);
 }
 
-static void test_pick(void)
+static void test_multiple_devices(void)
 {
-    static D3DTLVERTEX tquad[] =
-    {
-        {{320.0f}, {480.0f}, { 1.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-        {{  0.0f}, {480.0f}, {-0.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-        {{320.0f}, {  0.0f}, { 1.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-        {{  0.0f}, {  0.0f}, {-0.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-    };
-    IDirect3DExecuteBuffer *execute_buffer;
-    D3DEXECUTEBUFFERDESC exec_desc;
-    IDirect3DViewport *viewport;
-    IDirect3DDevice *device;
+    D3DTEXTUREHANDLE texture_handle, texture_handle2;
+    D3DMATERIALHANDLE mat_handle, mat_handle2;
+    IDirect3DViewport *viewport, *viewport2;
+    IDirect3DDevice *device, *device2;
+    IDirectDrawSurface *texture_surf;
+    IDirect3DMaterial *material;
+    DDSURFACEDESC surface_desc;
+    IDirect3DTexture *texture;
     IDirectDraw *ddraw;
-    UINT inst_length;
+    ULONG refcount;
     HWND window;
     HRESULT hr;
-    void *ptr;
-    DWORD rec_count;
-    D3DRECT pick_rect;
-    UINT screen_width = 640;
-    UINT screen_height = 480;
-    UINT hits = 0;
-    UINT nohits = 0;
-    int i, j;
 
     window = create_window();
     ddraw = create_ddraw();
     ok(!!ddraw, "Failed to create a ddraw object.\n");
-    if (!(device = create_device(ddraw, window, DDSCL_NORMAL)))
+
+    if (!(device = create_device_ex(ddraw, window, DDSCL_NORMAL, &IID_IDirect3DHALDevice)))
     {
         skip("Failed to create a 3D device, skipping test.\n");
-        IDirectDraw_Release(ddraw);
         DestroyWindow(window);
         return;
     }
 
-    viewport = create_viewport(device, 0, 0, screen_width, screen_height);
+    device2 = create_device_ex(ddraw, window, DDSCL_NORMAL, &IID_IDirect3DHALDevice);
+    ok(!!device2, "got NULL.\n");
 
-    memset(&exec_desc, 0, sizeof(exec_desc));
-    exec_desc.dwSize = sizeof(exec_desc);
-    exec_desc.dwFlags = D3DDEB_BUFSIZE | D3DDEB_CAPS;
-    exec_desc.dwBufferSize = 1024;
-    exec_desc.dwCaps = D3DDEBCAPS_SYSTEMMEMORY;
+    viewport = create_viewport(device, 0, 0, 640, 480);
+    viewport2 = create_viewport(device2, 0, 0, 640, 480);
 
-    hr = IDirect3DDevice_CreateExecuteBuffer(device, &exec_desc, &execute_buffer, NULL);
-    ok(SUCCEEDED(hr), "Failed to create execute buffer, hr %#lx.\n", hr);
-    hr = IDirect3DExecuteBuffer_Lock(execute_buffer, &exec_desc);
-    ok(SUCCEEDED(hr), "Failed to lock execute buffer, hr %#lx.\n", hr);
-    memcpy(exec_desc.lpData, tquad, sizeof(tquad));
-    ptr = ((BYTE *)exec_desc.lpData) + sizeof(tquad);
-    emit_process_vertices(&ptr, D3DPROCESSVERTICES_COPY, 0, 4);
-    emit_tquad(&ptr, 0);
-    emit_end(&ptr);
-    inst_length = (BYTE *)ptr - (BYTE *)exec_desc.lpData;
-    inst_length -= sizeof(tquad);
-    hr = IDirect3DExecuteBuffer_Unlock(execute_buffer);
-    ok(SUCCEEDED(hr), "Failed to unlock execute buffer, hr %#lx.\n", hr);
+    material = create_diffuse_material(device, 1.0f, 0.0f, 0.0f, 1.0f);
+    hr = IDirect3DMaterial2_GetHandle(material, device, &mat_handle);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    hr = IDirect3DMaterial2_GetHandle(material, device, &mat_handle2);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    ok(mat_handle == mat_handle2, "got different handles.\n");
 
-    set_execute_data(execute_buffer, 4, sizeof(tquad), inst_length);
+    hr = IDirect3DMaterial_GetHandle(material, device2, &mat_handle2);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    todo_wine ok(mat_handle != mat_handle2, "got same handles.\n");
 
-    /* Perform a number of picks, we should have a specific amount by the end */
-    for (i = 0; i < screen_width; i += 80)
-    {
-        for (j = 0; j < screen_height; j += 60)
-        {
-            pick_rect.x1 = i;
-            pick_rect.y1 = j;
+    hr = IDirect3DViewport_SetBackground(viewport, mat_handle);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    hr = IDirect3DViewport_SetBackground(viewport2, mat_handle);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
 
-            hr = IDirect3DDevice_Pick(device, execute_buffer, viewport, 0, &pick_rect);
-            ok(SUCCEEDED(hr), "Failed to perform pick, hr %#lx.\n", hr);
-            hr = IDirect3DDevice_GetPickRecords(device, &rec_count, NULL);
-            ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-            if (rec_count > 0)
-                hits++;
-            else
-                nohits++;
-        }
-    }
+    memset(&surface_desc, 0, sizeof(surface_desc));
+    surface_desc.dwSize = sizeof(surface_desc);
+    surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
+    surface_desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+    surface_desc.dwWidth = 256;
+    surface_desc.dwHeight = 256;
+    hr = IDirectDraw_CreateSurface(ddraw, &surface_desc, &texture_surf, NULL);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    hr = IDirectDrawSurface_QueryInterface(texture_surf, &IID_IDirect3DTexture2, (void **)&texture);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    hr = IDirect3DTexture_GetHandle(texture, device, &texture_handle);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    hr = IDirect3DTexture_GetHandle(texture, device2, &texture_handle2);
+    ok(hr == D3D_OK, "got %#lx.\n", hr);
+    ok(texture_handle != texture_handle2, "got same handles.\n");
 
-    /*
-        We should have gotten precisely equal numbers of hits and no hits since our quad
-        covers exactly half the screen
-    */
-    ok(hits == nohits, "Got a non-equal amount of pick successes/failures: %i vs %i.\n", hits, nohits);
+    IDirect3DTexture_Release(texture);
+    IDirectDrawSurface_Release(texture_surf);
+    IDirect3DMaterial_Release(material);
+    IDirect3DViewport_Release(viewport);
+    IDirect3DViewport_Release(viewport2);
 
-    /* Try some specific pixel picks */
-    pick_rect.x1 = 480;
-    pick_rect.y1 = 360;
-    hr = IDirect3DDevice_Pick(device, execute_buffer, viewport, 0, &pick_rect);
-    ok(SUCCEEDED(hr), "Failed to perform pick, hr %#lx.\n", hr);
-    hr = IDirect3DDevice_GetPickRecords(device, &rec_count, NULL);
-    ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-    ok(rec_count == 0, "Got incorrect number of pick records (expected 0): %lu.\n", rec_count);
+    refcount = IDirect3DDevice_Release(device);
+    ok(!refcount, "Device has %lu references left.\n", refcount);
+    refcount = IDirect3DDevice_Release(device2);
+    ok(!refcount, "Device has %lu references left.\n", refcount);
 
-    pick_rect.x1 = 240;
-    pick_rect.y1 = 120;
-    hr = IDirect3DDevice_Pick(device, execute_buffer, viewport, 0, &pick_rect);
-    ok(SUCCEEDED(hr), "Failed to perform pick, hr %#lx.\n", hr);
-    rec_count = 0;
-    hr = IDirect3DDevice_GetPickRecords(device, &rec_count, NULL);
-    ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-    ok(rec_count == 1, "Got incorrect number of pick records (expected 1): %lu.\n", rec_count);
-
-    if (rec_count == 1)
-    {
-        D3DPICKRECORD record;
-
-        hr = IDirect3DDevice_GetPickRecords(device, &rec_count, &record);
-        ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-        ok(rec_count == 1, "Got incorrect number of pick records (expected 1): %lu.\n", rec_count);
-
-        hr = IDirect3DDevice_GetPickRecords(device, &rec_count, &record);
-        ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-        ok(rec_count == 1, "Got incorrect number of pick records (expected 1): %lu.\n", rec_count);
-
-        /* Tests D3DPICKRECORD for correct information */
-        ok(record.bOpcode == 3, "Got incorrect bOpcode: %i.\n", record.bOpcode);
-        ok(record.bPad == 0, "Got incorrect bPad: %i.\n", record.bPad);
-        ok(record.dwOffset == 24, "Got incorrect dwOffset: %lu.\n", record.dwOffset);
-        ok(compare_float(record.dvZ, 1.0, 0.1), "Got incorrect dvZ: %f.\n", record.dvZ);
-    }
-
-    destroy_viewport(device, viewport);
-    IDirect3DExecuteBuffer_Release(execute_buffer);
-    IDirect3DDevice_Release(device);
     IDirectDraw_Release(ddraw);
     DestroyWindow(window);
 }
@@ -15703,8 +15652,8 @@ START_TEST(ddraw1)
     test_vtbl_protection();
     test_window_position();
     test_get_display_mode();
-    test_pick();
     run_for_each_device_type(test_texture_wrong_caps);
     test_filling_convention();
     test_enum_devices();
+    test_multiple_devices();
 }

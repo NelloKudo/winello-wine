@@ -33,6 +33,9 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
 
+#define TRAY_MINIMIZE_ALL 419
+#define TRAY_MINIMIZE_ALL_UNDO 416
+
 struct notify_data  /* platform-independent format for NOTIFYICONDATA */
 {
     LONG  hWnd;
@@ -1059,7 +1062,15 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         break;
 
     case WM_COMMAND:
-        if (HIWORD(wparam) == BN_CLICKED) click_taskbar_button( (HWND)lparam );
+        if (HIWORD(wparam) == BN_CLICKED)
+        {
+            if (LOWORD(wparam) == TRAY_MINIMIZE_ALL || LOWORD(wparam) == TRAY_MINIMIZE_ALL_UNDO)
+            {
+                FIXME( "Shell command %u is not supported.\n", LOWORD(wparam) );
+                break;
+            }
+            click_taskbar_button( (HWND)lparam );
+        }
         break;
 
     case WM_CONTEXTMENU:
@@ -1153,7 +1164,7 @@ void initialize_systray( BOOL using_root, BOOL arg_enable_shell )
     else
     {
         SIZE size = get_window_size();
-        tray_window = CreateWindowExW( 0, shell_traywnd_class.lpszClassName, L"", WS_CAPTION | WS_SYSMENU,
+        tray_window = CreateWindowExW( WS_EX_NOACTIVATE, shell_traywnd_class.lpszClassName, L"", WS_CAPTION | WS_SYSMENU,
                                        CW_USEDEFAULT, CW_USEDEFAULT, size.cx, size.cy, 0, 0, 0, 0 );
         NtUserMessageCall( tray_window, WINE_SYSTRAY_DOCK_INIT, 0, 0, NULL, NtUserSystemTrayCall, FALSE );
     }

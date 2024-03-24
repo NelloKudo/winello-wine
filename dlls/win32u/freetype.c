@@ -256,6 +256,8 @@ MAKE_FUNCPTR(FcStrSetMember);
 #define GET_BE_DWORD(x) RtlUlongByteSwap(x)
 #endif
 
+#define MS_EBDT_TAG MS_MAKE_TAG('E','B','D','T')
+
 /* 'gasp' flags */
 #define GASP_GRIDFIT 0x01
 #define GASP_DOGRAY  0x02
@@ -1179,6 +1181,8 @@ static struct unix_face *unix_face_create( const char *unix_name, void *data_ptr
     struct stat st;
     DWORD face_count;
     int fd, length;
+    FT_Error error;
+    FT_ULong len;
 
     TRACE( "unix_name %s, face_index %u, data_ptr %p, data_size %u, flags %#x\n",
            unix_name, face_index, data_ptr, data_size, flags );
@@ -1270,7 +1274,20 @@ static struct unix_face *unix_face_create( const char *unix_name, void *data_ptr
 
         This->ntm_flags = get_ntm_flags( This->ft_face );
         This->font_version = get_font_version( This->ft_face );
-        if (!This->scalable) get_bitmap_size( This->ft_face, &This->size );
+        if (!This->scalable)
+        {
+            error = pFT_Load_Sfnt_Table( This->ft_face, RtlUlongByteSwap(MS_EBDT_TAG), 0, NULL, &len );
+            if (error == FT_Err_Table_Missing)
+            {
+                WARN( "EBDT table is missing in bitmap only font %s.\n",
+                      debugstr_w(ft_face_get_family_name( This->ft_face, system_lcid )));
+                pFT_Done_Face( This->ft_face );
+                free( This );
+                This = NULL;
+                goto done;
+            }
+            get_bitmap_size( This->ft_face, &This->size );
+        }
         get_fontsig( This->ft_face, &This->fs );
     }
     else
@@ -3403,9 +3420,12 @@ static unsigned int get_bezier_glyph_outline(FT_Outline *outline, unsigned int b
     return needed;
 }
 
-static FT_Int get_load_flags( UINT format )
+static FT_Int get_load_flags( UINT format, BOOL vertical_metrics, BOOL force_no_bitmap )
 {
     FT_Int load_flags = FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
+
+    if (vertical_metrics) load_flags |= FT_LOAD_VERTICAL_LAYOUT;
+    if (force_no_bitmap || format != GGO_BITMAP) load_flags |= FT_LOAD_NO_BITMAP;
 
     if (format & GGO_UNHINTED)
         return load_flags | FT_LOAD_NO_HINTING;
@@ -3439,16 +3459,17 @@ static FT_Int get_load_flags( UINT format )
  */
 static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT format,
                                         GLYPHMETRICS *lpgm, ABC *abc, UINT buflen, void *buf,
-                                        const MAT2 *lpmat, BOOL tategaki )
+                                        const MAT2 *lpmat, BOOL tategaki, UINT aa_flags )
 {
     struct gdi_font *base_font = font->base_font ? font->base_font : font;
     FT_Face ft_face = get_ft_face( font );
     FT_Glyph_Metrics metrics;
     FT_Error err;
     FT_BBox bbox;
-    FT_Int load_flags = get_load_flags(format);
+    FT_Int load_flags;
     FT_Matrix transform_matrices[3], *matrices = NULL;
     BOOL vertical_metrics;
+    UINT effective_format = format;
 
     TRACE("%p, %04x, %08x, %p, %08x, %p, %p\n", font, glyph, format, lpgm, buflen, buf, lpmat);
 
@@ -3456,20 +3477,24 @@ static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT 
           font->matrix.eM11, font->matrix.eM12,
           font->matrix.eM21, font->matrix.eM22);
 
-    format &= ~GGO_UNHINTED;
-
     matrices = get_transform_matrices( font, tategaki, lpmat, transform_matrices );
 
+    if (aa_flags && (format & ~GGO_GLYPH_INDEX) == GGO_METRICS)
+        effective_format = aa_flags | (format & GGO_GLYPH_INDEX);
     vertical_metrics = (tategaki && FT_HAS_VERTICAL(ft_face));
     /* there is a freetype bug where vertical metrics are only
        properly scaled and correct in 2.4.0 or greater */
     if (vertical_metrics && FT_SimpleVersion < FT_VERSION_VALUE(2, 4, 0))
         vertical_metrics = FALSE;
-
-    if (matrices || format != GGO_BITMAP) load_flags |= FT_LOAD_NO_BITMAP;
-    if (vertical_metrics) load_flags |= FT_LOAD_VERTICAL_LAYOUT;
+    load_flags = get_load_flags(effective_format, vertical_metrics, !!matrices);
 
     err = pFT_Load_Glyph(ft_face, glyph, load_flags);
+    if (err && format != effective_format)
+    {
+        WARN("Failed to load glyph %#x, retrying with GGO_METRICS. Error %#x.\n", glyph, err);
+        load_flags = get_load_flags(effective_format, vertical_metrics, !!matrices);
+        err = pFT_Load_Glyph(ft_face, glyph, load_flags);
+    }
     if (err && !(load_flags & FT_LOAD_NO_HINTING))
     {
         WARN("Failed to load glyph %#x, retrying without hinting. Error %#x.\n", glyph, err);
@@ -3481,6 +3506,8 @@ static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT 
         WARN("Failed to load glyph %#x, error %#x.\n", glyph, err);
         return GDI_ERROR;
     }
+
+    format &= ~GGO_UNHINTED;
 
     metrics = ft_face->glyph->metrics;
     if(font->fake_bold) {

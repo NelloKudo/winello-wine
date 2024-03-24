@@ -51,6 +51,9 @@
 /* Define to 1 if you have the <float.h> header file. */
 #undef HAVE_FLOAT_H
 
+/* Define to 1 if you have the <fontconfig/fontconfig.h> header file. */
+#undef HAVE_FONTCONFIG_FONTCONFIG_H
+
 /* Define if FreeType 2 is installed */
 #undef HAVE_FREETYPE
 
@@ -150,9 +153,6 @@
 /* Define to 1 if you have the <linux/filter.h> header file. */
 #undef HAVE_LINUX_FILTER_H
 
-/* Define to 1 if you have the <linux/futex.h> header file. */
-#undef HAVE_LINUX_FUTEX_H
-
 /* Define if Linux-style gethostbyname_r and gethostbyaddr_r are available */
 #undef HAVE_LINUX_GETHOSTBYNAME_R_6
 
@@ -183,9 +183,6 @@
 /* Define to 1 if you have the <linux/rtnetlink.h> header file. */
 #undef HAVE_LINUX_RTNETLINK_H
 
-/* Define to 1 if you have the <linux/seccomp.h> header file. */
-#undef HAVE_LINUX_SECCOMP_H
-
 /* Define to 1 if you have the <linux/serial.h> header file. */
 #undef HAVE_LINUX_SERIAL_H
 
@@ -197,9 +194,6 @@
 
 /* Define to 1 if you have the <linux/videodev2.h> header file. */
 #undef HAVE_LINUX_VIDEODEV2_H
-
-/* Define to 1 if you have the <linux/wireless.h> header file. */
-#undef HAVE_LINUX_WIRELESS_H
 
 /* Define to 1 if you have the <lwp.h> header file. */
 #undef HAVE_LWP_H
@@ -315,9 +309,6 @@
 /* Define to 1 if you have the `posix_fallocate' function. */
 #undef HAVE_POSIX_FALLOCATE
 
-/* Define to 1 if you have the `ppoll' function. */
-#undef HAVE_PPOLL
-
 /* Define to 1 if you have the `prctl' function. */
 #undef HAVE_PRCTL
 
@@ -327,17 +318,17 @@
 /* Define to 1 if you have the `pthread_getthreadid_np' function. */
 #undef HAVE_PTHREAD_GETTHREADID_NP
 
+/* Define to 1 if you have the <pthread.h> header file. */
+#undef HAVE_PTHREAD_H
+
 /* Define to 1 if you have the <pthread_np.h> header file. */
 #undef HAVE_PTHREAD_NP_H
 
+/* Define to 1 if you have the <pulse/pulseaudio.h> header file. */
+#undef HAVE_PULSE_PULSEAUDIO_H
+
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
-
-/* Define to 1 if you have the `renameat' function. */
-#undef HAVE_RENAMEAT
-
-/* Define to 1 if you have the `renameat2' function. */
-#undef HAVE_RENAMEAT2
 
 /* Define to 1 if the system has the type `request_sense'. */
 #undef HAVE_REQUEST_SENSE
@@ -384,14 +375,17 @@
 /* Define to 1 if `interface_id' is a member of `sg_io_hdr_t'. */
 #undef HAVE_SG_IO_HDR_T_INTERFACE_ID
 
-/* Define to 1 if you have the `shm_open' function. */
-#undef HAVE_SHM_OPEN
+/* Define if sigaddset is supported */
+#undef HAVE_SIGADDSET
 
 /* Define to 1 if `si_fd' is a member of `siginfo_t'. */
 #undef HAVE_SIGINFO_T_SI_FD
 
 /* Define to 1 if you have the `sigprocmask' function. */
 #undef HAVE_SIGPROCMASK
+
+/* Define to 1 if the system has the type `sigset_t'. */
+#undef HAVE_SIGSET_T
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
@@ -521,9 +515,6 @@
 
 /* Define to 1 if you have the <sys/epoll.h> header file. */
 #undef HAVE_SYS_EPOLL_H
-
-/* Define to 1 if you have the <sys/eventfd.h> header file. */
-#undef HAVE_SYS_EVENTFD_H
 
 /* Define to 1 if you have the <sys/event.h> header file. */
 #undef HAVE_SYS_EVENT_H
@@ -663,6 +654,9 @@
 /* Define to 1 if you have the <X11/extensions/shape.h> header file. */
 #undef HAVE_X11_EXTENSIONS_SHAPE_H
 
+/* Define to 1 if you have the <X11/extensions/Xcomposite.h> header file. */
+#undef HAVE_X11_EXTENSIONS_XCOMPOSITE_H
+
 /* Define to 1 if you have the <X11/extensions/xf86vmode.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XF86VMODE_H
 
@@ -678,6 +672,9 @@
 /* Define to 1 if you have the <X11/extensions/XInput2.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XINPUT2_H
 
+/* Define to 1 if you have the <X11/extensions/XInput.h> header file. */
+#undef HAVE_X11_EXTENSIONS_XINPUT_H
+
 /* Define to 1 if you have the <X11/extensions/Xrandr.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XRANDR_H
 
@@ -687,17 +684,26 @@
 /* Define to 1 if you have the <X11/extensions/XShm.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XSHM_H
 
+/* Define to 1 if you have the <X11/Xcursor/Xcursor.h> header file. */
+#undef HAVE_X11_XCURSOR_XCURSOR_H
+
+/* Define to 1 if you have the <X11/XKBlib.h> header file. */
+#undef HAVE_X11_XKBLIB_H
+
+/* Define to 1 if you have the <X11/Xlib.h> header file. */
+#undef HAVE_X11_XLIB_H
+
+/* Define to 1 if you have the <X11/Xutil.h> header file. */
+#undef HAVE_X11_XUTIL_H
+
 /* Define to 1 if `xcookie' is a member of `XEvent'. */
 #undef HAVE_XEVENT_XCOOKIE
 
 /* Define to 1 if `callback' is a member of `XICCallback'. */
 #undef HAVE_XICCALLBACK_CALLBACK
 
-/* Define to 1 if you have the <xkbcommon/xkbcommon.h> header file. */
-#undef HAVE_XKBCOMMON_XKBCOMMON_H
-
-/* Define to 1 if you have the <xkbcommon/xkbregistry.h> header file. */
-#undef HAVE_XKBCOMMON_XKBREGISTRY_H
+/* Define if you have the XKB extension */
+#undef HAVE_XKB
 
 /* Define if Xrender has the XRenderCreateLinearGradient function */
 #undef HAVE_XRENDERCREATELINEARGRADIENT
@@ -776,6 +782,9 @@
 
 /* Define to the soname of the libnetapi library. */
 #undef SONAME_LIBNETAPI
+
+/* Define to the soname of the libodbc library. */
+#undef SONAME_LIBODBC
 
 /* Define to the soname of the libOSMesa library. */
 #undef SONAME_LIBOSMESA

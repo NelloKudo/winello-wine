@@ -958,6 +958,7 @@ static void reg_empty_key( HKEY root, const char *key_name )
 
 static void prepare_devices(void)
 {
+    volatile struct global_shared_memory *global_shared = get_global_shared_memory();
     char buffer[4096];
     KEY_NODE_INFORMATION *key = (void *)buffer;
     KEY_VALUE_PARTIAL_INFORMATION *value = (void *)buffer;
@@ -966,6 +967,8 @@ static void prepare_devices(void)
     unsigned i = 0;
     DWORD size;
     HKEY hkey, subkey, device_key, prop_key;
+
+    if (global_shared) InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
 
     if (!enum_key) enum_key = reg_create_key( NULL, enum_keyW, sizeof(enum_keyW), 0, NULL );
     if (!control_key) control_key = reg_create_key( NULL, control_keyW, sizeof(control_keyW), 0, NULL );
@@ -1399,7 +1402,7 @@ static void add_gpu( const struct gdi_gpu *gpu, void *param )
             break;
         /* AMD */
         case 0x1002:
-            sprintf( buffer, "31.0.14051.5006" );
+            sprintf( buffer, "31.0.21902.5" );
             break;
         /* Nvidia */
         case 0x10de:
@@ -1703,7 +1706,6 @@ static BOOL update_display_cache_from_registry(void)
     struct monitor *monitor, *monitor2;
     HANDLE mutex = NULL;
     NTSTATUS status;
-    BOOL ret;
 
     /* If user driver did initialize the registry, then exit */
     if (!video_key && !(video_key = reg_open_key( NULL, devicemap_video_keyW,
@@ -1761,11 +1763,15 @@ static BOOL update_display_cache_from_registry(void)
         }
     }
 
-    if ((ret = !list_empty( &adapters ) && !list_empty( &monitors )))
-        last_query_display_time = key.LastWriteTime.QuadPart;
+    if (list_empty( &adapters ))
+    {
+        WARN( "No adapters found.\n" );
+        assert( list_empty( &monitors ));
+    }
+    else if (!list_empty( &monitors )) last_query_display_time = key.LastWriteTime.QuadPart;
     pthread_mutex_unlock( &display_lock );
     release_display_device_init_mutex( mutex );
-    return ret;
+    return TRUE;
 }
 
 static BOOL is_same_devmode( const DEVMODEW *a, const DEVMODEW *b )
@@ -2031,16 +2037,29 @@ static BOOL desktop_update_display_devices( BOOL force, struct device_manager_ct
     return TRUE;
 }
 
-BOOL update_display_cache( BOOL force )
+BOOL update_display_cache( BOOL force, BOOL increment_serial )
 {
     static const WCHAR wine_service_station_name[] =
         {'_','_','w','i','n','e','s','e','r','v','i','c','e','_','w','i','n','s','t','a','t','i','o','n',0};
-    HWINSTA winstation = NtUserGetProcessWindowStation();
+    static ULONG last_update_serial;
+
+    volatile struct global_shared_memory *global_shared = get_global_shared_memory();
+    ULONG current_serial, global_serial;
+    HWINSTA winstation;
     struct device_manager_ctx ctx = {0};
     BOOL was_virtual_desktop, ret;
     WCHAR name[MAX_PATH];
 
+    __WINE_ATOMIC_LOAD_RELAXED( &last_update_serial, &current_serial );
+    if (global_shared)
+    {
+        __WINE_ATOMIC_LOAD_RELAXED( &global_shared->display_settings_serial, &global_serial );
+        if (!force && current_serial && current_serial == global_serial) return TRUE;
+    }
+    else global_serial = 0;
+
     /* services do not have any adapters, only a virtual monitor */
+    winstation = NtUserGetProcessWindowStation();
     if (NtUserGetObjectInformation( winstation, UOI_NAME, name, sizeof(name), NULL )
         && !wcscmp( name, wine_service_station_name ))
     {
@@ -2048,6 +2067,7 @@ BOOL update_display_cache( BOOL force )
         clear_display_devices();
         list_add_tail( &monitors, &virtual_monitor.entry );
         pthread_mutex_unlock( &display_lock );
+        InterlockedCompareExchange( (LONG *)&last_update_serial, global_serial, current_serial );
         return TRUE;
     }
 
@@ -2064,6 +2084,9 @@ BOOL update_display_cache( BOOL force )
     release_display_manager_ctx( &ctx );
     if (!ret) WARN( "Failed to update display devices\n" );
 
+    if (increment_serial && global_shared)
+        global_serial = InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
+
     if (!update_display_cache_from_registry())
     {
         if (force)
@@ -2078,15 +2101,16 @@ BOOL update_display_cache( BOOL force )
             return FALSE;
         }
 
-        return update_display_cache( TRUE );
+        return update_display_cache( TRUE, FALSE );
     }
 
+    InterlockedCompareExchange( (LONG *)&last_update_serial, global_serial, current_serial );
     return TRUE;
 }
 
 static BOOL lock_display_devices(void)
 {
-    if (!update_display_cache( FALSE )) return FALSE;
+    if (!update_display_cache( FALSE, FALSE )) return FALSE;
     pthread_mutex_lock( &display_lock );
     return TRUE;
 }
@@ -2329,7 +2353,7 @@ RECT get_virtual_screen_rect( UINT dpi )
     return rect;
 }
 
-static BOOL is_window_rect_full_screen( const RECT *rect )
+BOOL is_window_rect_full_screen( const RECT *rect )
 {
     struct monitor *monitor;
     BOOL ret = FALSE;
@@ -2400,6 +2424,7 @@ RECT get_primary_monitor_rect( UINT dpi )
 LONG WINAPI NtUserGetDisplayConfigBufferSizes( UINT32 flags, UINT32 *num_path_info,
                                                UINT32 *num_mode_info )
 {
+    volatile struct global_shared_memory *global_shared;
     struct monitor *monitor;
     UINT32 count = 0;
 
@@ -2423,6 +2448,10 @@ LONG WINAPI NtUserGetDisplayConfigBufferSizes( UINT32 flags, UINT32 *num_path_in
     /* FIXME: semi-stub */
     if (flags != QDC_ONLY_ACTIVE_PATHS)
         FIXME( "only returning active paths\n" );
+
+    /* NtUserGetDisplayConfigBufferSizes() is called by display drivers to trigger display settings update. */
+    if ((global_shared = get_global_shared_memory()))
+        InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
 
     if (lock_display_devices())
     {
@@ -2935,6 +2964,8 @@ static DEVMODEW *get_display_settings( const WCHAR *devname, const DEVMODEW *dev
     struct adapter *adapter;
     BOOL ret;
 
+    if (list_empty( &adapters )) return NULL;
+
     /* allocate an extra mode for easier iteration */
     if (!(displays = calloc( list_count( &adapters ) + 1, sizeof(DEVMODEW) ))) return NULL;
     mode = displays;
@@ -3199,7 +3230,7 @@ static LONG apply_display_settings( const WCHAR *devname, const DEVMODEW *devmod
     free( displays );
     if (ret) return ret;
 
-    if (!update_display_cache( TRUE ))
+    if (!update_display_cache( TRUE, TRUE ))
         WARN( "Failed to update display cache after mode change.\n" );
 
     if ((adapter = find_adapter( NULL )))
@@ -4527,37 +4558,37 @@ static char spi_loaded[SPI_INDEX_COUNT];
 static struct sysparam_rgb_entry system_colors[] =
 {
 #define RGB_ENTRY(name,val,reg) { { get_rgb_entry, set_rgb_entry, init_rgb_entry, COLORS_KEY, reg }, (val) }
-    RGB_ENTRY( COLOR_SCROLLBAR, RGB(200, 200, 200), "Scrollbar" ),
-    RGB_ENTRY( COLOR_BACKGROUND, RGB(0, 0, 0), "Background" ),
-    RGB_ENTRY( COLOR_ACTIVECAPTION, RGB(153, 180, 209), "ActiveTitle" ),
-    RGB_ENTRY( COLOR_INACTIVECAPTION, RGB(191, 205, 219), "InactiveTitle" ),
-    RGB_ENTRY( COLOR_MENU, RGB(240, 240, 240), "Menu" ),
+    RGB_ENTRY( COLOR_SCROLLBAR, RGB(212, 208, 200), "Scrollbar" ),
+    RGB_ENTRY( COLOR_BACKGROUND, RGB(58, 110, 165), "Background" ),
+    RGB_ENTRY( COLOR_ACTIVECAPTION, RGB(10, 36, 106), "ActiveTitle" ),
+    RGB_ENTRY( COLOR_INACTIVECAPTION, RGB(128, 128, 128), "InactiveTitle" ),
+    RGB_ENTRY( COLOR_MENU, RGB(212, 208, 200), "Menu" ),
     RGB_ENTRY( COLOR_WINDOW, RGB(255, 255, 255), "Window" ),
-    RGB_ENTRY( COLOR_WINDOWFRAME, RGB(100, 100, 100), "WindowFrame" ),
+    RGB_ENTRY( COLOR_WINDOWFRAME, RGB(0, 0, 0), "WindowFrame" ),
     RGB_ENTRY( COLOR_MENUTEXT, RGB(0, 0, 0), "MenuText" ),
     RGB_ENTRY( COLOR_WINDOWTEXT, RGB(0, 0, 0), "WindowText" ),
-    RGB_ENTRY( COLOR_CAPTIONTEXT, RGB(0, 0, 0), "TitleText" ),
-    RGB_ENTRY( COLOR_ACTIVEBORDER, RGB(180, 180, 180), "ActiveBorder" ),
-    RGB_ENTRY( COLOR_INACTIVEBORDER, RGB(244, 247, 252), "InactiveBorder" ),
-    RGB_ENTRY( COLOR_APPWORKSPACE, RGB(171, 171, 171), "AppWorkSpace" ),
-    RGB_ENTRY( COLOR_HIGHLIGHT, RGB(0, 120, 215), "Hilight" ),
+    RGB_ENTRY( COLOR_CAPTIONTEXT, RGB(255, 255, 255), "TitleText" ),
+    RGB_ENTRY( COLOR_ACTIVEBORDER, RGB(212, 208, 200), "ActiveBorder" ),
+    RGB_ENTRY( COLOR_INACTIVEBORDER, RGB(212, 208, 200), "InactiveBorder" ),
+    RGB_ENTRY( COLOR_APPWORKSPACE, RGB(128, 128, 128), "AppWorkSpace" ),
+    RGB_ENTRY( COLOR_HIGHLIGHT, RGB(10, 36, 106), "Hilight" ),
     RGB_ENTRY( COLOR_HIGHLIGHTTEXT, RGB(255, 255, 255), "HilightText" ),
-    RGB_ENTRY( COLOR_BTNFACE, RGB(240, 240, 240), "ButtonFace" ),
-    RGB_ENTRY( COLOR_BTNSHADOW, RGB(160, 160, 160), "ButtonShadow" ),
-    RGB_ENTRY( COLOR_GRAYTEXT, RGB(109, 109, 109), "GrayText" ),
+    RGB_ENTRY( COLOR_BTNFACE, RGB(212, 208, 200), "ButtonFace" ),
+    RGB_ENTRY( COLOR_BTNSHADOW, RGB(128, 128, 128), "ButtonShadow" ),
+    RGB_ENTRY( COLOR_GRAYTEXT, RGB(128, 128, 128), "GrayText" ),
     RGB_ENTRY( COLOR_BTNTEXT, RGB(0, 0, 0), "ButtonText" ),
-    RGB_ENTRY( COLOR_INACTIVECAPTIONTEXT, RGB(0, 0, 0), "InactiveTitleText" ),
+    RGB_ENTRY( COLOR_INACTIVECAPTIONTEXT, RGB(212, 208, 200), "InactiveTitleText" ),
     RGB_ENTRY( COLOR_BTNHIGHLIGHT, RGB(255, 255, 255), "ButtonHilight" ),
-    RGB_ENTRY( COLOR_3DDKSHADOW, RGB(105, 105, 105), "ButtonDkShadow" ),
-    RGB_ENTRY( COLOR_3DLIGHT, RGB(227, 227, 227), "ButtonLight" ),
+    RGB_ENTRY( COLOR_3DDKSHADOW, RGB(64, 64, 64), "ButtonDkShadow" ),
+    RGB_ENTRY( COLOR_3DLIGHT, RGB(212, 208, 200), "ButtonLight" ),
     RGB_ENTRY( COLOR_INFOTEXT, RGB(0, 0, 0), "InfoText" ),
     RGB_ENTRY( COLOR_INFOBK, RGB(255, 255, 225), "InfoWindow" ),
-    RGB_ENTRY( COLOR_ALTERNATEBTNFACE, RGB(240, 240, 240), "ButtonAlternateFace" ),
-    RGB_ENTRY( COLOR_HOTLIGHT, RGB(0, 102, 204), "HotTrackingColor" ),
-    RGB_ENTRY( COLOR_GRADIENTACTIVECAPTION, RGB(185, 209, 234), "GradientActiveTitle" ),
-    RGB_ENTRY( COLOR_GRADIENTINACTIVECAPTION, RGB(215, 228, 242), "GradientInactiveTitle" ),
-    RGB_ENTRY( COLOR_MENUHILIGHT, RGB(51, 153, 255), "MenuHilight" ),
-    RGB_ENTRY( COLOR_MENUBAR, RGB(240, 240, 240), "MenuBar" )
+    RGB_ENTRY( COLOR_ALTERNATEBTNFACE, RGB(181, 181, 181), "ButtonAlternateFace" ),
+    RGB_ENTRY( COLOR_HOTLIGHT, RGB(0, 0, 200), "HotTrackingColor" ),
+    RGB_ENTRY( COLOR_GRADIENTACTIVECAPTION, RGB(166, 202, 240), "GradientActiveTitle" ),
+    RGB_ENTRY( COLOR_GRADIENTINACTIVECAPTION, RGB(192, 192, 192), "GradientInactiveTitle" ),
+    RGB_ENTRY( COLOR_MENUHILIGHT, RGB(10, 36, 106), "MenuHilight" ),
+    RGB_ENTRY( COLOR_MENUBAR, RGB(212, 208, 200), "MenuBar" )
 #undef RGB_ENTRY
 };
 
@@ -6198,13 +6229,35 @@ static void thread_detach(void)
 
     user_driver->pThreadDetach();
 
-    free( thread_info->key_state );
-    thread_info->key_state = 0;
     free( thread_info->rawinput );
 
     destroy_thread_windows();
     cleanup_imm_thread();
     NtClose( thread_info->server_queue );
+
+    if (thread_info->desktop_shm)
+    {
+        NtUnmapViewOfSection( GetCurrentProcess(), (void *)thread_info->desktop_shm );
+        thread_info->desktop_shm = NULL;
+    }
+
+    if (thread_info->queue_shm)
+    {
+        NtUnmapViewOfSection( GetCurrentProcess(), (void *)thread_info->queue_shm );
+        thread_info->queue_shm = NULL;
+    }
+
+    if (thread_info->input_shm)
+    {
+        NtUnmapViewOfSection( GetCurrentProcess(), (void *)thread_info->input_shm );
+        thread_info->input_shm = NULL;
+    }
+
+    if (thread_info->foreground_shm)
+    {
+        NtUnmapViewOfSection( GetCurrentProcess(), (void *)thread_info->foreground_shm );
+        thread_info->foreground_shm = NULL;
+    }
 
     exiting_thread_id = 0;
 }
@@ -6338,6 +6391,9 @@ ULONG_PTR WINAPI NtUserCallOneParam( ULONG_PTR arg, ULONG code )
     case NtUserCallOneParam_SetKeyboardAutoRepeat:
         return set_keyboard_auto_repeat( arg );
 
+    case NtUserCallOneParam_UnregisterTouchWindow:
+        return unregister_touch_window( (HWND)arg );
+
     /* temporary exports */
     case NtUserGetDeskPattern:
         return get_entry( &entry_DESKPATTERN, 256, (WCHAR *)arg );
@@ -6369,6 +6425,9 @@ ULONG_PTR WINAPI NtUserCallTwoParam( ULONG_PTR arg1, ULONG_PTR arg2, ULONG code 
 
     case NtUserCallTwoParam_MonitorFromRect:
         return HandleToUlong( monitor_from_rect( (const RECT *)arg1, arg2, get_thread_dpi() ));
+
+    case NtUserCallTwoParam_RegisterTouchWindow:
+        return register_touch_window( (HWND)arg1, arg2 );
 
     case NtUserCallTwoParam_SetCaretPos:
         return set_caret_pos( arg1, arg2 );
@@ -6563,11 +6622,36 @@ NTSTATUS WINAPI NtUserDisplayConfigGetDeviceInfo( DISPLAYCONFIG_DEVICE_INFO_HEAD
 
         return STATUS_NOT_SUPPORTED;
     }
+    case DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO:
+    {
+        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO *info = (DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO *)packet;
+        const char *env;
+
+        FIXME( "DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO semi-stub.\n" );
+
+        if (packet->size < sizeof(*info))
+            return STATUS_INVALID_PARAMETER;
+
+        info->advancedColorSupported = 0;
+        info->advancedColorEnabled = 0;
+        info->wideColorEnforced = 0;
+        info->advancedColorForceDisabled = 0;
+        info->colorEncoding = DISPLAYCONFIG_COLOR_ENCODING_RGB;
+        info->bitsPerColorChannel = 8;
+        if ((env = getenv("DXVK_HDR")) && *env == '1')
+        {
+            TRACE( "HDR is enabled.\n" );
+            info->advancedColorSupported = 1;
+            info->advancedColorEnabled = 1;
+            info->bitsPerColorChannel = 10;
+        }
+
+        return STATUS_SUCCESS;
+    }
     case DISPLAYCONFIG_DEVICE_INFO_SET_TARGET_PERSISTENCE:
     case DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_BASE_TYPE:
     case DISPLAYCONFIG_DEVICE_INFO_GET_SUPPORT_VIRTUAL_RESOLUTION:
     case DISPLAYCONFIG_DEVICE_INFO_SET_SUPPORT_VIRTUAL_RESOLUTION:
-    case DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO:
     case DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE:
     case DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL:
     default:

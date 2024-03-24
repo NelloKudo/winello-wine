@@ -893,6 +893,63 @@ typedef struct
     lparam_t info;
 } cursor_pos_t;
 
+struct cpu_topology_override
+{
+    unsigned int cpu_count;
+    unsigned char host_cpu_id[64];
+};
+
+struct shared_cursor
+{
+    int                  x;                /* cursor position */
+    int                  y;
+    unsigned int         last_change;      /* time of last position change */
+    rectangle_t          clip;             /* cursor clip rectangle */
+    unsigned int         clip_flags;       /* cursor clip flags */
+};
+
+struct desktop_shared_memory
+{
+    unsigned int         seq;              /* sequence number - server updating if (seq & 1) != 0 */
+    struct shared_cursor cursor;           /* global cursor information */
+    unsigned char        keystate[256];    /* asynchronous key state */
+    thread_id_t          foreground_tid;   /* tid of the foreground thread */
+    __int64              update_serial;
+};
+typedef volatile struct desktop_shared_memory desktop_shm_t;
+
+struct queue_shared_memory
+{
+    unsigned int         seq;              /* sequence number - server updating if (seq & 1) != 0 */
+    int                  created;          /* queue has been created */
+    unsigned int         wake_bits;
+    unsigned int         changed_bits;
+    unsigned int         wake_mask;
+    unsigned int         changed_mask;
+    thread_id_t          input_tid;
+};
+typedef volatile struct queue_shared_memory queue_shm_t;
+
+struct input_shared_memory
+{
+    unsigned int         seq;              /* sequence number - server updating if (seq & 1) != 0 */
+    int                  created;
+    thread_id_t          tid;
+    user_handle_t        focus;            /* handle to the focus window */
+    user_handle_t        capture;          /* handle to the capture window */
+    user_handle_t        active;           /* handle to the active window */
+    user_handle_t        menu_owner;       /* handle to the menu owner */
+    user_handle_t        move_size;        /* handle to the moving/resizing window */
+    user_handle_t        caret;            /* handle to the caret window */
+    user_handle_t        cursor;           /* handle to the cursor */
+    rectangle_t          caret_rect;       /* caret rectangle */
+    int                  cursor_count;     /* cursor show count */
+    unsigned char        keystate[256];    /* key state */
+    int                  keystate_lock;    /* keystate is locked */
+    __int64              sync_serial;
+};
+typedef volatile struct input_shared_memory input_shm_t;
+
 /****************************************************************/
 /* Request declarations */
 
@@ -959,6 +1016,7 @@ typedef struct
     client_ptr_t ldt_copy;     /* address of LDT copy (in process address space) */
 @REPLY
     client_ptr_t entry;        /* process entry point */
+    VARARG(cpu_override,cpu_topology_override); /* Overridden CPUs to host CPUs mapping. */
     int          suspend;      /* is process suspended? */
 @END
 
@@ -1125,9 +1183,11 @@ typedef struct
 
 /* Suspend a thread */
 @REQ(suspend_thread)
-    obj_handle_t handle;       /* thread handle */
+    obj_handle_t handle;        /* thread handle */
+    obj_handle_t waited_handle; /* handle waited on */
 @REPLY
-    int          count;        /* new suspend count */
+    int          count;         /* new suspend count */
+    obj_handle_t wait_handle;   /* handle to wait on */
 @END
 
 
@@ -1430,7 +1490,6 @@ enum server_fd_type
 {
     FD_TYPE_INVALID,  /* invalid file (no associated fd) */
     FD_TYPE_FILE,     /* regular file */
-    FD_TYPE_SYMLINK,  /* symbolic link */
     FD_TYPE_DIR,      /* directory */
     FD_TYPE_SOCKET,   /* socket */
     FD_TYPE_SERIAL,   /* serial port */
@@ -1809,6 +1868,7 @@ struct process_info
     obj_handle_t handle;       /* process handle */
     client_ptr_t addr;         /* addr to read from */
 @REPLY
+    int unix_pid;              /* Unix pid of new process */
     VARARG(data,bytes);        /* result data */
 @END
 
@@ -2198,7 +2258,6 @@ enum message_type
     int             x;         /* message x position */
     int             y;         /* message y position */
     unsigned int    time;      /* message time */
-    unsigned int    active_hooks; /* active hooks bitmap */
     data_size_t     total;     /* total size of extra data */
     VARARG(data,message_data); /* message data for sent messages */
 @END
@@ -2647,13 +2706,6 @@ enum coords_relative
 @END
 
 
-/* Set the layer region */
-@REQ(set_layer_region)
-    user_handle_t  window;        /* handle to the window */
-    VARARG(region,rectangles);    /* list of rectangles for the region (in window coords) */
-@END
-
-
 /* Get the window update region */
 @REQ(get_update_region)
     user_handle_t  window;        /* handle to the window */
@@ -2848,6 +2900,7 @@ enum coords_relative
     obj_handle_t handle;          /* handle to the object */
     unsigned int flags;           /* information to set/get */
     unsigned int obj_flags;       /* new object flags */
+    timeout_t    close_timeout;   /* desktop close timeout */
 @REPLY
     int          is_desktop;      /* is object a desktop? */
     unsigned int old_obj_flags;   /* old object flags */
@@ -2855,6 +2908,7 @@ enum coords_relative
 @END
 #define SET_USER_OBJECT_SET_FLAGS       1
 #define SET_USER_OBJECT_GET_FULL_NAME   2
+#define SET_USER_OBJECT_SET_CLOSE_TIMEOUT 4
 
 
 /* Register a hotkey */
@@ -2895,12 +2949,9 @@ enum coords_relative
     user_handle_t  focus;         /* handle to the focus window */
     user_handle_t  capture;       /* handle to the capture window */
     user_handle_t  active;        /* handle to the active window */
-    user_handle_t  foreground;    /* handle to the global foreground window */
     user_handle_t  menu_owner;    /* handle to the menu owner */
     user_handle_t  move_size;     /* handle to the moving/resizing window */
     user_handle_t  caret;         /* handle to the caret window */
-    user_handle_t  cursor;        /* handle to the cursor */
-    int            show_count;    /* cursor show count */
     rectangle_t    rect;          /* caret rectangle */
 @END
 
@@ -2946,6 +2997,7 @@ enum coords_relative
 /* Set the current thread active window */
 @REQ(set_active_window)
     user_handle_t  handle;        /* handle to the active window */
+    unsigned int   internal_msg;  /* set active window internal message */
 @REPLY
     user_handle_t  previous;      /* handle to the previous active window */
 @END
@@ -2999,6 +3051,13 @@ enum caret_state
     CARET_STATE_TOGGLE,     /* toggle current state */
     CARET_STATE_ON_IF_MOVED /* on if the position differs, unchanged otherwise */
 };
+
+
+/* get thread active hooks */
+@REQ(get_active_hooks)
+@REPLY
+    unsigned int   active_hooks;   /* active hooks bitmap */
+@END
 
 
 /* Set a window hook */
@@ -3617,6 +3676,7 @@ struct handle_info
 /* Make the current process a system process */
 @REQ(make_process_system)
     obj_handle_t handle;          /* handle to the process */
+    timeout_t    desktop_close_timeout; /* set timeout for desktop close */
 @REPLY
     obj_handle_t event;           /* event signaled when all user processes have exited */
 @END
@@ -3679,6 +3739,7 @@ struct handle_info
 /* get completion from completion port queue */
 @REQ(remove_completion)
     obj_handle_t handle;          /* port handle */
+    int          waited;          /* port was just successfully waited on */
 @REPLY
     apc_param_t   ckey;           /* completion key */
     apc_param_t   cvalue;         /* completion value */
@@ -3814,6 +3875,8 @@ struct handle_info
 @REQ(get_rawinput_buffer)
     data_size_t rawinput_size; /* size of RAWINPUT structure */
     data_size_t buffer_size;   /* size of output buffer */
+    int         clear_qs_rawinput;
+    int         __pad;
 @REPLY
     data_size_t next_size; /* minimum size to get next message data */
     unsigned int count;
@@ -3966,6 +4029,8 @@ enum esync_type
 @REQ(get_esync_apc_fd)
 @END
 
+#define FSYNC_SHM_PAGE_SIZE 0x10000
+
 enum fsync_type
 {
     FSYNC_SEMAPHORE = 1,
@@ -4018,4 +4083,9 @@ enum fsync_type
 @REQ(get_fsync_apc_idx)
 @REPLY
     unsigned int shm_idx;
+@END
+
+@REQ(fsync_free_shm_idx)
+    unsigned int shm_idx;
+@REPLY
 @END

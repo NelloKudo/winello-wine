@@ -31,9 +31,6 @@
 #include "winbase.h"
 #include "winreg.h"
 #include "x11drv.h"
-#include "xfixes.h"
-#include "xpresent.h"
-#include "xcomposite.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
@@ -251,36 +248,15 @@ static INT X11DRV_ExtEscape( PHYSDEV dev, INT escape, INT in_count, LPCVOID in_d
                 {
                     const struct x11drv_escape_present_drawable *data = in_data;
                     RECT rect = physDev->dc_rect;
+                    RECT real_rect = physDev->dc_rect;
 
+                    fs_hack_rect_user_to_real( &real_rect );
                     OffsetRect( &rect, -physDev->dc_rect.left, -physDev->dc_rect.top );
                     if (data->flush) XFlush( gdi_display );
-
-#if defined(SONAME_LIBXPRESENT) && defined(SONAME_LIBXFIXES)
-                    if (use_xpresent && use_xfixes && usexcomposite)
-                    {
-                        XserverRegion update, valid;
-                        XRectangle xrect = {0, 0, rect.right - rect.left, rect.bottom - rect.top};
-                        Drawable drawable = data->drawable;
-                        update = pXFixesCreateRegionFromGC( gdi_display, physDev->gc );
-                        valid = pXFixesCreateRegion( gdi_display, &xrect, 1 );
-#ifdef SONAME_LIBXCOMPOSITE
-                        if (usexcomposite) drawable = pXCompositeNameWindowPixmap( gdi_display, drawable );
-#endif
-                        pXPresentPixmap( gdi_display, physDev->drawable, drawable, XNextRequest( gdi_display ),
-                                         valid, update, physDev->dc_rect.left, physDev->dc_rect.top, None, None,
-                                         None, 0, 0, 0, 0, NULL, 0 );
-                        pXFixesDestroyRegion( gdi_display, update );
-                        pXFixesDestroyRegion( gdi_display, valid );
-                    }
-                    else
-#endif
-                    {
-                        XSetFunction( gdi_display, physDev->gc, GXcopy );
-                        XCopyArea( gdi_display, data->drawable, physDev->drawable, physDev->gc,
-                                   0, 0, rect.right, rect.bottom,
-                                   physDev->dc_rect.left, physDev->dc_rect.top );
-                    }
-
+                    XSetFunction( gdi_display, physDev->gc, GXcopy );
+                    XCopyArea( gdi_display, data->drawable, physDev->drawable, physDev->gc,
+                               0, 0, real_rect.right - real_rect.left, real_rect.bottom - real_rect.top,
+                               real_rect.left, real_rect.top );
                     add_device_bounds( physDev, &rect );
                     return TRUE;
                 }
@@ -342,9 +318,6 @@ static INT X11DRV_ExtEscape( PHYSDEV dev, INT escape, INT in_count, LPCVOID in_d
                     return TRUE;
                 }
                 break;
-            case X11DRV_FLUSH_GDI_DISPLAY:
-                XFlush( gdi_display );
-                return TRUE;
             default:
                 break;
             }
@@ -430,7 +403,6 @@ static const struct user_driver_funcs x11drv_funcs =
     .pNotifyIMEStatus = X11DRV_NotifyIMEStatus,
     .pDestroyCursorIcon = X11DRV_DestroyCursorIcon,
     .pSetCursor = X11DRV_SetCursor,
-    .pGetCursorPos = X11DRV_GetCursorPos,
     .pSetCursorPos = X11DRV_SetCursorPos,
     .pClipCursor = X11DRV_ClipCursor,
     .pSystrayDockInit = X11DRV_SystrayDockInit,
@@ -450,7 +422,6 @@ static const struct user_driver_funcs x11drv_funcs =
     .pProcessEvents = X11DRV_ProcessEvents,
     .pReleaseDC = X11DRV_ReleaseDC,
     .pScrollDC = X11DRV_ScrollDC,
-    .pSetActiveWindow = X11DRV_SetActiveWindow,
     .pSetCapture = X11DRV_SetCapture,
     .pSetDesktopWindow = X11DRV_SetDesktopWindow,
     .pSetFocus = X11DRV_SetFocus,
@@ -471,7 +442,6 @@ static const struct user_driver_funcs x11drv_funcs =
     .pSystemParametersInfo = X11DRV_SystemParametersInfo,
     .pwine_get_vulkan_driver = X11DRV_wine_get_vulkan_driver,
     .pwine_get_wgl_driver = X11DRV_wine_get_wgl_driver,
-    .pUpdateCandidatePos = X11DRV_UpdateCandidatePos,
     .pThreadDetach = X11DRV_ThreadDetach,
 };
 

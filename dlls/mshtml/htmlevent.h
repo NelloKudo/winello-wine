@@ -40,6 +40,7 @@ typedef enum {
     EVENTID_FOCUSOUT,
     EVENTID_HELP,
     EVENTID_INPUT,
+    EVENTID_INVALID,
     EVENTID_KEYDOWN,
     EVENTID_KEYPRESS,
     EVENTID_KEYUP,
@@ -76,6 +77,7 @@ typedef struct DOMEvent {
     DispatchEx dispex;
     IDOMEvent IDOMEvent_iface;
 
+    HTMLInnerWindow *window;
     nsIDOMEvent *nsevent;
 
     eventid_t event_id;
@@ -107,7 +109,7 @@ HRESULT fire_event(HTMLDOMNode*,const WCHAR*,VARIANT*,VARIANT_BOOL*);
 void update_doc_cp_events(HTMLDocumentNode*,cp_static_data_t*);
 HRESULT doc_init_events(HTMLDocumentNode*);
 void detach_events(HTMLDocumentNode *doc);
-HRESULT create_event_obj(DOMEvent*,compat_mode_t,IHTMLEventObj**);
+HRESULT create_event_obj(HTMLDocumentNode*,DOMEvent*,IHTMLEventObj**);
 void bind_target_event(HTMLDocumentNode*,EventTarget*,const WCHAR*,IDispatch*);
 HRESULT ensure_doc_nsevent_handler(HTMLDocumentNode*,nsIDOMNode*,eventid_t);
 
@@ -115,8 +117,8 @@ void dispatch_event(EventTarget*,DOMEvent*);
 
 HRESULT create_document_event(HTMLDocumentNode*,eventid_t,DOMEvent**);
 HRESULT create_document_event_str(HTMLDocumentNode*,const WCHAR*,IDOMEvent**);
-HRESULT create_event_from_nsevent(nsIDOMEvent*,compat_mode_t,DOMEvent**);
-HRESULT create_message_event(HTMLDocumentNode*,VARIANT*,DOMEvent**);
+HRESULT create_event_from_nsevent(nsIDOMEvent*,HTMLInnerWindow*,compat_mode_t,DOMEvent**);
+HRESULT create_message_event(HTMLDocumentNode*,IHTMLWindow2*,VARIANT*,DOMEvent**);
 HRESULT create_storage_event(HTMLDocumentNode*,BSTR,BSTR,BSTR,const WCHAR*,BOOL,DOMEvent**);
 
 void init_nsevents(HTMLDocumentNode*);
@@ -131,7 +133,8 @@ typedef struct {
     nsISupports *(*get_gecko_target)(DispatchEx*);
     void (*bind_event)(DispatchEx*,eventid_t);
     EventTarget *(*get_parent_event_target)(DispatchEx*);
-    HRESULT (*handle_event)(DispatchEx*,eventid_t,nsIDOMEvent*,BOOL*);
+    HRESULT (*pre_handle_event)(DispatchEx*,DOMEvent*);
+    HRESULT (*handle_event)(DispatchEx*,DOMEvent*,BOOL*);
     ConnectionPointContainer *(*get_cp_container)(DispatchEx*);
     IHTMLEventObj *(*set_current_event)(DispatchEx*,IHTMLEventObj*);
 } event_target_vtbl_t;
@@ -141,7 +144,7 @@ IHTMLEventObj *default_set_current_event(HTMLInnerWindow*,IHTMLEventObj*);
 nsISupports *HTMLElement_get_gecko_target(DispatchEx*);
 void HTMLElement_bind_event(DispatchEx*,eventid_t);
 EventTarget *HTMLElement_get_parent_event_target(DispatchEx*);
-HRESULT HTMLElement_handle_event(DispatchEx*,eventid_t,nsIDOMEvent*,BOOL*);
+HRESULT HTMLElement_handle_event(DispatchEx*,DOMEvent*,BOOL*);
 ConnectionPointContainer *HTMLElement_get_cp_container(DispatchEx*);
 IHTMLEventObj *HTMLElement_set_current_event(DispatchEx*,IHTMLEventObj*);
 

@@ -420,6 +420,9 @@ static void ddraw_destroy_swapchain(struct ddraw *ddraw)
  *****************************************************************************/
 static void ddraw_destroy(struct ddraw *This)
 {
+    struct d3d_device *device;
+    unsigned int i;
+
     IDirectDraw7_SetCooperativeLevel(&This->IDirectDraw7_iface, NULL, DDSCL_NORMAL);
     IDirectDraw7_RestoreDisplayMode(&This->IDirectDraw7_iface);
 
@@ -441,8 +444,43 @@ static void ddraw_destroy(struct ddraw *This)
     wined3d_device_decref(This->wined3d_device);
     wined3d_decref(This->wined3d);
 
-    if (This->d3ddevice)
-        This->d3ddevice->ddraw = NULL;
+    for (i = 0; i < This->handle_table.entry_count; ++i)
+    {
+        struct ddraw_handle_entry *entry = &This->handle_table.entries[i];
+
+        switch (entry->type)
+        {
+            case DDRAW_HANDLE_FREE:
+                break;
+
+            case DDRAW_HANDLE_MATERIAL:
+            {
+                struct d3d_material *m = entry->object;
+                FIXME("Material handle %#x (%p) not unset properly.\n", i + 1, m);
+                m->Handle = 0;
+                break;
+            }
+
+            case DDRAW_HANDLE_SURFACE:
+            {
+                struct ddraw_surface *surf = entry->object;
+                FIXME("Texture handle %#x (%p) not unset properly.\n", i + 1, surf);
+                surf->Handle = 0;
+                break;
+            }
+
+            default:
+                FIXME("Handle %#x (%p) has unknown type %#x.\n", i + 1, entry->object, entry->type);
+                break;
+        }
+    }
+
+    ddraw_handle_table_destroy(&This->handle_table);
+
+    LIST_FOR_EACH_ENTRY(device, &This->d3ddevice_list, struct d3d_device, ddraw_entry)
+    {
+        device->ddraw = NULL;
+    }
 
     /* Now free the object */
     free(This);
@@ -978,7 +1016,7 @@ static HRESULT ddraw_set_cooperative_level(struct ddraw *ddraw, HWND window,
            topmost bit unless the DDSCL_NOWINDOWCHANGES flag is set in
            this call that sets it to normal, not in the old coop level. */
         if (!(cooplevel & DDSCL_NOWINDOWCHANGES))
-            SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetWindowPos(ddraw->dest_window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
         if (restore_mode_on_normal && FAILED(ddraw7_RestoreDisplayMode(&ddraw->IDirectDraw7_iface)))
             ERR("RestoreDisplayMode failed\n");
@@ -1460,28 +1498,6 @@ HRESULT ddraw_get_d3dcaps(const struct ddraw *ddraw, D3DDEVICEDESC7 *caps)
     return DD_OK;
 }
 
-HRESULT CALLBACK enum_zbuffer(DDPIXELFORMAT *format, void *ctx)
-{
-    DDCAPS *caps = ctx;
-
-    switch (format->dwZBufferBitDepth)
-    {
-        case 8:
-            caps->dwZBufferBitDepths |= DDBD_8;
-            break;
-        case 16:
-            caps->dwZBufferBitDepths |= DDBD_16;
-            break;
-        case 24:
-            caps->dwZBufferBitDepths |= DDBD_24;
-            break;
-        case 32:
-            caps->dwZBufferBitDepths |= DDBD_32;
-            break;
-    }
-    return D3DENUMRET_OK;
-}
-
 /*****************************************************************************
  * IDirectDraw7::GetCaps
  *
@@ -1561,8 +1577,6 @@ static HRESULT WINAPI ddraw7_GetCaps(IDirectDraw7 *iface, DDCAPS *DriverCaps, DD
 
     caps.dwCaps |= DDCAPS_ALIGNSTRIDE;
     caps.dwAlignStrideAlign = DDRAW_STRIDE_ALIGNMENT;
-
-    IDirect3D7_EnumZBufferFormats(&ddraw->IDirect3D7_iface, &IID_IDirect3DHALDevice, enum_zbuffer, &caps);
 
     caps.ddsOldCaps.dwCaps = caps.ddsCaps.dwCaps;
 
@@ -5148,6 +5162,16 @@ HRESULT ddraw_init(struct ddraw *ddraw, DWORD flags, enum wined3d_device_type de
     ddraw->immediate_context = wined3d_device_get_immediate_context(ddraw->wined3d_device);
 
     list_init(&ddraw->surface_list);
+    list_init(&ddraw->d3ddevice_list);
+
+    if (!ddraw_handle_table_init(&ddraw->handle_table, 64))
+    {
+        ERR("Failed to initialize handle table.\n");
+        ddraw_handle_table_destroy(&ddraw->handle_table);
+        wined3d_device_decref(ddraw->wined3d_device);
+        wined3d_decref(ddraw->wined3d);
+        return DDERR_OUTOFMEMORY;
+    }
 
     if (FAILED(hr = wined3d_stateblock_create(ddraw->wined3d_device, NULL, WINED3D_SBT_PRIMARY, &ddraw->state)))
     {

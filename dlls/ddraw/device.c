@@ -303,14 +303,6 @@ static ULONG WINAPI d3d_device_inner_Release(IUnknown *iface)
                 case DDRAW_HANDLE_FREE:
                     break;
 
-                case DDRAW_HANDLE_MATERIAL:
-                {
-                    struct d3d_material *m = entry->object;
-                    FIXME("Material handle %#lx (%p) not unset properly.\n", i + 1, m);
-                    m->Handle = 0;
-                    break;
-                }
-
                 case DDRAW_HANDLE_MATRIX:
                 {
                     /* No FIXME here because this might happen because of sloppy applications. */
@@ -324,14 +316,6 @@ static ULONG WINAPI d3d_device_inner_Release(IUnknown *iface)
                     /* No FIXME here because this might happen because of sloppy applications. */
                     WARN("Leftover stateblock handle %#lx (%p), deleting.\n", i + 1, entry->object);
                     IDirect3DDevice7_DeleteStateBlock(&This->IDirect3DDevice7_iface, i + 1);
-                    break;
-                }
-
-                case DDRAW_HANDLE_SURFACE:
-                {
-                    struct ddraw_surface *surf = entry->object;
-                    FIXME("Texture handle %#lx (%p) not unset properly.\n", i + 1, surf);
-                    surf->Handle = 0;
                     break;
                 }
 
@@ -362,7 +346,10 @@ static ULONG WINAPI d3d_device_inner_Release(IUnknown *iface)
         /* Releasing the render target above may have released the last
          * reference to the ddraw object. */
         if (This->ddraw)
-            This->ddraw->d3ddevice = NULL;
+        {
+            list_remove(&This->ddraw_entry);
+            This->ddraw = NULL;
+        }
 
         /* Now free the structure */
         free(This);
@@ -2821,7 +2808,7 @@ static HRESULT WINAPI d3d_device3_SetRenderState(IDirect3DDevice3 *iface,
                 break;
             }
 
-            surf = ddraw_get_object(&device->handle_table, value - 1, DDRAW_HANDLE_SURFACE);
+            surf = ddraw_get_object(&device->ddraw->handle_table, value - 1, DDRAW_HANDLE_SURFACE);
             if (!surf)
             {
                 WARN("Invalid texture handle.\n");
@@ -2989,7 +2976,7 @@ static HRESULT WINAPI d3d_device3_SetLightState(IDirect3DDevice3 *iface,
         {
             struct d3d_material *m;
 
-            if (!(m = ddraw_get_object(&device->handle_table, value - 1, DDRAW_HANDLE_MATERIAL)))
+            if (!(m = ddraw_get_object(&device->ddraw->handle_table, value - 1, DDRAW_HANDLE_MATERIAL)))
             {
                 WARN("Invalid material handle.\n");
                 wined3d_mutex_unlock();
@@ -6943,7 +6930,7 @@ static HRESULT d3d_device_init(struct d3d_device *device, struct ddraw *ddraw, c
     if (version != 1)
         IUnknown_AddRef(device->rt_iface);
 
-    ddraw->d3ddevice = device;
+    list_add_head(&ddraw->d3ddevice_list, &device->ddraw_entry);
 
     wined3d_stateblock_set_render_state(ddraw->state, WINED3D_RS_ZENABLE,
             d3d_device_update_depth_stencil(device));
@@ -6989,12 +6976,6 @@ HRESULT d3d_device_create(struct ddraw *ddraw, const GUID *guid, struct ddraw_su
                 "but the current DirectDrawRenderer does not support this.\n");
 
         return DDERR_OUTOFMEMORY;
-    }
-
-    if (ddraw->d3ddevice)
-    {
-        FIXME("Only one Direct3D device per DirectDraw object supported.\n");
-        return DDERR_INVALIDPARAMS;
     }
 
     if (!(object = calloc(1, sizeof(*object))))

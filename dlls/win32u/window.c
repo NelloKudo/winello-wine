@@ -652,6 +652,38 @@ HWND *list_window_children( HDESK desktop, HWND hwnd, UNICODE_STRING *class, DWO
     return NULL;
 }
 
+static BOOL enum_window_children( HWND *list, WNDENUMPROC func, LPARAM lParam )
+{
+    HWND *child_list;
+    BOOL ret = FALSE;
+
+    for ( ; *list; list++)
+    {
+        if (!is_window( *list )) continue;
+        child_list = list_window_children( 0, *list, NULL, 0 );
+        ret = func( *list, lParam );
+        if (child_list)
+        {
+            if (ret) ret = enum_window_children( child_list, func, lParam );
+            free( child_list );
+        }
+        if (!ret) return FALSE;
+    }
+
+    return TRUE;
+}
+
+static BOOL enum_child_windows( HWND parent, WNDENUMPROC func, LPARAM lParam )
+{
+    HWND *list;
+    BOOL ret;
+
+    if (!(list = list_window_children( 0, parent, NULL, 0 ))) return FALSE;
+    ret = enum_window_children( list, func, lParam );
+    free( list );
+    return ret;
+}
+
 /*****************************************************************
  *           NtUserGetAncestor (win32u.@)
  */
@@ -1202,6 +1234,7 @@ static HWND set_window_owner( HWND hwnd, HWND owner )
 /* Helper function for SetWindowLong(). */
 LONG_PTR set_window_long( HWND hwnd, INT offset, UINT size, LONG_PTR newval, BOOL ansi )
 {
+    const char *sgi = getenv( "SteamGameId" );
     BOOL ok, made_visible = FALSE;
     LONG_PTR retval = 0;
     STYLESTRUCT style;
@@ -1257,6 +1290,10 @@ LONG_PTR set_window_long( HWND hwnd, INT offset, UINT size, LONG_PTR newval, BOO
         if (win->dwStyle & WS_MINIMIZE) newval |= WS_MINIMIZE;
         break;
     case GWL_EXSTYLE:
+        /* FIXME: Layered windows don't work well right now, disable them */
+        if (sgi && !strcmp( sgi, "694280" )) newval &= ~WS_EX_LAYERED;
+        if (sgi && !strcmp( sgi, "312670" )) newval &= ~WS_EX_LAYERED;
+        if (sgi && !strcmp( sgi, "700600" )) newval &= ~WS_EX_LAYERED;
         style.styleOld = win->dwExStyle;
         style.styleNew = newval;
         release_win_ptr( win );
@@ -4550,7 +4587,7 @@ BOOL WINAPI NtUserFlashWindowEx( FLASHWINFO *info )
         release_win_ptr( win );
 
         if (!info->dwFlags || info->dwFlags & FLASHW_CAPTION)
-            send_message( hwnd, WM_NCACTIVATE, wparam, 0 );
+            send_notify_message( hwnd, WM_NCACTIVATE, wparam, 0, 0 );
 
         user_driver->pFlashWindowEx( info );
         return (info->dwFlags & FLASHW_CAPTION) ? TRUE : wparam;
@@ -5254,8 +5291,18 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
     if ((cs.style & WS_THICKFRAME) || !(cs.style & (WS_POPUP | WS_CHILD)))
     {
         MINMAXINFO info = get_min_max_info( hwnd );
-        cx = max( min( cx, info.ptMaxTrackSize.x ), info.ptMinTrackSize.x );
-        cy = max( min( cy, info.ptMaxTrackSize.y ), info.ptMinTrackSize.y );
+
+        /* HACK: This code changes the window's size to fit the display. However,
+         * some games (Bayonetta, Dragon's Dogma) will then have the incorrect
+         * render size. So just let windows be too big to fit the display. */
+        if (__wine_get_window_manager() != WINE_WM_X11_STEAMCOMPMGR)
+        {
+            cx = min( cx, info.ptMaxTrackSize.x );
+            cy = min( cy, info.ptMaxTrackSize.y );
+        }
+
+        cx = max( cx, info.ptMinTrackSize.x );
+        cy = max( cy, info.ptMinTrackSize.y );
     }
 
     if (cx < 0) cx = 0;
@@ -5591,6 +5638,12 @@ ULONG_PTR WINAPI NtUserCallHwndParam( HWND hwnd, DWORD_PTR param, DWORD code )
 
     case NtUserCallHwndParam_ShowOwnedPopups:
         return show_owned_popups( hwnd, param );
+
+    case NtUserCallHwndParam_EnumChildWindows:
+        {
+            struct enum_child_windows_params *params = (void *)param;
+            return enum_child_windows( hwnd, params->proc, params->lparam );
+        }
 
     /* temporary exports */
     case NtUserSetWindowStyle:

@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -42,6 +43,10 @@
 #include "process.h"
 #include "request.h"
 #include "security.h"
+
+#ifndef F_SEAL_FUTURE_WRITE
+#define F_SEAL_FUTURE_WRITE 0x0010  /* prevent future writes while mapped */
+#endif
 
 /* list of memory ranges, used to store committed info */
 struct ranges
@@ -159,16 +164,19 @@ struct type_descr mapping_type =
 struct mapping
 {
     struct object   obj;             /* object header */
+    struct list     kernel_object;   /* list of kernel object pointers */
     mem_size_t      size;            /* mapping size */
     unsigned int    flags;           /* SEC_* flags */
     struct fd      *fd;              /* fd for mapped file */
     pe_image_info_t image;           /* image info (for PE image mapping) */
     struct ranges  *committed;       /* list of committed ranges in this mapping */
     struct shared_map *shared;       /* temp file for shared PE mapping */
+    void           *shared_ptr;      /* mmaped pointer for shared mappings */
 };
 
 static void mapping_dump( struct object *obj, int verbose );
 static struct fd *mapping_get_fd( struct object *obj );
+static struct list *mapping_get_kernel_obj_list( struct object *obj );
 static void mapping_destroy( struct object *obj );
 static enum server_fd_type mapping_get_fd_type( struct fd *fd );
 
@@ -193,7 +201,7 @@ static const struct object_ops mapping_ops =
     directory_link_name,         /* link_name */
     default_unlink_name,         /* unlink_name */
     no_open_file,                /* open_file */
-    no_kernel_obj_list,          /* get_kernel_obj_list */
+    mapping_get_kernel_obj_list, /* get_kernel_obj_list */
     no_close_handle,             /* close_handle */
     mapping_destroy              /* destroy */
 };
@@ -289,6 +297,7 @@ int grow_file( int unix_fd, file_pos_t new_size )
     return 0;
 }
 
+#ifndef HAVE_MEMFD_CREATE
 /* simplified version of mkstemps() */
 static int make_temp_file( char name[16] )
 {
@@ -322,10 +331,23 @@ static int check_current_dir_for_exec(void)
     unlink( tmpfn );
     return (ret != MAP_FAILED);
 }
+#endif
 
 /* create a temp file for anonymous mappings */
 static int create_temp_file( file_pos_t size )
 {
+#ifdef HAVE_MEMFD_CREATE
+    int fd = memfd_create( "wine-mapping", MFD_ALLOW_SEALING );
+    if (fd != -1)
+    {
+        if (!grow_file( fd, size ))
+        {
+            close( fd );
+            fd = -1;
+        }
+    }
+    else file_set_error();
+#else
     static int temp_dir_fd = -1;
     char tmpfn[16];
     int fd;
@@ -358,6 +380,7 @@ static int create_temp_file( file_pos_t size )
     else file_set_error();
 
     if (temp_dir_fd != server_dir_fd) fchdir( server_dir_fd );
+#endif
     return fd;
 }
 
@@ -703,6 +726,7 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
 {
     static const char builtin_signature[] = "Wine builtin DLL";
     static const char fakedll_signature[] = "Wine placeholder DLL";
+    static const char valve_signature[] = {'V','L','V',0,1,0,0,0};
 
     IMAGE_COR20_HEADER clr;
     IMAGE_SECTION_HEADER sec[96];
@@ -792,7 +816,8 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         if (nt.opt.hdr32.SectionAlignment & page_mask)
             mapping->image.image_flags |= IMAGE_FLAGS_ImageMappedFlat;
         else if ((nt.opt.hdr32.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE) &&
-                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size))
+                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size) &&
+                 memcmp( mz.buffer, valve_signature, sizeof(valve_signature) ))
             mapping->image.image_flags |= IMAGE_FLAGS_ImageDynamicallyRelocated;
         break;
 
@@ -840,7 +865,8 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         if (nt.opt.hdr64.SectionAlignment & page_mask)
             mapping->image.image_flags |= IMAGE_FLAGS_ImageMappedFlat;
         else if ((nt.opt.hdr64.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE) &&
-                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size))
+                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size) &&
+                 memcmp( mz.buffer, valve_signature, sizeof(valve_signature) ))
             mapping->image.image_flags |= IMAGE_FLAGS_ImageDynamicallyRelocated;
         break;
 
@@ -948,10 +974,13 @@ static struct mapping *create_mapping( struct object *root, const struct unicode
     if (get_error() == STATUS_OBJECT_NAME_EXISTS)
         return mapping;  /* Nothing else to do */
 
+    list_init( &mapping->kernel_object );
+
     mapping->size        = size;
     mapping->fd          = NULL;
     mapping->shared      = NULL;
     mapping->committed   = NULL;
+    mapping->shared_ptr  = MAP_FAILED;
 
     if (!(mapping->flags = get_mapping_flags( handle, flags ))) goto error;
 
@@ -1038,6 +1067,8 @@ struct mapping *create_fd_mapping( struct object *root, const struct unicode_str
 
     if (!(mapping = create_named_object( root, &mapping_ops, name, attr, sd ))) return NULL;
     if (get_error() == STATUS_OBJECT_NAME_EXISTS) return mapping;  /* Nothing else to do */
+
+    list_init( &mapping->kernel_object );
 
     mapping->shared    = NULL;
     mapping->committed = NULL;
@@ -1145,6 +1176,12 @@ static struct fd *mapping_get_fd( struct object *obj )
     return (struct fd *)grab_object( mapping->fd );
 }
 
+static struct list *mapping_get_kernel_obj_list( struct object *obj )
+{
+    struct mapping *mapping = (struct mapping *)obj;
+    return &mapping->kernel_object;
+}
+
 static void mapping_destroy( struct object *obj )
 {
     struct mapping *mapping = (struct mapping *)obj;
@@ -1152,6 +1189,7 @@ static void mapping_destroy( struct object *obj )
     if (mapping->fd) release_object( mapping->fd );
     if (mapping->committed) release_object( mapping->committed );
     if (mapping->shared) release_object( mapping->shared );
+    if (mapping->shared_ptr != MAP_FAILED) munmap( mapping->shared_ptr, mapping->size );
 }
 
 static enum server_fd_type mapping_get_fd_type( struct fd *fd )
@@ -1226,6 +1264,36 @@ void free_map_addr( client_ptr_t base, mem_size_t size )
 int get_page_size(void)
 {
     return page_mask + 1;
+}
+
+struct object *create_shared_mapping( struct object *root, const struct unicode_str *name, mem_size_t size,
+                                      unsigned int attr, const struct security_descriptor *sd, void **ptr )
+{
+    static unsigned int access = FILE_READ_DATA | FILE_WRITE_DATA;
+    struct mapping *mapping;
+
+    if (!(mapping = create_mapping( root, name, attr, size, SEC_COMMIT, 0, access, sd ))) return NULL;
+
+    if (mapping->shared_ptr == MAP_FAILED)
+    {
+        int fd = get_unix_fd( mapping->fd );
+
+        mapping->shared_ptr = mmap( NULL, mapping->size, PROT_WRITE, MAP_SHARED, fd, 0 );
+        if (mapping->shared_ptr == MAP_FAILED)
+        {
+            fprintf( stderr, "wine: Failed to map shared memory: %u %m\n", errno );
+            release_object( &mapping->obj );
+            return NULL;
+        }
+
+#if defined(HAVE_MEMFD_CREATE) && defined(F_ADD_SEALS)
+        /* protect the mapping against any future writable mapping, resize or re-sealing */
+        fcntl( fd, F_ADD_SEALS, F_SEAL_FUTURE_WRITE | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL );
+#endif
+    }
+
+    *ptr = mapping->shared_ptr;
+    return &mapping->obj;
 }
 
 struct object *create_user_data_mapping( struct object *root, const struct unicode_str *name,

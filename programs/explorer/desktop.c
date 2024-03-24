@@ -1014,6 +1014,38 @@ static inline BOOL is_whitespace(WCHAR c)
     return c == ' ' || c == '\t';
 }
 
+static HANDLE start_tabtip_process(void)
+{
+    static const WCHAR tabtip_started_event[] = L"TABTIP_STARTED_EVENT";
+    PROCESS_INFORMATION pi;
+    STARTUPINFOW si = { sizeof(si) };
+    HANDLE wait_handles[2];
+
+    if (!CreateProcessW(L"C:\\windows\\system32\\tabtip.exe", NULL,
+                        NULL, NULL, TRUE, DETACHED_PROCESS, NULL, NULL, &si, &pi))
+    {
+        WINE_ERR("Couldn't start tabtip.exe: error %lu\n", GetLastError());
+        return FALSE;
+    }
+    CloseHandle(pi.hThread);
+
+    wait_handles[0] = CreateEventW(NULL, TRUE, FALSE, tabtip_started_event);
+    wait_handles[1] = pi.hProcess;
+
+    /* wait for the event to become available or the process to exit */
+    if ((WaitForMultipleObjects(2, wait_handles, FALSE, INFINITE)) == WAIT_OBJECT_0 + 1)
+    {
+        DWORD exit_code;
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+        WINE_ERR("Unexpected termination of tabtip.exe - exit code %ld\n", exit_code);
+        CloseHandle(wait_handles[0]);
+        return pi.hProcess;
+    }
+
+    CloseHandle(wait_handles[0]);
+    return pi.hProcess;
+}
+
 /* main desktop management function */
 void manage_desktop( WCHAR *arg )
 {
@@ -1021,6 +1053,7 @@ void manage_desktop( WCHAR *arg )
     GUID guid;
     MSG msg;
     HWND hwnd;
+    HANDLE tabtip = NULL;
     unsigned int width, height;
     WCHAR *cmdline = NULL, *driver = NULL;
     WCHAR *p = arg;
@@ -1138,12 +1171,22 @@ void manage_desktop( WCHAR *arg )
     /* run the desktop message loop */
     if (hwnd)
     {
+        /* FIXME: hack, run tabtip.exe on startup. */
+        tabtip = start_tabtip_process();
+
         TRACE( "desktop message loop starting on hwnd %p\n", hwnd );
         while (GetMessageW( &msg, 0, 0, 0 )) DispatchMessageW( &msg );
         TRACE( "desktop message loop exiting for hwnd %p\n", hwnd );
     }
 
     if (pShellDDEInit) pShellDDEInit( FALSE );
+
+    if (tabtip)
+    {
+        TerminateProcess( tabtip, 0 );
+        WaitForSingleObject( tabtip, INFINITE );
+        CloseHandle( tabtip );
+    }
 
     ExitProcess( 0 );
 }

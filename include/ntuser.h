@@ -671,6 +671,7 @@ W32KAPI ULONG   WINAPI NtUserGetSystemDpiForProcess( HANDLE process );
 W32KAPI HMENU   WINAPI NtUserGetSystemMenu( HWND hwnd, BOOL revert );
 W32KAPI HDESK   WINAPI NtUserGetThreadDesktop( DWORD thread );
 W32KAPI BOOL    WINAPI NtUserGetTitleBarInfo( HWND hwnd, TITLEBARINFO *info );
+W32KAPI BOOL    WINAPI NtUserGetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size );
 W32KAPI INT     WINAPI NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase );
 W32KAPI BOOL    WINAPI NtUserGetUpdatedClipboardFormats( UINT *formats, UINT size, UINT *out_size );
 W32KAPI BOOL    WINAPI NtUserGetUpdateRect( HWND hwnd, RECT *rect, BOOL erase );
@@ -688,6 +689,7 @@ W32KAPI BOOL    WINAPI NtUserIsClipboardFormatAvailable( UINT format );
 W32KAPI BOOL    WINAPI NtUserIsMouseInPointerEnabled(void);
 W32KAPI BOOL    WINAPI NtUserInvalidateRect( HWND hwnd, const RECT *rect, BOOL erase );
 W32KAPI BOOL    WINAPI NtUserInvalidateRgn( HWND hwnd, HRGN hrgn, BOOL erase );
+W32KAPI BOOL    WINAPI NtUserIsTouchWindow( HWND hwnd, ULONG *flags );
 W32KAPI BOOL    WINAPI NtUserKillTimer( HWND hwnd, UINT_PTR id );
 W32KAPI BOOL    WINAPI NtUserLockWindowUpdate( HWND hwnd );
 W32KAPI BOOL    WINAPI NtUserLogicalToPerMonitorDPIPhysicalPoint( HWND hwnd, POINT *pt );
@@ -892,6 +894,7 @@ enum
     NtUserCallOneParam_SetCaretBlinkTime,
     NtUserCallOneParam_SetProcessDefaultLayout,
     NtUserCallOneParam_SetKeyboardAutoRepeat,
+    NtUserCallOneParam_UnregisterTouchWindow,
     /* temporary exports */
     NtUserGetDeskPattern,
 };
@@ -1018,6 +1021,7 @@ enum
     NtUserCallTwoParam_GetMonitorInfo,
     NtUserCallTwoParam_GetSystemMetricsForDpi,
     NtUserCallTwoParam_MonitorFromRect,
+    NtUserCallTwoParam_RegisterTouchWindow,
     NtUserCallTwoParam_SetCaretPos,
     NtUserCallTwoParam_SetIconParam,
     NtUserCallTwoParam_UnhookWindowsHook,
@@ -1230,6 +1234,7 @@ enum
     NtUserCallHwndParam_SetMDIClientInfo,
     NtUserCallHwndParam_SetWindowContextHelpId,
     NtUserCallHwndParam_ShowOwnedPopups,
+    NtUserCallHwndParam_EnumChildWindows,
     /* temporary exports */
     NtUserSetWindowStyle,
 };
@@ -1400,7 +1405,39 @@ static inline BOOL NtUserShowOwnedPopups( HWND hwnd, BOOL show )
     return NtUserCallHwndParam( hwnd, show, NtUserCallHwndParam_ShowOwnedPopups );
 }
 
+struct enum_child_windows_params
+{
+    WNDENUMPROC proc;
+    LPARAM lparam;
+};
+
+static inline BOOL NtUserEnumChildWindows( HWND hwnd, WNDENUMPROC proc, LPARAM lparam )
+{
+    struct enum_child_windows_params params = {.proc = proc, .lparam = lparam};
+    return NtUserCallHwndParam( hwnd, (UINT_PTR)&params, NtUserCallHwndParam_EnumChildWindows );
+}
+
 /* Wine extensions */
 W32KAPI BOOL WINAPI __wine_send_input( HWND hwnd, const INPUT *input, const RAWINPUT *rawinput );
+
+/* HACK: We use some WM specific hacks in user32 and we need the user
+ * driver to export that information. */
+
+#define WINE_WM_UNKNOWN          0
+#define WINE_WM_X11_MUTTER       1
+#define WINE_WM_X11_STEAMCOMPMGR 2
+#define WINE_WM_X11_KDE          3
+
+static inline LONG_PTR __wine_get_window_manager(void)
+{
+    static const WCHAR __wine_window_managerW[] = {'_','_','w','i','n','e','_','w','i','n','d','o','w','_','m','a','n','a','g','e','r',0};
+    return (LONG_PTR)NtUserGetProp(NtUserGetDesktopWindow(), __wine_window_managerW);
+}
+
+static inline void __wine_set_window_manager(LONG_PTR window_manager)
+{
+    static const WCHAR __wine_window_managerW[] = {'_','_','w','i','n','e','_','w','i','n','d','o','w','_','m','a','n','a','g','e','r',0};
+    NtUserSetProp(NtUserGetDesktopWindow(), __wine_window_managerW, (HANDLE)window_manager);
+}
 
 #endif /* _NTUSER_ */

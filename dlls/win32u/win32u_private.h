@@ -89,10 +89,10 @@ extern BOOL register_imm_window( HWND hwnd );
 extern void unregister_imm_window( HWND hwnd );
 
 /* input.c */
+extern BOOL enable_mouse_in_pointer;
 extern BOOL grab_pointer;
 extern BOOL grab_fullscreen;
 extern BOOL destroy_caret(void);
-extern LONG global_key_state_counter;
 extern HWND get_active_window(void);
 extern HWND get_capture(void);
 extern BOOL get_cursor_pos( POINT *pt );
@@ -108,6 +108,8 @@ extern void update_mouse_tracking_info( HWND hwnd );
 extern BOOL get_clip_cursor( RECT *rect );
 extern BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset );
 extern BOOL clip_fullscreen_window( HWND hwnd, BOOL reset );
+extern BOOL register_touch_window( HWND hwnd, UINT flags );
+extern BOOL unregister_touch_window( HWND hwnd );
 
 /* menu.c */
 extern HMENU create_menu( BOOL is_popup );
@@ -178,6 +180,7 @@ extern int get_system_metrics( int index );
 extern UINT get_thread_dpi(void);
 extern DPI_AWARENESS get_thread_dpi_awareness(void);
 extern RECT get_virtual_screen_rect( UINT dpi );
+extern BOOL is_window_rect_full_screen( const RECT *rect );
 extern BOOL is_exiting_thread( DWORD tid );
 extern POINT map_dpi_point( POINT pt, UINT dpi_from, UINT dpi_to );
 extern RECT map_dpi_rect( RECT rect, UINT dpi_from, UINT dpi_to );
@@ -188,7 +191,7 @@ extern RECT rect_thread_to_win_dpi( HWND hwnd, RECT rect );
 extern HMONITOR monitor_from_point( POINT pt, UINT flags, UINT dpi );
 extern HMONITOR monitor_from_rect( const RECT *rect, UINT flags, UINT dpi );
 extern HMONITOR monitor_from_window( HWND hwnd, UINT flags, UINT dpi );
-extern BOOL update_display_cache( BOOL force );
+extern BOOL update_display_cache( BOOL force, BOOL increment_serial );
 extern void user_lock(void);
 extern void user_unlock(void);
 extern void user_check_not_lock(void);

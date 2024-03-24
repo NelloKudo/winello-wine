@@ -221,6 +221,25 @@ struct desktop *get_desktop_obj( struct process *process, obj_handle_t handle, u
     return (struct desktop *)get_handle_obj( process, handle, access, &desktop_ops );
 }
 
+static int init_desktop_mapping( struct desktop *desktop, const struct unicode_str *name )
+{
+    struct object *dir;
+
+    desktop->shared = NULL;
+    desktop->shared_mapping = NULL;
+
+    if (!(dir = create_desktop_map_directory( desktop->winstation ))) return 0;
+    if ((desktop->shared_mapping = create_shared_mapping( dir, name, sizeof(struct desktop_shared_memory),
+                                                          0, NULL, (void **)&desktop->shared )))
+    {
+        memset( (void *)desktop->shared, 0, sizeof(*desktop->shared) );
+        ((desktop_shm_t *)desktop->shared)->update_serial = 1;
+    }
+    release_object( dir );
+
+    return !!desktop->shared;
+}
+
 /* create a desktop object */
 static struct desktop *create_desktop( const struct unicode_str *name, unsigned int attr,
                                        unsigned int flags, struct winstation *winstation )
@@ -238,12 +257,19 @@ static struct desktop *create_desktop( const struct unicode_str *name, unsigned 
             desktop->msg_window = NULL;
             desktop->global_hooks = NULL;
             desktop->close_timeout = NULL;
+            desktop->close_timeout_val = 0;
             desktop->foreground_input = NULL;
             desktop->users = 0;
-            memset( &desktop->cursor, 0, sizeof(desktop->cursor) );
-            memset( desktop->keystate, 0, sizeof(desktop->keystate) );
+            desktop->cursor_win = 0;
+            desktop->last_press_alt = 0;
             list_add_tail( &winstation->desktops, &desktop->entry );
             list_init( &desktop->hotkeys );
+            list_init( &desktop->touches );
+            if (!init_desktop_mapping( desktop, name ))
+            {
+                release_object( desktop );
+                return NULL;
+            }
         }
         else
         {
@@ -296,11 +322,14 @@ static void desktop_destroy( struct object *obj )
     struct desktop *desktop = (struct desktop *)obj;
 
     free_hotkeys( desktop, 0 );
+    free_touches( desktop, 0 );
     if (desktop->top_window) free_window_handle( desktop->top_window );
     if (desktop->msg_window) free_window_handle( desktop->msg_window );
     if (desktop->global_hooks) release_object( desktop->global_hooks );
     if (desktop->close_timeout) remove_timeout_user( desktop->close_timeout );
     list_remove( &desktop->entry );
+    if (desktop->shared_mapping) release_object( desktop->shared_mapping );
+    desktop->shared_mapping = NULL;
     release_object( desktop->winstation );
 }
 
@@ -316,6 +345,7 @@ static void close_desktop_timeout( void *private )
 
     desktop->close_timeout = NULL;
     unlink_named_object( &desktop->obj );  /* make sure no other process can open it */
+    unlink_named_object( desktop->shared_mapping );
     post_desktop_message( desktop, WM_CLOSE, 0, 0 );  /* and signal the owner to quit */
 }
 
@@ -339,7 +369,7 @@ static void remove_desktop_user( struct desktop *desktop )
 
     /* if we have one remaining user, it has to be the manager of the desktop window */
     if ((process = get_top_window_owner( desktop )) && desktop->users == process->running_threads && !desktop->close_timeout)
-        desktop->close_timeout = add_timeout_user( -TICKS_PER_SEC, close_desktop_timeout, desktop );
+        desktop->close_timeout = add_timeout_user( desktop->close_timeout_val, close_desktop_timeout, desktop );
 }
 
 /* set the thread default desktop handle */
@@ -678,6 +708,7 @@ DECL_HANDLER(set_user_object_info)
         reply->is_desktop = 1;
         reply->old_obj_flags = desktop->flags;
         if (req->flags & SET_USER_OBJECT_SET_FLAGS) desktop->flags = req->obj_flags;
+        if (req->flags & SET_USER_OBJECT_SET_CLOSE_TIMEOUT) desktop->close_timeout_val = req->close_timeout;
     }
     else if (obj->ops == &winstation_ops)
     {

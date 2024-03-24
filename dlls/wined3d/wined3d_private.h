@@ -476,7 +476,6 @@ struct wined3d_settings
     unsigned int sample_count;
     BOOL check_float_constants;
     unsigned int strict_shader_math;
-    unsigned int multiply_special;
     unsigned int max_sm_vs;
     unsigned int max_sm_hs;
     unsigned int max_sm_ds;
@@ -2786,6 +2785,10 @@ struct wined3d
 BOOL wined3d_filter_messages(HWND window, BOOL filter);
 HRESULT wined3d_init(struct wined3d *wined3d, uint32_t flags);
 void wined3d_unregister_window(HWND window);
+BOOL wined3d_get_activate_processed(HWND window);
+void wined3d_set_activate_processed(HWND window, BOOL activate_processed);
+BOOL wined3d_get_inside_mode_change(HWND window);
+BOOL wined3d_set_inside_mode_change(HWND window, BOOL inside_mode_change);
 
 BOOL wined3d_get_app_name(char *app_name, unsigned int app_name_size);
 

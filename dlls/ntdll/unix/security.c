@@ -323,6 +323,28 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
     switch (class)
     {
     case TokenUser:
+        if (localsystem_sid)
+        {
+            static const struct sid local_system_sid = { SID_REVISION, 1, SECURITY_NT_AUTHORITY, { SECURITY_LOCAL_SYSTEM_RID } };
+            DWORD sid_len = offsetof( struct sid, sub_auth[local_system_sid.sub_count] );
+            TOKEN_USER *tuser;
+            PSID sid;
+
+            if (retlen) *retlen = sid_len + sizeof(TOKEN_USER);
+            if (sid_len + sizeof(TOKEN_USER) > length)
+            {
+                status = STATUS_BUFFER_TOO_SMALL;
+            }
+            else
+            {
+                tuser = info;
+                sid = tuser + 1;
+                tuser->User.Sid = sid;
+                tuser->User.Attributes = 0;
+                memcpy( sid, &local_system_sid, sid_len );
+            }
+            break;
+        }
         SERVER_START_REQ( get_token_sid )
         {
             TOKEN_USER *tuser = info;
@@ -519,6 +541,8 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
             if (!status) *type = reply->elevation;
         }
         SERVER_END_REQ;
+        if (!status && no_priv_elevation)
+            *(TOKEN_ELEVATION_TYPE *)info = TokenElevationTypeLimited;
         break;
 
     case TokenElevation:
@@ -529,6 +553,7 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
             req->handle = wine_server_obj_handle( token );
             status = wine_server_call( req );
             if (!status) elevation->TokenIsElevated = (reply->elevation == TokenElevationTypeFull);
+            if (!status && no_priv_elevation) elevation->TokenIsElevated = 0;
         }
         SERVER_END_REQ;
         break;

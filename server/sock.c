@@ -815,7 +815,7 @@ static void post_sock_messages( struct sock *sock )
     }
 }
 
-static inline int sock_error( struct sock *sock )
+static inline int sock_error( struct sock *sock, int *poll_event )
 {
     int error = 0;
     socklen_t len = sizeof(error);
@@ -841,8 +841,14 @@ static inline int sock_error( struct sock *sock )
             error = sock->errors[AFD_POLL_BIT_ACCEPT];
         break;
 
-    case SOCK_CONNECTED:
     case SOCK_CONNECTIONLESS:
+        if (error == ENETUNREACH || error == EHOSTUNREACH || error == ECONNRESET)
+        {
+            if (poll_event) *poll_event &= ~POLLERR;
+            return 0;
+        }
+        /* fallthrough */
+    case SOCK_CONNECTED:
         if (error == ECONNRESET || error == EPIPE)
         {
             sock->reset = 1;
@@ -1233,7 +1239,7 @@ static int sock_dispatch_asyncs( struct sock *sock, int event, int error )
         event &= ~(POLLIN | POLLPRI);
     }
 
-    if ((event & POLLOUT) && async_queued( &sock->write_q ))
+    if ((event & POLLOUT) && async_queue_has_waiting_asyncs( &sock->write_q ))
     {
         if (async_waiting( &sock->write_q ))
         {
@@ -1348,7 +1354,7 @@ static void sock_poll_event( struct fd *fd, int event )
         fprintf(stderr, "socket %p select event: %x\n", sock, event);
 
     if (event & (POLLERR | POLLHUP))
-        error = sock_error( sock );
+        error = sock_error( sock, &event );
 
     switch (sock->state)
     {
@@ -2978,7 +2984,11 @@ static void sock_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
         if (check_addr_usage( sock, &bind_addr, v6only ))
             return;
 
-        if (bind( unix_fd, &bind_addr.addr, unix_len ) < 0)
+        /* Quake (and similar family) fails if we can't bind to an IPX address. This often
+         * doesn't work on Linux, so just fake success. */
+        if (unix_addr.addr.sa_family == AF_IPX)
+            fprintf( stderr, "wine: HACK: Faking AF_IPX bind success.\n" );
+        else if (bind( unix_fd, &bind_addr.addr, unix_len ) < 0)
         {
             if (errno == EADDRINUSE && sock->reuseaddr)
                 errno = EACCES;
@@ -3117,7 +3127,7 @@ static void sock_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
             return;
         }
 
-        error = sock_error( sock );
+        error = sock_error( sock, NULL );
         if (!error)
         {
             for (i = 0; i < ARRAY_SIZE( sock->errors ); ++i)
@@ -3951,7 +3961,7 @@ DECL_HANDLER(send_socket)
 
     if (bind_errno) status = sock_get_ntstatus( bind_errno );
     else if (sock->wr_shutdown) status = STATUS_PIPE_DISCONNECTED;
-    else if (!async_queued( &sock->write_q ))
+    else if (!async_queue_has_waiting_asyncs( &sock->write_q ))
     {
         /* If write_q is not empty, we cannot really tell if the already queued
          * asyncs will not consume all available space; if there's no space

@@ -1434,7 +1434,7 @@ BOOL X11DRV_KeyEvent( HWND hwnd, XEvent *xev )
     DWORD dwFlags;
     int ascii_chars;
     XIC xic = X11DRV_get_ic( hwnd );
-    DWORD event_time = EVENT_x11_time_to_win32_time(event->time);
+    DWORD event_time = x11drv_time_to_ticks( event->time );
     Status status = 0;
 
     TRACE_(key)("type %d, window %lx, state 0x%04x, keycode %u\n",
@@ -1520,6 +1520,35 @@ BOOL X11DRV_KeyEvent( HWND hwnd, XEvent *xev )
     return TRUE;
 }
 
+/* From the point of view of this function there are two types of
+ * keys: those for which the mapping to vkey and scancode depends on
+ * the keyboard layout (i.e., letters, numbers, punctuation) and those
+ * for which it doesn't (control keys); since this function is used to
+ * recognize the keyboard layout and map keysyms to vkeys and
+ * scancodes, we are only concerned about the first type, and map
+ * everything in the second type to zero.
+ */
+static char keysym_to_char( KeySym keysym )
+{
+    /* Dead keys */
+    if (0xfe50 <= keysym && keysym < 0xfed0)
+        return KEYBOARD_MapDeadKeysym( keysym );
+
+    /* Control keys (there is nothing allocated below 0xfc00, but I
+       take some margin in case something is added in the future) */
+    if (0xf000 <= keysym && keysym < 0x10000)
+        return 0;
+
+    /* XFree86 vendor keys */
+    if (0x10000000 <= keysym)
+        return 0;
+
+    /* "Normal" keys: return last octet, because our tables don't have
+       more than that; it would be better to extend the tables and
+       compare the whole keysym, but it's a lot of work... */
+    return keysym & 0xff;
+}
+
 /**********************************************************************
  *		X11DRV_KEYBOARD_DetectLayout
  *
@@ -1550,22 +1579,20 @@ X11DRV_KEYBOARD_DetectLayout( Display *display )
       /* get data for keycode from X server */
       for (i = 0; i < syms; i++) {
         if (!(keysym = XkbKeycodeToKeysym( display, keyc, 0, i ))) continue;
-	/* Allow both one-byte and two-byte national keysyms */
-	if ((keysym < 0x8000) && (keysym != ' '))
+        ckey[keyc][i] = keysym_to_char(keysym);
+        if (TRACE_ON(keyboard))
         {
-            if (!XkbTranslateKeySym(display, &keysym, 0, &ckey[keyc][i], 1, NULL))
-            {
-                TRACE("XKB could not translate keysym %04lx\n", keysym);
-                /* FIXME: query what keysym is used as Mode_switch, fill XKeyEvent
-                 * with appropriate ShiftMask and Mode_switch, use XLookupString
-                 * to get character in the local encoding.
-                 */
-                ckey[keyc][i] = keysym & 0xFF;
-            }
+            char buf[32];
+            WCHAR bufW[32];
+            int len, lenW;
+            KeySym orig_keysym = keysym;
+            len = XkbTranslateKeySym(display, &keysym, 0, buf, sizeof(buf), NULL);
+            lenW = ntdll_umbstowcs(buf, len, bufW, ARRAY_SIZE(bufW));
+            if (lenW < ARRAY_SIZE(bufW))
+                bufW[lenW] = 0;
+            TRACE("keycode %u, index %d, orig_keysym 0x%04lx, keysym 0x%04lx, buf %s, bufW %s\n",
+                    keyc, i, orig_keysym, keysym, debugstr_a(buf), debugstr_w(bufW));
         }
-	else {
-	  ckey[keyc][i] = KEYBOARD_MapDeadKeysym(keysym);
-	}
       }
   }
 
@@ -1742,20 +1769,8 @@ void X11DRV_InitKeyboard( Display *display )
 	      /* we seem to need to search the layout-dependent scancodes */
 	      int maxlen=0,maxval=-1,ok;
 	      for (i=0; i<syms; i++) {
-		keysym = XkbKeycodeToKeysym( display, keyc, 0, i );
-		if ((keysym<0x8000) && (keysym!=' '))
-                {
-                    if (!XkbTranslateKeySym(display, &keysym, 0, &ckey[i], 1, NULL))
-                    {
-                        /* FIXME: query what keysym is used as Mode_switch, fill XKeyEvent
-                         * with appropriate ShiftMask and Mode_switch, use XLookupString
-                         * to get character in the local encoding.
-                         */
-                        ckey[i] = (keysym <= 0x7F) ? keysym : 0;
-                    }
-		} else {
-		  ckey[i] = KEYBOARD_MapDeadKeysym(keysym);
-		}
+    keysym = XkbKeycodeToKeysym( display, keyc, 0, i );
+                ckey[i] = keysym_to_char(keysym);
 	      }
 	      /* find key with longest match streak */
 	      for (keyn=0; keyn<MAIN_LEN; keyn++) {

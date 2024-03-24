@@ -328,6 +328,9 @@ C_ASSERT( HEAP_MIN_LARGE_BLOCK_SIZE <= HEAP_INITIAL_GROW_SIZE );
 #define HEAP_VALIDATE_PARAMS  0x40000000
 #define HEAP_CHECKING_ENABLED 0x80000000
 
+BOOL delay_heap_free = FALSE;
+BOOL heap_zero_hack = FALSE;
+
 static struct heap *process_heap;  /* main process heap */
 
 static NTSTATUS heap_free_block_lfh( struct heap *heap, ULONG flags, struct block *block );
@@ -583,13 +586,13 @@ static inline ULONG heap_get_flags( const struct heap *heap, ULONG flags )
 static inline void heap_lock( struct heap *heap, ULONG flags )
 {
     if (flags & HEAP_NO_SERIALIZE) return;
-    enter_critical_section( &heap->cs );
+    RtlEnterCriticalSection( &heap->cs );
 }
 
 static inline void heap_unlock( struct heap *heap, ULONG flags )
 {
     if (flags & HEAP_NO_SERIALIZE) return;
-    leave_critical_section( &heap->cs );
+    RtlLeaveCriticalSection( &heap->cs );
 }
 
 static void heap_set_status( const struct heap *heap, ULONG flags, NTSTATUS status )
@@ -1478,8 +1481,8 @@ static void heap_set_debug_flags( HANDLE handle )
         }
     }
 
-    if ((heap->flags & HEAP_GROWABLE) && !heap->pending_free &&
-        ((flags & HEAP_FREE_CHECKING_ENABLED) || RUNNING_ON_VALGRIND))
+    if (delay_heap_free || ((heap->flags & HEAP_GROWABLE) && !heap->pending_free &&
+        ((flags & HEAP_FREE_CHECKING_ENABLED) || RUNNING_ON_VALGRIND)))
     {
         heap->pending_free = RtlAllocateHeap( handle, HEAP_ZERO_MEMORY,
                                               MAX_FREE_PENDING * sizeof(*heap->pending_free) );
@@ -1516,6 +1519,9 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, void *addr, SIZE_T total_size, SIZE_T 
 
     TRACE( "flags %#lx, addr %p, total_size %#Ix, commit_size %#Ix, unknown %p, definition %p\n",
            flags, addr, total_size, commit_size, unknown, definition );
+
+    if (heap_zero_hack)
+        flags |= HEAP_ZERO_MEMORY;
 
     flags &= ~(HEAP_TAIL_CHECKING_ENABLED|HEAP_FREE_CHECKING_ENABLED);
     if (process_heap) flags |= HEAP_PRIVATE;
@@ -1594,9 +1600,9 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, void *addr, SIZE_T total_size, SIZE_T 
     /* link it into the per-process heap list */
     if (process_heap)
     {
-        enter_critical_section( &process_heap->cs );
+        RtlEnterCriticalSection( &process_heap->cs );
         list_add_head( &process_heap->entry, &heap->entry );
-        leave_critical_section( &process_heap->cs );
+        RtlLeaveCriticalSection( &process_heap->cs );
     }
     else if (!addr)
     {
@@ -1655,9 +1661,9 @@ HANDLE WINAPI RtlDestroyHeap( HANDLE handle )
     if (heap == process_heap) return handle; /* cannot delete the main process heap */
 
     /* remove it from the per-process list */
-    enter_critical_section( &process_heap->cs );
+    RtlEnterCriticalSection( &process_heap->cs );
     list_remove( &heap->entry );
-    leave_critical_section( &process_heap->cs );
+    RtlLeaveCriticalSection( &process_heap->cs );
 
     heap->cs.DebugInfo->Spare[0] = 0;
     RtlDeleteCriticalSection( &heap->cs );
@@ -2548,7 +2554,7 @@ ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
     ULONG total = 1;  /* main heap */
     struct list *ptr;
 
-    enter_critical_section( &process_heap->cs );
+    RtlEnterCriticalSection( &process_heap->cs );
     LIST_FOR_EACH( ptr, &process_heap->entry ) total++;
     if (total <= count)
     {
@@ -2556,7 +2562,7 @@ ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
         LIST_FOR_EACH( ptr, &process_heap->entry )
             *heaps++ = LIST_ENTRY( ptr, struct heap, entry );
     }
-    leave_critical_section( &process_heap->cs );
+    RtlLeaveCriticalSection( &process_heap->cs );
     return total;
 }
 
@@ -2612,7 +2618,7 @@ NTSTATUS WINAPI RtlSetHeapInformation( HANDLE handle, HEAP_INFORMATION_CLASS inf
             FIXME( "HeapCompatibilityInformation %lu not implemented!\n", compat_info );
             return STATUS_UNSUCCESSFUL;
         }
-        if (InterlockedCompareExchange( &heap->compat_info, compat_info, HEAP_STD ) != HEAP_STD)
+        if (!delay_heap_free && InterlockedCompareExchange( &heap->compat_info, compat_info, HEAP_STD ) != HEAP_STD)
             return STATUS_UNSUCCESSFUL;
         return STATUS_SUCCESS;
     }

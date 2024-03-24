@@ -55,6 +55,7 @@ struct font_physdev
 {
     struct gdi_physdev dev;
     struct gdi_font   *font;
+    UINT               aa_flags;
 };
 
 static inline struct font_physdev *get_font_dev( PHYSDEV dev )
@@ -1556,6 +1557,14 @@ static const WCHAR ms_minchoW[] =
     {'M','S',' ','M','i','n','c','h','o',0};
 static const WCHAR ms_p_minchoW[] =
     {'M','S',' ','P','M','i','n','c','h','o',0};
+static const WCHAR arialW[] =
+    {'A','r','i','a','l',0};
+static const WCHAR arial_boldW[] =
+    {'A','r','i','a','l',' ','B','o','l','d',0};
+static const WCHAR courier_newW[] =
+    {'C','o','u','r','i','e','r',' ','N','e','w',0};
+static const WCHAR courier_new_boldW[] =
+    {'C','o','u','r','i','e','r',' ','N','e','w',' ','B','o','l','d',0};
 
 static const WCHAR * const font_links_list[] =
 {
@@ -3098,6 +3107,10 @@ static void update_font_system_link_info(void)
             }
             set_multi_value_key(hkey, link_reg->font_name, link, len);
         }
+        set_multi_value_key(hkey, arialW, link, len);
+        set_multi_value_key(hkey, arial_boldW, link, len);
+        set_multi_value_key(hkey, courier_newW, link, len);
+        set_multi_value_key(hkey, courier_new_boldW, link, len);
         NtClose( hkey );
     }
 }
@@ -3136,7 +3149,13 @@ static void update_codepage( UINT screen_dpi )
     if (query_reg_ascii_value( wine_fonts_key, "Codepages", info, sizeof(value_buffer) ))
     {
         cp_match = !wcscmp( (const WCHAR *)info->Data, cpbufW );
-        if (cp_match && screen_dpi == font_dpi) return;  /* already set correctly */
+        if (cp_match && screen_dpi == font_dpi)
+        {
+            /* already set correctly, but, as a HACK, update font link
+               info anyway, so that old Proton prefixes are fixed */
+            update_font_system_link_info();
+            return;
+        }
         TRACE( "updating registry, codepages/logpixels changed %s/%u -> %u,%u/%u\n",
                debugstr_w((const WCHAR *)info->Data), font_dpi, ansi_cp.CodePage, oem_cp.CodePage, screen_dpi );
     }
@@ -3832,7 +3851,7 @@ static UINT get_glyph_index_linked( struct gdi_font **font, UINT glyph )
 
 static DWORD get_glyph_outline( struct gdi_font *font, UINT glyph, UINT format,
                                 GLYPHMETRICS *gm_ret, ABC *abc_ret, DWORD buflen, void *buf,
-                                const MAT2 *mat )
+                                const MAT2 *mat, UINT aa_flags )
 {
     GLYPHMETRICS gm;
     ABC abc;
@@ -3866,7 +3885,7 @@ static DWORD get_glyph_outline( struct gdi_font *font, UINT glyph, UINT format,
     if (format == GGO_METRICS && !mat && get_gdi_font_glyph_metrics( font, index, &gm, &abc ))
         goto done;
 
-    ret = font_funcs->get_glyph_outline( font, index, format, &gm, &abc, buflen, buf, mat, tategaki );
+    ret = font_funcs->get_glyph_outline( font, index, format, &gm, &abc, buflen, buf, mat, tategaki, aa_flags );
     if (ret == GDI_ERROR) return ret;
 
     if (format == GGO_METRICS && !mat)
@@ -3915,7 +3934,7 @@ static BOOL font_GetCharABCWidths( PHYSDEV dev, UINT first, UINT count, WCHAR *c
     for (i = 0; i < count; i++)
     {
         c = chars ? chars[i] : first + i;
-        get_glyph_outline( physdev->font, c, GGO_METRICS, NULL, &buffer[i], 0, NULL, NULL );
+        get_glyph_outline( physdev->font, c, GGO_METRICS, NULL, &buffer[i], 0, NULL, NULL, physdev->aa_flags );
     }
     pthread_mutex_unlock( &font_lock );
     return TRUE;
@@ -3941,7 +3960,7 @@ static BOOL font_GetCharABCWidthsI( PHYSDEV dev, UINT first, UINT count, WORD *g
     pthread_mutex_lock( &font_lock );
     for (c = 0; c < count; c++, buffer++)
         get_glyph_outline( physdev->font, gi ? gi[c] : first + c, GGO_METRICS | GGO_GLYPH_INDEX,
-                           NULL, buffer, 0, NULL, NULL );
+                           NULL, buffer, 0, NULL, NULL, physdev->aa_flags );
     pthread_mutex_unlock( &font_lock );
     return TRUE;
 }
@@ -3968,7 +3987,7 @@ static BOOL font_GetCharWidth( PHYSDEV dev, UINT first, UINT count, const WCHAR 
     for (i = 0; i < count; i++)
     {
         c = chars ? chars[i] : i + first;
-        if (get_glyph_outline( physdev->font, c, GGO_METRICS, NULL, &abc, 0, NULL, NULL ) == GDI_ERROR)
+        if (get_glyph_outline( physdev->font, c, GGO_METRICS, NULL, &abc, 0, NULL, NULL, physdev->aa_flags ) == GDI_ERROR)
             buffer[i] = 0;
         else
             buffer[i] = abc.abcA + abc.abcB + abc.abcC;
@@ -4147,7 +4166,7 @@ static DWORD font_GetGlyphOutline( PHYSDEV dev, UINT glyph, UINT format,
         return dev->funcs->pGetGlyphOutline( dev, glyph, format, gm, buflen, buf, mat );
     }
     pthread_mutex_lock( &font_lock );
-    ret = get_glyph_outline( physdev->font, glyph, format, gm, NULL, buflen, buf, mat );
+    ret = get_glyph_outline( physdev->font, glyph, format, gm, NULL, buflen, buf, mat, physdev->aa_flags );
     pthread_mutex_unlock( &font_lock );
     return ret;
 }
@@ -4327,7 +4346,7 @@ static BOOL font_GetTextExtentExPoint( PHYSDEV dev, const WCHAR *str, INT count,
     pthread_mutex_lock( &font_lock );
     for (i = pos = 0; i < count; i++)
     {
-        get_glyph_outline( physdev->font, str[i], GGO_METRICS, NULL, &abc, 0, NULL, NULL );
+        get_glyph_outline( physdev->font, str[i], GGO_METRICS, NULL, &abc, 0, NULL, NULL, physdev->aa_flags );
         pos += abc.abcA + abc.abcB + abc.abcC;
         dxs[i] = pos;
     }
@@ -4357,7 +4376,7 @@ static BOOL font_GetTextExtentExPointI( PHYSDEV dev, const WORD *indices, INT co
     for (i = pos = 0; i < count; i++)
     {
         get_glyph_outline( physdev->font, indices[i], GGO_METRICS | GGO_GLYPH_INDEX,
-                           NULL, &abc, 0, NULL, NULL );
+                           NULL, &abc, 0, NULL, NULL, physdev->aa_flags );
         pos += abc.abcA + abc.abcB + abc.abcC;
         dxs[i] = pos;
     }
@@ -4671,6 +4690,7 @@ static HFONT font_SelectFont( PHYSDEV dev, HFONT hfont, UINT *aa_flags )
                     *aa_flags = font_smoothing;
             }
             *aa_flags = font_funcs->get_aa_flags( font, *aa_flags, antialias_fakes );
+            physdev->aa_flags = *aa_flags;
         }
         TRACE( "%p %s %d aa %x\n", hfont, debugstr_w(lf.lfFaceName), (int)lf.lfHeight, *aa_flags );
         pthread_mutex_unlock( &font_lock );

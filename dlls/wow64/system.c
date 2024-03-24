@@ -809,3 +809,21 @@ NTSTATUS WINAPI wow64_NtWow64GetNativeSystemInformation( UINT *args )
         return STATUS_INVALID_INFO_CLASS;
     }
 }
+
+
+/**********************************************************************
+ *           wow64___wine_set_unix_env
+ */
+NTSTATUS WINAPI wow64___wine_set_unix_env( UINT *args )
+{
+    const char *var = get_ptr( &args );
+    const char *val = get_ptr( &args );
+
+    return __wine_set_unix_env( var, val );
+}
+
+BOOL WINAPI __wine_needs_override_large_address_aware(void);
+NTSTATUS WINAPI wow64___wine_needs_override_large_address_aware( UINT * args )
+{
+    return __wine_needs_override_large_address_aware();
+}

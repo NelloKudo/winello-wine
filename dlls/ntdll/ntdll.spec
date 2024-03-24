@@ -1716,6 +1716,7 @@
 @ extern -private __wine_syscall_dispatcher
 @ extern -private __wine_unix_call_dispatcher
 @ extern -private __wine_unixlib_handle
+@ stdcall -syscall __wine_set_unix_env(ptr ptr)
 
 # Debugging
 @ stdcall -norelay __wine_dbg_write(ptr long)
@@ -1723,9 +1724,7 @@
 @ cdecl -norelay __wine_dbg_header(long long str)
 @ cdecl -norelay __wine_dbg_output(str)
 @ cdecl -norelay __wine_dbg_strdup(str)
-
-# Virtual memory
-@ cdecl __wine_needs_override_large_address_aware()
+@ stdcall -syscall -norelay __wine_dbg_ftrace(ptr long long)
 
 # Version
 @ cdecl wine_get_version()
@@ -1735,3 +1734,4 @@
 # Filesystem
 @ stdcall -syscall wine_nt_to_unix_file_name(ptr ptr ptr long)
 @ stdcall -syscall wine_unix_to_nt_file_name(str ptr ptr)
+@ stdcall -syscall __wine_needs_override_large_address_aware()

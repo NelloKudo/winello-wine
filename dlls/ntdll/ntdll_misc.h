@@ -28,7 +28,6 @@
 #include "winnt.h"
 #include "winternl.h"
 #include "unixlib.h"
-#include "wine/debug.h"
 #include "wine/asm.h"
 
 #define DECLARE_CRITICAL_SECTION(cs) \
@@ -47,6 +46,9 @@ static const UINT_PTR page_size = 0x1000;
 #else
 extern UINT_PTR page_size;
 #endif
+
+extern BOOL delay_heap_free;
+extern BOOL heap_zero_hack;
 
 /* exceptions */
 extern LONG call_vectored_handlers( EXCEPTION_RECORD *rec, CONTEXT *context );
@@ -94,39 +96,6 @@ extern struct _KUSER_SHARED_DATA *user_shared_data;
 
 extern int CDECL NTDLL__vsnprintf( char *str, SIZE_T len, const char *format, va_list args );
 extern int CDECL NTDLL__vsnwprintf( WCHAR *str, SIZE_T len, const WCHAR *format, va_list args );
-
-/* inline version of RtlEnterCriticalSection */
-static inline void enter_critical_section( RTL_CRITICAL_SECTION *crit )
-{
-    if (InterlockedIncrement( &crit->LockCount ))
-    {
-        if (crit->OwningThread == ULongToHandle(GetCurrentThreadId()))
-        {
-            crit->RecursionCount++;
-            return;
-        }
-        RtlpWaitForCriticalSection( crit );
-    }
-    crit->OwningThread   = ULongToHandle(GetCurrentThreadId());
-    crit->RecursionCount = 1;
-}
-
-/* inline version of RtlLeaveCriticalSection */
-static inline void leave_critical_section( RTL_CRITICAL_SECTION *crit )
-{
-    WINE_DECLARE_DEBUG_CHANNEL(ntdll);
-    if (--crit->RecursionCount)
-    {
-        if (crit->RecursionCount > 0) InterlockedDecrement( &crit->LockCount );
-        else ERR_(ntdll)( "section %p is not acquired\n", crit );
-    }
-    else
-    {
-        crit->OwningThread = 0;
-        if (InterlockedDecrement( &crit->LockCount ) >= 0)
-            RtlpUnWaitCriticalSection( crit );
-    }
-}
 
 struct dllredirect_data
 {
