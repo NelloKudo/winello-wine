@@ -38,16 +38,6 @@ enum system_timer_id
     SYSTEM_TIMER_KEY_REPEAT = 0xfff0,
 };
 
-struct rawinput_thread_data
-{
-    UINT     hw_id;     /* current rawinput message id */
-    RAWINPUT buffer[1]; /* rawinput message data buffer */
-};
-
-/* on windows the buffer capacity is quite large as well, enough to */
-/* hold up to 10s of 1kHz mouse rawinput events */
-#define RAWINPUT_BUFFER_SIZE (512 * 1024)
-
 struct user_object
 {
     HANDLE       handle;
@@ -104,8 +94,7 @@ typedef struct tagWND
 #define WIN_NEEDS_SHOW_OWNEDPOPUP 0x0020 /* WM_SHOWWINDOW:SC_SHOW must be sent in the next ShowOwnedPopup call */
 #define WIN_CHILDREN_MOVED        0x0040 /* children may have moved, ignore stored positions */
 #define WIN_HAS_IME_WIN           0x0080 /* the window has been registered with imm32 */
-#define WIN_IS_ACTIVATING         0x0100 /* the window is being activated */
-#define WIN_IS_TOUCH              0x0200 /* the window has been registered for touch input */
+#define WIN_IS_IN_ACTIVATION      0x0100 /* the window is in an activation process */
 
 #define WND_OTHER_PROCESS ((WND *)1)  /* returned by get_win_ptr on unknown window handles */
 #define WND_DESKTOP       ((WND *)2)  /* returned by get_win_ptr on the desktop window */
@@ -116,13 +105,6 @@ static inline BOOL is_broadcast( HWND hwnd )
     return hwnd == HWND_BROADCAST || hwnd == HWND_TOPMOST;
 }
 
-struct touchinput_thread_data
-{
-    BYTE       index;            /* history index */
-    TOUCHINPUT current[8];       /* current touch state */
-    TOUCHINPUT history[128][8];  /* touches history buffer */
-};
-
 /* this is the structure stored in TEB->Win32ClientInfo */
 /* no attempt is made to keep the layout compatible with the Windows one */
 struct user_thread_info
@@ -131,27 +113,21 @@ struct user_thread_info
     HANDLE                        server_queue;           /* Handle to server-side queue */
     DWORD                         wake_mask;              /* Current queue wake mask */
     DWORD                         changed_mask;           /* Current queue changed mask */
-    DWORD                         last_driver_time;       /* Get/PeekMessage driver event time */
-    DWORD                         last_getmsg_time;       /* Get/PeekMessage last request time */
     WORD                          message_count;          /* Get/PeekMessage loop counter */
     WORD                          hook_call_depth;        /* Number of recursively called hook procs */
     WORD                          hook_unicode;           /* Is current hook unicode? */
     HHOOK                         hook;                   /* Current hook */
     UINT                          active_hooks;           /* Bitmap of active hooks */
     struct received_message_info *receive_info;           /* Message being currently received */
+    struct user_key_state_info   *key_state;              /* Cache of global key state */
     struct imm_thread_data       *imm_thread_data;        /* IMM thread data */
     MSG                           key_repeat_msg;         /* Last WM_KEYDOWN message to repeat */
     HKL                           kbd_layout;             /* Current keyboard layout */
     UINT                          kbd_layout_id;          /* Current keyboard layout ID */
-    struct rawinput_thread_data  *rawinput;               /* RawInput thread local data / buffer */
-    struct touchinput_thread_data *touchinput;            /* touch input thread local buffer */
+    struct hardware_msg_data     *rawinput;               /* Current rawinput message data */
     UINT                          spy_indent;             /* Current spy indent */
     BOOL                          clipping_cursor;        /* thread is currently clipping */
     DWORD                         clipping_reset;         /* time when clipping was last reset */
-    const desktop_shm_t          *desktop_shm;            /* Ptr to server's desktop shared memory */
-    const queue_shm_t            *queue_shm;              /* Ptr to server's thread queue shared memory */
-    const input_shm_t            *input_shm;              /* Ptr to server's thread input shared memory */
-    const input_shm_t            *foreground_shm;         /* Ptr to server's foreground thread input shared memory */
 };
 
 C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo) );
@@ -160,6 +136,13 @@ static inline struct user_thread_info *get_user_thread_info(void)
 {
     return CONTAINING_RECORD( NtUserGetThreadInfo(), struct user_thread_info, client_info );
 }
+
+struct user_key_state_info
+{
+    UINT  time;          /* Time of last key state refresh */
+    INT   counter;       /* Counter to invalidate the key state */
+    BYTE  state[256];    /* State for each key */
+};
 
 struct hook_extra_info
 {
@@ -256,6 +239,17 @@ extern void free_dce( struct dce *dce, HWND hwnd );
 extern void invalidate_dce( WND *win, const RECT *extra_rect );
 
 /* message.c */
+struct peek_message_filter
+{
+    HWND hwnd;
+    UINT first;
+    UINT last;
+    UINT mask;
+    UINT flags;
+    BOOL internal;
+};
+
+extern int peek_message( MSG *msg, const struct peek_message_filter *filter );
 extern BOOL set_keyboard_auto_repeat( BOOL enable );
 
 /* systray.c */
@@ -269,18 +263,6 @@ void release_user_handle_ptr( void *ptr );
 void *next_process_user_handle_ptr( HANDLE *handle, unsigned int type );
 UINT win_set_flags( HWND hwnd, UINT set_mask, UINT clear_mask );
 
-/* winstation.c */
-struct global_shared_memory
-{
-    ULONG display_settings_serial;
-};
-
-extern volatile struct global_shared_memory *get_global_shared_memory( void );
-extern const desktop_shm_t *get_desktop_shared_memory(void);
-extern const queue_shm_t *get_queue_shared_memory(void);
-extern const input_shm_t *get_input_shared_memory(void);
-extern const input_shm_t *get_foreground_shared_memory(void);
-
 static inline UINT win_get_flags( HWND hwnd )
 {
     return win_set_flags( hwnd, 0, 0 );
@@ -289,28 +271,5 @@ static inline UINT win_get_flags( HWND hwnd )
 WND *get_win_ptr( HWND hwnd );
 BOOL is_child( HWND parent, HWND child );
 BOOL is_window( HWND hwnd );
-
-#if defined(__i386__) || defined(__x86_64__)
-#define __SHARED_READ_SEQ( x )  (x)
-#define __SHARED_READ_FENCE     do {} while(0)
-#else
-#define __SHARED_READ_SEQ( x )  __atomic_load_n( &(x), __ATOMIC_RELAXED )
-#define __SHARED_READ_FENCE     __atomic_thread_fence( __ATOMIC_ACQUIRE )
-#endif
-
-#define SHARED_READ_BEGIN( ptr, type )                                  \
-    do {                                                                \
-        const type *__shared = (ptr);                                   \
-        unsigned int __seq;                                             \
-        do {                                                            \
-            while ((__seq = __SHARED_READ_SEQ( __shared->seq )) & 1) YieldProcessor(); \
-            __SHARED_READ_FENCE; \
-            do
-
-#define SHARED_READ_END                            \
-            while (0);                             \
-            __SHARED_READ_FENCE;                   \
-        } while (__SHARED_READ_SEQ( __shared->seq ) != __seq); \
-    } while(0);
 
 #endif /* __WINE_NTUSER_PRIVATE_H */

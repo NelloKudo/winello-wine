@@ -524,7 +524,8 @@ char *get_alternate_wineloader( WORD machine )
 
     if (machine == current_machine) return NULL;
 
-    if (machine == IMAGE_FILE_MACHINE_AMD64)  /* try the 64-bit loader */
+    /* try the 64-bit loader */
+    if (current_machine == IMAGE_FILE_MACHINE_I386 && machine == IMAGE_FILE_MACHINE_AMD64)
     {
         size_t len = strlen(wineloader);
 
@@ -592,46 +593,10 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const pe_image_info_t *pe_i
     WORD machine = pe_info->machine;
     ULONGLONG res_start = pe_info->base;
     ULONGLONG res_end = pe_info->base + pe_info->map_size;
-    const char *ld_preload = getenv( "LD_PRELOAD" );
     char preloader_reserve[64], socket_env[64];
 
     if (pe_info->wine_fakedll) res_start = res_end = 0;
     if (pe_info->image_flags & IMAGE_FLAGS_ComPlusNativeReady) machine = native_machine;
-
-    unsetenv( "WINE_LD_PRELOAD" );
-
-    /* HACK: Unset LD_PRELOAD before executing explorer.exe to disable buggy gameoverlayrenderer.so */
-    if (ld_preload && argv[2] && !strcmp( argv[2], "C:\\windows\\system32\\explorer.exe" ) &&
-        argv[3] && !strcmp( argv[3], "/desktop" ))
-    {
-        static char const gorso[] = "gameoverlayrenderer.so";
-        static int gorso_len = sizeof(gorso) - 1;
-        int len = strlen( ld_preload );
-        char *next, *tmp, *env = malloc( sizeof("LD_PRELOAD=") + len );
-
-        if (!env) return STATUS_NO_MEMORY;
-        strcpy( env, "LD_PRELOAD=" );
-        strcat( env, ld_preload );
-
-        tmp = env + 11;
-        do
-        {
-            if (!(next = strchr( tmp, ':' ))) next = tmp + strlen( tmp );
-            if (next - tmp >= gorso_len && strncmp( next - gorso_len, gorso, gorso_len ) == 0)
-            {
-                if (*next) memmove( tmp, next + 1, strlen(next) );
-                else *tmp = 0;
-                next = tmp;
-            }
-            else tmp = next + 1;
-        }
-        while (*next);
-
-        putenv( env );
-        ld_preload = NULL;
-    }
-
-    if (ld_preload) setenv( "WINE_LD_PRELOAD", ld_preload, 1 );
 
     signal( SIGPIPE, SIG_DFL );
 
@@ -1052,160 +1017,18 @@ static NTSTATUS load_so_dll( void *args )
     return status;
 }
 
-static void *steamclient_srcs[128];
-static void *steamclient_tgts[128];
-static int steamclient_count;
-
-void *steamclient_handle_fault( LPCVOID addr, DWORD err )
-{
-    int i;
-
-    if (!(err & EXCEPTION_EXECUTE_FAULT)) return NULL;
-
-    for (i = 0; i < steamclient_count; ++i)
-    {
-        if (addr == steamclient_srcs[i])
-            return steamclient_tgts[i];
-    }
-
-    return NULL;
-}
-
-static void steamclient_write_jump(void *src_addr, void *tgt_addr)
-{
-#ifdef _WIN64
-    static const char mov[] = {0x48, 0xb8};
-#else
-    static const char mov[] = {0xb8};
-#endif
-    static const char jmp[] = {0xff, 0xe0};
-    memcpy(src_addr, mov, sizeof(mov));
-    memcpy((char *)src_addr + sizeof(mov), &tgt_addr, sizeof(tgt_addr));
-    memcpy((char *)src_addr + sizeof(mov) + sizeof(tgt_addr), jmp, sizeof(jmp));
-}
-
-static NTSTATUS steamclient_setup_trampolines( void *args )
-{
-    static int noexec_cached = -1;
-    struct steamclient_setup_trampolines_params *params = args;
-    HMODULE src_mod = params->src_mod, tgt_mod = params->tgt_mod;
-    SYSTEM_BASIC_INFORMATION info;
-    IMAGE_NT_HEADERS *src_nt = (IMAGE_NT_HEADERS *)((UINT_PTR)src_mod + ((IMAGE_DOS_HEADER *)src_mod)->e_lfanew);
-    IMAGE_NT_HEADERS *tgt_nt = (IMAGE_NT_HEADERS *)((UINT_PTR)tgt_mod + ((IMAGE_DOS_HEADER *)tgt_mod)->e_lfanew);
-    IMAGE_SECTION_HEADER *src_sec = (IMAGE_SECTION_HEADER *)(src_nt + 1);
-    const IMAGE_EXPORT_DIRECTORY *src_exp, *tgt_exp;
-    const DWORD *names;
-    SIZE_T size;
-    void *addr, *src_addr, *tgt_addr;
-    char *name, *wsne;
-    UINT_PTR page_mask;
-    int i;
-
-    if (noexec_cached == -1)
-        noexec_cached = (wsne = getenv("WINESTEAMNOEXEC")) && atoi(wsne);
-
-    virtual_get_system_info( &info, !!NtCurrentTeb()->WowTebOffset );
-    page_mask = info.PageSize - 1;
-
-    for (i = 0; i < src_nt->FileHeader.NumberOfSections; ++i)
-    {
-        if (memcmp(src_sec[i].Name, ".text", 5)) continue;
-        addr = (void *)(((UINT_PTR)src_mod + src_sec[i].VirtualAddress) & ~page_mask);
-        size = (src_sec[i].Misc.VirtualSize + page_mask) & ~page_mask;
-        if (noexec_cached) mprotect(addr, size, PROT_READ);
-        else mprotect(addr, size, PROT_READ|PROT_WRITE|PROT_EXEC);
-    }
-
-    src_exp = get_module_data_dir( src_mod, IMAGE_FILE_EXPORT_DIRECTORY, NULL );
-    tgt_exp = get_module_data_dir( tgt_mod, IMAGE_FILE_EXPORT_DIRECTORY, NULL );
-    names = (const DWORD *)((UINT_PTR)src_mod + src_exp->AddressOfNames);
-    for (i = 0; i < src_exp->NumberOfNames; ++i)
-    {
-        if (!names[i] || !(name = (char *)((UINT_PTR)src_mod + names[i]))) continue;
-        if (!(src_addr = (void *)find_named_export(src_mod, src_exp, name))) continue;
-        if (!(tgt_addr = (void *)find_named_export(tgt_mod, tgt_exp, name))) continue;
-        assert(steamclient_count < ARRAY_SIZE(steamclient_srcs));
-        steamclient_srcs[steamclient_count] = src_addr;
-        steamclient_tgts[steamclient_count] = tgt_addr;
-        if (!noexec_cached) steamclient_write_jump(src_addr, tgt_addr);
-        else steamclient_count++;
-    }
-
-    src_addr = (void *)((UINT_PTR)src_mod + src_nt->OptionalHeader.AddressOfEntryPoint);
-    tgt_addr = (void *)((UINT_PTR)tgt_mod + tgt_nt->OptionalHeader.AddressOfEntryPoint);
-    assert(steamclient_count < ARRAY_SIZE(steamclient_srcs));
-    steamclient_srcs[steamclient_count] = src_addr;
-    steamclient_tgts[steamclient_count] = tgt_addr;
-    if (!noexec_cached) steamclient_write_jump(src_addr, tgt_addr);
-    else steamclient_count++;
-
-    return STATUS_SUCCESS;
-}
-
-static BOOL debugstr_pc_impl( void *pc, char *buffer, unsigned int size )
-{
-    unsigned int len;
-    char *s = buffer;
-    Dl_info info;
-
-    snprintf( s, size, "%p:", pc );
-    if (!dladdr( pc, &info )) return FALSE;
-
-    s += (len = strlen( s ));
-    size -= len;
-    snprintf( s, size, " %s + %#zx", info.dli_fname, (char *)pc - (char *)info.dli_fbase );
-    if (info.dli_sname)
-    {
-        s += (len = strlen( s ));
-        size -= len;
-        snprintf( s, size, " (%s + %#zx)", info.dli_sname, (char *)pc - (char *)info.dli_saddr );
-    }
-    return TRUE;
-}
-
-static NTSTATUS debugstr_pc( void *args )
-{
-    struct debugstr_pc_args *params = args;
-
-    return debugstr_pc_impl( params->pc, params->buffer, params->size ) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
-}
-
-const char * wine_debuginfostr_pc( void *pc )
-{
-    char buffer[256];
-
-    debugstr_pc_impl( pc, buffer, sizeof(buffer) );
-    return __wine_dbg_strdup( buffer );
-}
-
-static BOOL report_native_pc_as_ntdll;
-
-static NTSTATUS is_pc_in_native_so(void *pc)
-{
-    Dl_info info;
-
-    if (!report_native_pc_as_ntdll || !dladdr( pc, &info )) return FALSE;
-
-    TRACE( "pc %p, module %s.\n", pc, debugstr_a(info.dli_fname) );
-
-    if (strstr( info.dli_fname, ".dll.so")) return FALSE;
-
-    return TRUE;
-}
 
 static const unixlib_entry_t unix_call_funcs[] =
 {
     load_so_dll,
     unwind_builtin_dll,
     unixcall_wine_dbg_write,
+    unixcall_wine_needs_override_large_address_aware,
     unixcall_wine_server_call,
     unixcall_wine_server_fd_to_handle,
     unixcall_wine_server_handle_to_fd,
     unixcall_wine_spawnvp,
     system_time_precise,
-    steamclient_setup_trampolines,
-    is_pc_in_native_so,
-    debugstr_pc,
 };
 
 
@@ -1227,6 +1050,34 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
 };
 
 #endif  /* _WIN64 */
+
+BOOL ac_odyssey;
+BOOL fsync_simulate_sched_quantum;
+
+static void hacks_init(void)
+{
+    static const char upc_exe[] = "Ubisoft Game Launcher\\upc.exe";
+    static const char ac_odyssey_exe[] = "ACOdyssey.exe";
+    const char *env_str;
+
+    if (main_argc > 1 && strstr(main_argv[1], ac_odyssey_exe))
+    {
+        ERR("HACK: AC Odyssey sync tweak on.\n");
+        ac_odyssey = TRUE;
+        return;
+    }
+    env_str = getenv("WINE_FSYNC_SIMULATE_SCHED_QUANTUM");
+    if (env_str)
+        fsync_simulate_sched_quantum = !!atoi(env_str);
+    else if (main_argc > 1)
+        fsync_simulate_sched_quantum = !!strstr(main_argv[1], upc_exe);
+    if (fsync_simulate_sched_quantum)
+        ERR("HACK: Simulating sched quantum in fsync.\n");
+
+    env_str = getenv("SteamGameId");
+    if (env_str && !strcmp(env_str, "50130"))
+        setenv("WINESTEAMNOEXEC", "1", 0);
+}
 
 
 /* check if the library is the correct architecture */
@@ -1500,11 +1351,11 @@ done:
  * Return STATUS_IMAGE_ALREADY_LOADED if we should keep the native one that we have found.
  */
 NTSTATUS load_builtin( const pe_image_info_t *image_info, WCHAR *filename, USHORT machine,
-                       void **module, SIZE_T *size, ULONG_PTR limit_low, ULONG_PTR limit_high )
+                       SECTION_IMAGE_INFORMATION *info, void **module, SIZE_T *size,
+                       ULONG_PTR limit_low, ULONG_PTR limit_high )
 {
     NTSTATUS status;
     UNICODE_STRING nt_name;
-    SECTION_IMAGE_INFORMATION info;
     enum loadorder loadorder;
 
     init_unicode_string( &nt_name, filename );
@@ -1530,10 +1381,10 @@ NTSTATUS load_builtin( const pe_image_info_t *image_info, WCHAR *filename, USHOR
     case LO_NATIVE_BUILTIN:
         return STATUS_IMAGE_ALREADY_LOADED;
     case LO_BUILTIN:
-        return find_builtin_dll( &nt_name, module, size, &info, limit_low, limit_high,
+        return find_builtin_dll( &nt_name, module, size, info, limit_low, limit_high,
                                  image_info->machine, machine, FALSE );
     default:
-        status = find_builtin_dll( &nt_name, module, size, &info, limit_low, limit_high,
+        status = find_builtin_dll( &nt_name, module, size, info, limit_low, limit_high,
                                    image_info->machine, machine, (loadorder == LO_DEFAULT) );
         if (status == STATUS_DLL_NOT_FOUND || status == STATUS_NOT_SUPPORTED)
             return STATUS_IMAGE_ALREADY_LOADED;
@@ -1808,24 +1659,23 @@ static void load_ntdll_wow64_functions( HMODULE module )
 
 
 /***********************************************************************
- *           redirect_arm64ec_ptr
+ *           redirect_arm64ec_rva
  *
- * Redirect a function pointer through the arm64ec redirection table.
+ * Redirect an address through the arm64ec redirection table.
  */
-static void *redirect_arm64ec_ptr( void *module, void *ptr,
-                                   const IMAGE_ARM64EC_REDIRECTION_ENTRY *map, ULONG map_count )
+ULONG_PTR redirect_arm64ec_rva( void *base, ULONG_PTR rva, const IMAGE_ARM64EC_METADATA *metadata )
 {
-    int min = 0, max = map_count - 1;
-    ULONG_PTR rva = (char *)ptr - (char *)module;
+    const IMAGE_ARM64EC_REDIRECTION_ENTRY *map = get_rva( base, metadata->RedirectionMetadata );
+    int min = 0, max = metadata->RedirectionMetadataCount - 1;
 
     while (min <= max)
     {
         int pos = (min + max) / 2;
-        if (map[pos].Source == rva) return get_rva( module, map[pos].Destination );
+        if (map[pos].Source == rva) return map[pos].Destination;
         if (map[pos].Source < rva) min = pos + 1;
         else max = pos - 1;
     }
-    return ptr;
+    return rva;
 }
 
 
@@ -1838,13 +1688,11 @@ static void redirect_ntdll_functions( HMODULE module )
 {
     const IMAGE_LOAD_CONFIG_DIRECTORY *loadcfg;
     const IMAGE_ARM64EC_METADATA *metadata;
-    const IMAGE_ARM64EC_REDIRECTION_ENTRY *map;
 
     if (!(loadcfg = get_module_data_dir( module, IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG, NULL ))) return;
     if (!(metadata = (void *)loadcfg->CHPEMetadataPointer)) return;
-    if (!(map = get_rva( module, metadata->RedirectionMetadata ))) return;
 #define REDIRECT(name) \
-        p##name = redirect_arm64ec_ptr( module, p##name, map, metadata->RedirectionMetadataCount )
+    p##name = get_rva( module, redirect_arm64ec_rva( module, (char *)p##name - (char *)module, metadata ))
     REDIRECT( DbgUiRemoteBreakin );
     REDIRECT( KiRaiseUserExceptionDispatcher );
     REDIRECT( KiUserExceptionDispatcher );
@@ -1864,6 +1712,7 @@ static void load_ntdll(void)
     static WCHAR path[] = {'\\','?','?','\\','C',':','\\','w','i','n','d','o','w','s','\\',
                            's','y','s','t','e','m','3','2','\\','n','t','d','l','l','.','d','l','l',0};
     const char *pe_dir = get_pe_dir( current_machine );
+    USHORT machine = current_machine;
     unsigned int status;
     SECTION_IMAGE_INFORMATION info;
     OBJECT_ATTRIBUTES attr;
@@ -1877,7 +1726,9 @@ static void load_ntdll(void)
 
     if (build_dir) asprintf( &name, "%s%s/ntdll.dll", ntdll_dir, pe_dir );
     else asprintf( &name, "%s%s/ntdll.dll", dll_dir, pe_dir );
-    status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0, current_machine, FALSE );
+
+    if (is_arm64ec()) machine = main_image_info.Machine;
+    status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0, machine, FALSE );
     if (status == STATUS_DLL_NOT_FOUND)
     {
         free( name );
@@ -2020,154 +1871,6 @@ static ULONG_PTR get_image_address(void)
     return 0;
 }
 
-BOOL disable_sfn;
-BOOL ac_odyssey;
-BOOL fsync_simulate_sched_quantum;
-BOOL alert_simulate_sched_quantum;
-BOOL fsync_yield_to_waiters;
-BOOL no_priv_elevation;
-BOOL localsystem_sid;
-BOOL simulate_writecopy;
-BOOL wine_allocs_2g_limit;
-SIZE_T kernel_stack_size = 0x100000;
-long long ram_reporting_bias;
-
-static void hacks_init(void)
-{
-    const char *sgi = getenv( "SteamGameId" );
-    const char *env_str;
-    if ((env_str = getenv("WINE_RAM_REPORTING_BIAS")))
-    {
-        ram_reporting_bias = atoll(env_str) * 1024 * 1024;
-        ERR( "HACK: ram_reporting_bias %lldMB.\n", ram_reporting_bias / (1024 * 1024) );
-    }
-
-    env_str = getenv("WINE_DISABLE_SFN");
-    if (env_str)
-        disable_sfn = !!atoi(env_str);
-    else if (main_argc > 1 && (strstr(main_argv[1], "Yakuza5.exe") ))
-        disable_sfn = TRUE;
-
-    env_str = getenv("WINE_SIMULATE_ASYNC_READ");
-    if (env_str)
-        ac_odyssey = !!atoi(env_str);
-    else if (main_argc > 1 && (strstr(main_argv[1], "ACOdyssey.exe") || strstr(main_argv[1], "ImmortalsFenyxRising.exe")))
-        ac_odyssey = TRUE;
-
-    if (ac_odyssey)
-        ERR("HACK: AC Odyssey sync tweak on.\n");
-
-    env_str = getenv("WINE_FSYNC_SIMULATE_SCHED_QUANTUM");
-    if (env_str)
-        fsync_simulate_sched_quantum = !!atoi(env_str);
-    else if (main_argc > 1)
-    {
-        fsync_simulate_sched_quantum = !!strstr(main_argv[1], "Ubisoft Game Launcher\\upc.exe");
-        fsync_simulate_sched_quantum = fsync_simulate_sched_quantum || !!strstr(main_argv[1], "PlanetZoo.exe");
-        fsync_simulate_sched_quantum = fsync_simulate_sched_quantum || !!strstr(main_argv[1], "GTA5.exe");
-    }
-    if (fsync_simulate_sched_quantum)
-        ERR("HACK: Simulating sched quantum in fsync.\n");
-
-    env_str = getenv("WINE_ALERT_SIMULATE_SCHED_QUANTUM");
-    if (env_str)
-        alert_simulate_sched_quantum = !!atoi(env_str);
-    else if (main_argc > 1)
-    {
-        alert_simulate_sched_quantum = !!strstr(main_argv[1], "GTA5.exe");
-    }
-    if (alert_simulate_sched_quantum)
-        ERR("HACK: Simulating sched quantum in NtWaitForAlertByThreadId.\n");
-
-    env_str = getenv("WINE_FSYNC_YIELD_TO_WAITERS");
-    if (env_str)
-        fsync_yield_to_waiters = !!atoi(env_str);
-    else if (sgi) fsync_yield_to_waiters = !strcmp(sgi, "292120") || !strcmp(sgi, "345350") || !strcmp(sgi, "292140");
-    if (fsync_yield_to_waiters)
-        ERR("HACK: fsync: yield to waiters.\n");
-
-    switch (sgi ? atoi( sgi ) : -1)
-    {
-    case 25700: /* Madballs in Babo: Invasion */
-    case 50130: /* Mafia II */
-    case 202990: /* CoD Black Ops II Multiplayer */
-    case 212910: /* CoD Black Ops II Zombies */
-        setenv( "WINESTEAMNOEXEC", "1", 0 );
-        break;
-    }
-
-    env_str = getenv("WINE_NO_PRIV_ELEVATION");
-    if (env_str)  no_priv_elevation = atoi(env_str);
-    else if (main_argc > 1 && strstr(main_argv[1], "playway-launcher-installer.exe")) no_priv_elevation = TRUE;
-    else if (sgi) no_priv_elevation = !strcmp(sgi, "1584660");
-    if (no_priv_elevation)
-        ERR("HACK: no_priv_elevation");
-
-    env_str = getenv("WINE_UNIX_PC_AS_NTDLL");
-    if (env_str)  report_native_pc_as_ntdll = atoi(env_str);
-    else if (sgi) report_native_pc_as_ntdll = !strcmp(sgi, "700330");
-
-    env_str = getenv("WINE_SIMULATE_WRITECOPY");
-    if (env_str) simulate_writecopy = atoi(env_str);
-    else if (main_argc > 1 &&
-                          (strstr(main_argv[1], "UplayWebCore.exe")
-                           || (strstr(main_argv[1], "Battle.net.exe"))))
-        simulate_writecopy = TRUE;
-    else if (sgi) simulate_writecopy = !strcmp(sgi, "1608730") /* Dawn of Corruption */
-                                       || !strcmp(sgi, "1680700") /* Purgo box */
-                                       || !strcmp(sgi, "2095300") /* Breakout 13 */
-                                       || !strcmp(sgi, "2053940") /* Idol Hands 2 */
-                                       || !strcmp(sgi, "391150") /* Red Tie Runner */
-                                       || !strcmp(sgi, "2152990") /* Dinogen Online */
-                                       || !strcmp(sgi, "2176450"); /* Mr. Hopp's Playhouse 3 */
-
-    if (sgi) wine_allocs_2g_limit = !strcmp(sgi, "359870");
-    if (wine_allocs_2g_limit) ERR("Allocation 2g limit enabled.\n");
-
-    if (main_argc > 1 && strstr(main_argv[1], "MicrosoftEdgeUpdate.exe"))
-    {
-        ERR("HACK: reporting LocalSystem account SID.\n");
-        localsystem_sid = TRUE;
-        return;
-    }
-
-    if ((env_str = getenv( "WINE_KERNEL_STACK_SIZE" )))
-        kernel_stack_size = atoll( env_str ) * 1024;
-    else if (sgi && !strcmp( sgi, "702700" ))
-        kernel_stack_size = 200 * 1024;
-    if (kernel_stack_size != 0x100000)
-        ERR( "HACK: setting kernel_stack_size to %luKB.\n", (long)(kernel_stack_size / 1024) );
-
-    if (sgi && (0
-        || !strcmp(sgi, "1364780") || !strcmp(sgi, "1952120") || !strcmp(sgi, "2154900") /* Street Fighter 6 */
-        || !strcmp(sgi, "1740720") /* Have a Nice Death  */
-    ))
-    {
-        ERR("HACK: setting WINE_ENABLE_GST_LIVE_LATENCY.\n");
-        setenv("WINE_ENABLE_GST_LIVE_LATENCY", "1", 0);
-    }
-    if (sgi && !strcmp(sgi, "292030"))
-    {
-        ERR("HACK: setting LIBGL_ALWAYS_SOFTWARE.\n");
-        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0);
-    }
-
-   if (main_argc > 1 && (strstr(main_argv[1], "\\EADesktop.exe") || strstr(main_argv[1], "\\Link2EA.exe")
-        || strstr(main_argv[1], "EA Desktop\\ErrorReporter.exe") || strstr(main_argv[1], "\\EAConnect_microsoft.exe")
-        || strstr(main_argv[1], "\\EALaunchHelper.exe") || strstr(main_argv[1], "\\EACrashReporter.exe")))
-    {
-        ERR("HACK: setting LIBGL_ALWAYS_SOFTWARE.\n");
-        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 0);
-    }
-
-    if (sgi && !strcmp(sgi, "2379390"))
-    {
-        ERR("HACK: setting vk_x11_override_min_image_count, vk_x11_strict_image_count.\n");
-        setenv("vk_x11_override_min_image_count", "2", 0);
-        setenv("vk_x11_strict_image_count", "true", 0);
-    }
-}
-
 /***********************************************************************
  *           start_main_thread
  */
@@ -2185,9 +1888,6 @@ static void start_main_thread(void)
     virtual_map_user_shared_data();
     init_cpu_info();
     init_files();
-
-    set_thread_teb( teb );
-
     init_startup_info();
     *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
     set_load_order_app_name( main_wargv[0] );
@@ -2528,11 +2228,10 @@ DECLSPEC_EXPORT void __wine_main( int argc, char *argv[], char *envp[] )
 #ifdef RLIMIT_AS
     set_max_limit( RLIMIT_AS );
 #endif
-#ifdef RLIMIT_NICE
-    set_max_limit( RLIMIT_NICE );
-#endif
 
     virtual_init();
+    signal_init_early();
+
     init_environment();
 
 #ifdef __APPLE__

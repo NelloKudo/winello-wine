@@ -29,7 +29,6 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <errno.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -43,10 +42,6 @@
 #include "process.h"
 #include "request.h"
 #include "security.h"
-
-#ifndef F_SEAL_FUTURE_WRITE
-#define F_SEAL_FUTURE_WRITE 0x0010  /* prevent future writes while mapped */
-#endif
 
 /* list of memory ranges, used to store committed info */
 struct ranges
@@ -164,19 +159,16 @@ struct type_descr mapping_type =
 struct mapping
 {
     struct object   obj;             /* object header */
-    struct list     kernel_object;   /* list of kernel object pointers */
     mem_size_t      size;            /* mapping size */
     unsigned int    flags;           /* SEC_* flags */
     struct fd      *fd;              /* fd for mapped file */
     pe_image_info_t image;           /* image info (for PE image mapping) */
     struct ranges  *committed;       /* list of committed ranges in this mapping */
     struct shared_map *shared;       /* temp file for shared PE mapping */
-    void           *shared_ptr;      /* mmaped pointer for shared mappings */
 };
 
 static void mapping_dump( struct object *obj, int verbose );
 static struct fd *mapping_get_fd( struct object *obj );
-static struct list *mapping_get_kernel_obj_list( struct object *obj );
 static void mapping_destroy( struct object *obj );
 static enum server_fd_type mapping_get_fd_type( struct fd *fd );
 
@@ -201,7 +193,7 @@ static const struct object_ops mapping_ops =
     directory_link_name,         /* link_name */
     default_unlink_name,         /* unlink_name */
     no_open_file,                /* open_file */
-    mapping_get_kernel_obj_list, /* get_kernel_obj_list */
+    no_kernel_obj_list,          /* get_kernel_obj_list */
     no_close_handle,             /* close_handle */
     mapping_destroy              /* destroy */
 };
@@ -297,7 +289,6 @@ int grow_file( int unix_fd, file_pos_t new_size )
     return 0;
 }
 
-#ifndef HAVE_MEMFD_CREATE
 /* simplified version of mkstemps() */
 static int make_temp_file( char name[16] )
 {
@@ -307,7 +298,7 @@ static int make_temp_file( char name[16] )
     value += (current_time >> 16) + current_time;
     for (i = 0; i < 0x8000 && fd < 0; i++, value += 7777)
     {
-        sprintf( name, "tmpmap-%08x", value );
+        snprintf( name, 16, "tmpmap-%08x", value );
         fd = open( name, O_RDWR | O_CREAT | O_EXCL, 0600 );
     }
     return fd;
@@ -331,23 +322,10 @@ static int check_current_dir_for_exec(void)
     unlink( tmpfn );
     return (ret != MAP_FAILED);
 }
-#endif
 
 /* create a temp file for anonymous mappings */
 static int create_temp_file( file_pos_t size )
 {
-#ifdef HAVE_MEMFD_CREATE
-    int fd = memfd_create( "wine-mapping", MFD_ALLOW_SEALING );
-    if (fd != -1)
-    {
-        if (!grow_file( fd, size ))
-        {
-            close( fd );
-            fd = -1;
-        }
-    }
-    else file_set_error();
-#else
     static int temp_dir_fd = -1;
     char tmpfn[16];
     int fd;
@@ -380,7 +358,6 @@ static int create_temp_file( file_pos_t size )
     else file_set_error();
 
     if (temp_dir_fd != server_dir_fd) fchdir( server_dir_fd );
-#endif
     return fd;
 }
 
@@ -433,14 +410,6 @@ struct memory_view *get_exe_view( struct process *process )
     return LIST_ENTRY( list_head( &process->views ), struct memory_view, entry );
 }
 
-static void set_process_machine( struct process *process, struct memory_view *view )
-{
-    if (view->image.image_flags & IMAGE_FLAGS_ComPlusNativeReady)
-        process->machine = native_machine;
-    else
-        process->machine = view->image.machine;
-}
-
 static int generate_dll_event( struct thread *thread, int code, struct memory_view *view )
 {
     if (!(view->flags & SEC_IMAGE)) return 0;
@@ -449,7 +418,8 @@ static int generate_dll_event( struct thread *thread, int code, struct memory_vi
 }
 
 /* add a view to the process list */
-static void add_process_view( struct thread *thread, struct memory_view *view )
+/* return 1 if this is the main exe view */
+static int add_process_view( struct thread *thread, struct memory_view *view )
 {
     struct process *process = thread->process;
     struct unicode_str name;
@@ -463,18 +433,17 @@ static void add_process_view( struct thread *thread, struct memory_view *view )
         else if (!(view->image.image_charact & IMAGE_FILE_DLL))
         {
             /* main exe */
-            set_process_machine( process, view );
-            list_add_head( &process->views, &view->entry );
-
             free( process->image );
             process->image = NULL;
             if (get_view_nt_name( view, &name ) && (process->image = memdup( name.str, name.len )))
                 process->imagelen = name.len;
             process->image_info = view->image;
-            return;
+            list_add_head( &process->views, &view->entry );
+            return 1;
         }
     }
     list_add_tail( &process->views, &view->entry );
+    return 0;
 }
 
 static void free_memory_view( struct memory_view *view )
@@ -691,11 +660,10 @@ static int build_shared_mapping( struct mapping *mapping, int fd,
     return 0;
 }
 
-/* load the CLR header from its section */
-static int load_clr_header( IMAGE_COR20_HEADER *hdr, size_t va, size_t size, int unix_fd,
-                            IMAGE_SECTION_HEADER *sec, unsigned int nb_sec )
+/* load a data directory header from its section */
+static int load_data_dir( void *dir, size_t dir_size, size_t va, size_t size, int unix_fd,
+                          IMAGE_SECTION_HEADER *sec, unsigned int nb_sec )
 {
-    ssize_t ret;
     size_t map_size, file_size;
     off_t file_start;
     unsigned int i;
@@ -709,16 +677,39 @@ static int load_clr_header( IMAGE_COR20_HEADER *hdr, size_t va, size_t size, int
         get_section_sizes( &sec[i], &map_size, &file_start, &file_size );
         if (size >= map_size) continue;
         if (va - sec[i].VirtualAddress >= map_size - size) continue;
-        file_size = min( file_size, map_size );
-        size = min( size, sizeof(*hdr) );
-        ret = pread( unix_fd, hdr, min( size, file_size ), file_start + va - sec[i].VirtualAddress );
-        if (ret <= 0) break;
-        if (ret < sizeof(*hdr)) memset( (char *)hdr + ret, 0, sizeof(*hdr) - ret );
-        return (hdr->MajorRuntimeVersion > COR_VERSION_MAJOR_V2 ||
-                (hdr->MajorRuntimeVersion == COR_VERSION_MAJOR_V2 &&
-                 hdr->MinorRuntimeVersion >= COR_VERSION_MINOR));
+        if (size > dir_size) size = dir_size;
+        if (size > file_size) size = file_size;
+        return pread( unix_fd, dir, size, file_start + va - sec[i].VirtualAddress );
     }
     return 0;
+}
+
+/* load the CLR header from its section */
+static int load_clr_header( IMAGE_COR20_HEADER *hdr, size_t va, size_t size, int unix_fd,
+                            IMAGE_SECTION_HEADER *sec, unsigned int nb_sec )
+{
+    int ret = load_data_dir( hdr, sizeof(*hdr), va, size, unix_fd, sec, nb_sec );
+
+    if (ret <= 0) return 0;
+    if (ret < sizeof(*hdr)) memset( (char *)hdr + ret, 0, sizeof(*hdr) - ret );
+    return (hdr->MajorRuntimeVersion > COR_VERSION_MAJOR_V2 ||
+            (hdr->MajorRuntimeVersion == COR_VERSION_MAJOR_V2 &&
+             hdr->MinorRuntimeVersion >= COR_VERSION_MINOR));
+}
+
+/* load the LOAD_CONFIG header from its section */
+static int load_cfg_header( IMAGE_LOAD_CONFIG_DIRECTORY64 *cfg, size_t va, size_t size,
+                            int unix_fd, IMAGE_SECTION_HEADER *sec, unsigned int nb_sec )
+{
+    unsigned int cfg_size;
+    int ret = load_data_dir( cfg, sizeof(*cfg), va, size, unix_fd, sec, nb_sec );
+
+    if (ret <= 0) return 0;
+    cfg_size = ret;
+    if (cfg_size < offsetof( IMAGE_LOAD_CONFIG_DIRECTORY64, Size ) + sizeof(cfg_size)) return 0;
+    if (cfg_size > cfg->Size) cfg_size = cfg->Size;
+    if (cfg_size < sizeof(*cfg)) memset( (char *)cfg + cfg_size, 0, sizeof(*cfg) - cfg_size );
+    return 1;
 }
 
 /* retrieve the mapping parameters for an executable (PE) image */
@@ -726,7 +717,6 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
 {
     static const char builtin_signature[] = "Wine builtin DLL";
     static const char fakedll_signature[] = "Wine placeholder DLL";
-    static const char valve_signature[] = {'V','L','V',0,1,0,0,0};
 
     IMAGE_COR20_HEADER clr;
     IMAGE_SECTION_HEADER sec[96];
@@ -745,9 +735,14 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
             IMAGE_OPTIONAL_HEADER64 hdr64;
         } opt;
     } nt;
+    union
+    {
+        IMAGE_LOAD_CONFIG_DIRECTORY32 cfg32;
+        IMAGE_LOAD_CONFIG_DIRECTORY64 cfg64;
+    } cfg;
     off_t pos;
     int size, has_relocs;
-    size_t mz_size, clr_va = 0, clr_size = 0;
+    size_t mz_size, clr_va = 0, clr_size = 0, cfg_va, cfg_size;
     unsigned int i;
 
     /* load the headers */
@@ -791,6 +786,9 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
             clr_va = nt.opt.hdr32.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress;
             clr_size = nt.opt.hdr32.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size;
         }
+        cfg_va = nt.opt.hdr32.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].VirtualAddress;
+        cfg_size = nt.opt.hdr32.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].Size;
+
         mapping->image.base            = nt.opt.hdr32.ImageBase;
         mapping->image.entry_point     = nt.opt.hdr32.AddressOfEntryPoint;
         mapping->image.map_size        = ROUND_SIZE( nt.opt.hdr32.SizeOfImage );
@@ -816,8 +814,7 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         if (nt.opt.hdr32.SectionAlignment & page_mask)
             mapping->image.image_flags |= IMAGE_FLAGS_ImageMappedFlat;
         else if ((nt.opt.hdr32.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE) &&
-                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size) &&
-                 memcmp( mz.buffer, valve_signature, sizeof(valve_signature) ))
+                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size))
             mapping->image.image_flags |= IMAGE_FLAGS_ImageDynamicallyRelocated;
         break;
 
@@ -840,6 +837,9 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
             clr_va = nt.opt.hdr64.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress;
             clr_size = nt.opt.hdr64.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size;
         }
+        cfg_va = nt.opt.hdr64.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].VirtualAddress;
+        cfg_size = nt.opt.hdr64.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].Size;
+
         mapping->image.base            = nt.opt.hdr64.ImageBase;
         mapping->image.entry_point     = nt.opt.hdr64.AddressOfEntryPoint;
         mapping->image.map_size        = ROUND_SIZE( nt.opt.hdr64.SizeOfImage );
@@ -865,8 +865,7 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         if (nt.opt.hdr64.SectionAlignment & page_mask)
             mapping->image.image_flags |= IMAGE_FLAGS_ImageMappedFlat;
         else if ((nt.opt.hdr64.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE) &&
-                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size) &&
-                 memcmp( mz.buffer, valve_signature, sizeof(valve_signature) ))
+                 (has_relocs || mapping->image.contains_code) && !(clr_va && clr_size))
             mapping->image.image_flags |= IMAGE_FLAGS_ImageDynamicallyRelocated;
         break;
 
@@ -874,6 +873,7 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         return STATUS_INVALID_IMAGE_FORMAT;
     }
 
+    mapping->image.is_hybrid     = 0;
     mapping->image.padding       = 0;
     mapping->image.map_addr      = get_fd_map_address( mapping->fd );
     mapping->image.image_charact = nt.FileHeader.Characteristics;
@@ -913,6 +913,14 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
             if (clr.Flags & COMIMAGE_FLAGS_32BITPREFERRED)
                 mapping->image.image_flags |= IMAGE_FLAGS_ComPlusPrefer32bit;
         }
+    }
+
+    if (load_cfg_header( &cfg.cfg64, cfg_va, cfg_size, unix_fd, sec, nt.FileHeader.NumberOfSections ))
+    {
+        if (nt.opt.hdr32.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+            mapping->image.is_hybrid = !!cfg.cfg32.CHPEMetadataPointer;
+        else
+            mapping->image.is_hybrid = !!cfg.cfg64.CHPEMetadataPointer;
     }
 
     if (!build_shared_mapping( mapping, unix_fd, sec, nt.FileHeader.NumberOfSections ))
@@ -974,13 +982,10 @@ static struct mapping *create_mapping( struct object *root, const struct unicode
     if (get_error() == STATUS_OBJECT_NAME_EXISTS)
         return mapping;  /* Nothing else to do */
 
-    list_init( &mapping->kernel_object );
-
     mapping->size        = size;
     mapping->fd          = NULL;
     mapping->shared      = NULL;
     mapping->committed   = NULL;
-    mapping->shared_ptr  = MAP_FAILED;
 
     if (!(mapping->flags = get_mapping_flags( handle, flags ))) goto error;
 
@@ -1067,8 +1072,6 @@ struct mapping *create_fd_mapping( struct object *root, const struct unicode_str
 
     if (!(mapping = create_named_object( root, &mapping_ops, name, attr, sd ))) return NULL;
     if (get_error() == STATUS_OBJECT_NAME_EXISTS) return mapping;  /* Nothing else to do */
-
-    list_init( &mapping->kernel_object );
 
     mapping->shared    = NULL;
     mapping->committed = NULL;
@@ -1176,12 +1179,6 @@ static struct fd *mapping_get_fd( struct object *obj )
     return (struct fd *)grab_object( mapping->fd );
 }
 
-static struct list *mapping_get_kernel_obj_list( struct object *obj )
-{
-    struct mapping *mapping = (struct mapping *)obj;
-    return &mapping->kernel_object;
-}
-
 static void mapping_destroy( struct object *obj )
 {
     struct mapping *mapping = (struct mapping *)obj;
@@ -1189,7 +1186,6 @@ static void mapping_destroy( struct object *obj )
     if (mapping->fd) release_object( mapping->fd );
     if (mapping->committed) release_object( mapping->committed );
     if (mapping->shared) release_object( mapping->shared );
-    if (mapping->shared_ptr != MAP_FAILED) munmap( mapping->shared_ptr, mapping->size );
 }
 
 static enum server_fd_type mapping_get_fd_type( struct fd *fd )
@@ -1264,36 +1260,6 @@ void free_map_addr( client_ptr_t base, mem_size_t size )
 int get_page_size(void)
 {
     return page_mask + 1;
-}
-
-struct object *create_shared_mapping( struct object *root, const struct unicode_str *name, mem_size_t size,
-                                      unsigned int attr, const struct security_descriptor *sd, void **ptr )
-{
-    static unsigned int access = FILE_READ_DATA | FILE_WRITE_DATA;
-    struct mapping *mapping;
-
-    if (!(mapping = create_mapping( root, name, attr, size, SEC_COMMIT, 0, access, sd ))) return NULL;
-
-    if (mapping->shared_ptr == MAP_FAILED)
-    {
-        int fd = get_unix_fd( mapping->fd );
-
-        mapping->shared_ptr = mmap( NULL, mapping->size, PROT_WRITE, MAP_SHARED, fd, 0 );
-        if (mapping->shared_ptr == MAP_FAILED)
-        {
-            fprintf( stderr, "wine: Failed to map shared memory: %u %m\n", errno );
-            release_object( &mapping->obj );
-            return NULL;
-        }
-
-#if defined(HAVE_MEMFD_CREATE) && defined(F_ADD_SEALS)
-        /* protect the mapping against any future writable mapping, resize or re-sealing */
-        fcntl( fd, F_ADD_SEALS, F_SEAL_FUTURE_WRITE | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL );
-#endif
-    }
-
-    *ptr = mapping->shared_ptr;
-    return &mapping->obj;
 }
 
 struct object *create_user_data_mapping( struct object *root, const struct unicode_str *name,
@@ -1475,16 +1441,19 @@ DECL_HANDLER(map_image_view)
         view->committed = NULL;
         view->shared    = mapping->shared ? (struct shared_map *)grab_object( mapping->shared ) : NULL;
         view->image     = mapping->image;
-        view->image.machine     = req->machine;
-        view->image.entry_point = req->entry;
-        add_process_view( current, view );
+        if (add_process_view( current, view ))
+        {
+            current->entry_point = view->base + req->entry;
+            current->process->machine = (view->image.image_flags & IMAGE_FLAGS_ComPlusNativeReady) ?
+                                         native_machine : req->machine;
+        }
 
         if (view->base != (mapping->image.map_addr ? mapping->image.map_addr : mapping->image.base))
             set_error( STATUS_IMAGE_NOT_AT_BASE );
-        if (view->image.machine != current->process->machine)
+        if (req->machine != current->process->machine)
         {
             /* on 32-bit, the native 64-bit machine is allowed */
-            if (is_machine_64bit( current->process->machine ) || view->image.machine != native_machine)
+            if (is_machine_64bit( current->process->machine ) || req->machine != native_machine)
                 set_error( STATUS_IMAGE_MACHINE_TYPE_MISMATCH );
         }
     }
@@ -1517,7 +1486,11 @@ DECL_HANDLER(map_builtin_view)
         view->image   = *image;
         view->namelen = namelen;
         memcpy( view->name, image + 1, namelen );
-        add_process_view( current, view );
+        if (add_process_view( current, view ))
+        {
+            current->entry_point = view->base + image->entry_point;
+            current->process->machine = image->machine;
+        }
     }
 }
 

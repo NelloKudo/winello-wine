@@ -243,20 +243,18 @@ static INT X11DRV_ExtEscape( PHYSDEV dev, INT escape, INT in_count, LPCVOID in_d
                     return TRUE;
                 }
                 break;
-            case X11DRV_PRESENT_DRAWABLE:
-                if (in_count >= sizeof(struct x11drv_escape_present_drawable))
+            case X11DRV_FLUSH_GL_DRAWABLE:
+                if (in_count >= sizeof(struct x11drv_escape_flush_gl_drawable))
                 {
-                    const struct x11drv_escape_present_drawable *data = in_data;
+                    const struct x11drv_escape_flush_gl_drawable *data = in_data;
                     RECT rect = physDev->dc_rect;
-                    RECT real_rect = physDev->dc_rect;
 
-                    fs_hack_rect_user_to_real( &real_rect );
                     OffsetRect( &rect, -physDev->dc_rect.left, -physDev->dc_rect.top );
                     if (data->flush) XFlush( gdi_display );
                     XSetFunction( gdi_display, physDev->gc, GXcopy );
-                    XCopyArea( gdi_display, data->drawable, physDev->drawable, physDev->gc,
-                               0, 0, real_rect.right - real_rect.left, real_rect.bottom - real_rect.top,
-                               real_rect.left, real_rect.top );
+                    XCopyArea( gdi_display, data->gl_drawable, physDev->drawable, physDev->gc,
+                               0, 0, rect.right, rect.bottom,
+                               physDev->dc_rect.left, physDev->dc_rect.top );
                     add_device_bounds( physDev, &rect );
                     return TRUE;
                 }
@@ -318,6 +316,9 @@ static INT X11DRV_ExtEscape( PHYSDEV dev, INT escape, INT in_count, LPCVOID in_d
                     return TRUE;
                 }
                 break;
+            case X11DRV_FLUSH_GDI_DISPLAY:
+                XFlush( gdi_display );
+                return TRUE;
             default:
                 break;
             }
@@ -333,14 +334,6 @@ static INT X11DRV_ExtEscape( PHYSDEV dev, INT escape, INT in_count, LPCVOID in_d
 static struct opengl_funcs *X11DRV_wine_get_wgl_driver( UINT version )
 {
     return get_glx_driver( version );
-}
-
-/**********************************************************************
- *           X11DRV_wine_get_vulkan_driver
- */
-static const struct vulkan_funcs *X11DRV_wine_get_vulkan_driver( UINT version )
-{
-    return get_vulkan_driver( version );
 }
 
 
@@ -386,11 +379,6 @@ static const struct user_driver_funcs x11drv_funcs =
     .dc_funcs.pStrokeAndFillPath = X11DRV_StrokeAndFillPath,
     .dc_funcs.pStrokePath = X11DRV_StrokePath,
     .dc_funcs.pUnrealizePalette = X11DRV_UnrealizePalette,
-    .dc_funcs.pD3DKMTCheckVidPnExclusiveOwnership = X11DRV_D3DKMTCheckVidPnExclusiveOwnership,
-    .dc_funcs.pD3DKMTCloseAdapter = X11DRV_D3DKMTCloseAdapter,
-    .dc_funcs.pD3DKMTOpenAdapterFromLuid = X11DRV_D3DKMTOpenAdapterFromLuid,
-    .dc_funcs.pD3DKMTQueryVideoMemoryInfo = X11DRV_D3DKMTQueryVideoMemoryInfo,
-    .dc_funcs.pD3DKMTSetVidPnSourceOwner = X11DRV_D3DKMTSetVidPnSourceOwner,
     .dc_funcs.priority = GDI_PRIORITY_GRAPHICS_DRV,
 
     .pActivateKeyboardLayout = X11DRV_ActivateKeyboardLayout,
@@ -399,10 +387,10 @@ static const struct user_driver_funcs x11drv_funcs =
     .pMapVirtualKeyEx = X11DRV_MapVirtualKeyEx,
     .pToUnicodeEx = X11DRV_ToUnicodeEx,
     .pVkKeyScanEx = X11DRV_VkKeyScanEx,
-    .pImeToAsciiEx = X11DRV_ImeToAsciiEx,
     .pNotifyIMEStatus = X11DRV_NotifyIMEStatus,
     .pDestroyCursorIcon = X11DRV_DestroyCursorIcon,
     .pSetCursor = X11DRV_SetCursor,
+    .pGetCursorPos = X11DRV_GetCursorPos,
     .pSetCursorPos = X11DRV_SetCursorPos,
     .pClipCursor = X11DRV_ClipCursor,
     .pSystrayDockInit = X11DRV_SystrayDockInit,
@@ -422,6 +410,7 @@ static const struct user_driver_funcs x11drv_funcs =
     .pProcessEvents = X11DRV_ProcessEvents,
     .pReleaseDC = X11DRV_ReleaseDC,
     .pScrollDC = X11DRV_ScrollDC,
+    .pSetActiveWindow = X11DRV_SetActiveWindow,
     .pSetCapture = X11DRV_SetCapture,
     .pSetDesktopWindow = X11DRV_SetDesktopWindow,
     .pSetFocus = X11DRV_SetFocus,
@@ -440,8 +429,9 @@ static const struct user_driver_funcs x11drv_funcs =
     .pWindowPosChanging = X11DRV_WindowPosChanging,
     .pWindowPosChanged = X11DRV_WindowPosChanged,
     .pSystemParametersInfo = X11DRV_SystemParametersInfo,
-    .pwine_get_vulkan_driver = X11DRV_wine_get_vulkan_driver,
+    .pVulkanInit = X11DRV_VulkanInit,
     .pwine_get_wgl_driver = X11DRV_wine_get_wgl_driver,
+    .pUpdateCandidatePos = X11DRV_UpdateCandidatePos,
     .pThreadDetach = X11DRV_ThreadDetach,
 };
 

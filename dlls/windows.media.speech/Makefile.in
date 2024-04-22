@@ -1,6 +1,5 @@
 MODULE = windows.media.speech.dll
-UNIXLIB = windows.media.speech.so
-IMPORTS = combase uuid user32
+IMPORTS = combase uuid
 
 SOURCES = \
 	async.c \
@@ -10,5 +9,4 @@ SOURCES = \
 	main.c \
 	recognizer.c \
 	synthesizer.c \
-	unixlib.c \
 	vector.c

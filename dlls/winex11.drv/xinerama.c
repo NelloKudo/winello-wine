@@ -126,7 +126,7 @@ static inline int query_screens(void)
 /* Get xinerama monitor indices required for _NET_WM_FULLSCREEN_MONITORS */
 BOOL xinerama_get_fullscreen_monitors( const RECT *rect, long *indices )
 {
-    RECT window_rect, intersected_rect, monitor_rect, virtual;
+    RECT window_rect, intersected_rect, monitor_rect;
     BOOL ret = FALSE;
     POINT offset;
     INT i;
@@ -140,9 +140,11 @@ BOOL xinerama_get_fullscreen_monitors( const RECT *rect, long *indices )
     }
 
     /* Convert window rectangle to root coordinates */
-    window_rect = *rect;
-    virtual = fs_hack_get_real_virtual_screen();
-    OffsetRect( &window_rect, -virtual.left, -virtual.top );
+    offset = virtual_screen_to_root( rect->left, rect->top );
+    window_rect.left = offset.x;
+    window_rect.top = offset.y;
+    window_rect.right = window_rect.left + rect->right - rect->left;
+    window_rect.bottom = window_rect.top + rect->bottom - rect->top;
 
     /* Compare to xinerama monitor rectangles in root coordinates */
     offset.x = INT_MAX;
@@ -211,9 +213,9 @@ static void xinerama_free_gpus( struct gdi_gpu *gpus )
     free( gpus );
 }
 
-static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_adapters, int *count )
+static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct x11drv_adapter **new_adapters, int *count )
 {
-    struct gdi_adapter *adapters = NULL;
+    struct x11drv_adapter *adapters = NULL;
     INT index = 0;
     INT i, j;
     INT primary_index;
@@ -266,7 +268,7 @@ static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     /* Primary adapter has to be first */
     if (primary_index)
     {
-        struct gdi_adapter tmp;
+        struct x11drv_adapter tmp;
         tmp = adapters[primary_index];
         adapters[primary_index] = adapters[0];
         adapters[0] = tmp;
@@ -278,7 +280,7 @@ static BOOL xinerama_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_ad
     return TRUE;
 }
 
-static void xinerama_free_adapters( struct gdi_adapter *adapters )
+static void xinerama_free_adapters( struct x11drv_adapter *adapters )
 {
     free( adapters );
 }
@@ -317,11 +319,8 @@ static BOOL xinerama_get_monitors( ULONG_PTR adapter_id, struct gdi_monitor **ne
             monitor[index].rc_monitor = monitors[i].rcMonitor;
             monitor[index].rc_work = monitors[i].rcWork;
             /* Xinerama only reports monitors already attached */
-            monitor[index].state_flags = DISPLAY_DEVICE_ATTACHED;
             monitor[index].edid_len = 0;
             monitor[index].edid = NULL;
-            if (!IsRectEmpty( &monitors[i].rcMonitor ))
-                monitor[index].state_flags |= DISPLAY_DEVICE_ACTIVE;
 
             index++;
         }

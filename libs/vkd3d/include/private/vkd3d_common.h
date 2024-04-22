@@ -30,6 +30,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef _WIN32
+#include <pthread.h>
+#endif
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -64,6 +67,7 @@
 #define TAG_RDEF VKD3D_MAKE_TAG('R', 'D', 'E', 'F')
 #define TAG_RTS0 VKD3D_MAKE_TAG('R', 'T', 'S', '0')
 #define TAG_SDBG VKD3D_MAKE_TAG('S', 'D', 'B', 'G')
+#define TAG_SFI0 VKD3D_MAKE_TAG('S', 'F', 'I', '0')
 #define TAG_SHDR VKD3D_MAKE_TAG('S', 'H', 'D', 'R')
 #define TAG_SHEX VKD3D_MAKE_TAG('S', 'H', 'E', 'X')
 #define TAG_STAT VKD3D_MAKE_TAG('S', 'T', 'A', 'T')
@@ -71,7 +75,9 @@
 #define TAG_XNAP VKD3D_MAKE_TAG('X', 'N', 'A', 'P')
 #define TAG_XNAS VKD3D_MAKE_TAG('X', 'N', 'A', 'S')
 
-static inline size_t align(size_t addr, size_t alignment)
+#define TAG_RD11_REVERSE 0x25441313
+
+static inline uint64_t align(uint64_t addr, size_t alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);
 }
@@ -103,6 +109,125 @@ VKD3D_NORETURN static inline void vkd3d_unreachable_(const char *filename, unsig
 #else
 #define vkd3d_unreachable() vkd3d_unreachable_(__FILE__, __LINE__)
 #endif
+
+#ifdef VKD3D_NO_TRACE_MESSAGES
+#define TRACE(args...) do { } while (0)
+#define TRACE_ON() (false)
+#endif
+
+#ifdef VKD3D_NO_DEBUG_MESSAGES
+#define WARN(args...) do { } while (0)
+#define FIXME(args...) do { } while (0)
+#endif
+
+enum vkd3d_dbg_level
+{
+    VKD3D_DBG_LEVEL_NONE,
+    VKD3D_DBG_LEVEL_ERR,
+    VKD3D_DBG_LEVEL_FIXME,
+    VKD3D_DBG_LEVEL_WARN,
+    VKD3D_DBG_LEVEL_TRACE,
+};
+
+enum vkd3d_dbg_level vkd3d_dbg_get_level(void);
+
+void vkd3d_dbg_printf(enum vkd3d_dbg_level level, const char *function, const char *fmt, ...) VKD3D_PRINTF_FUNC(3, 4);
+void vkd3d_dbg_set_log_callback(PFN_vkd3d_log callback);
+
+const char *vkd3d_dbg_sprintf(const char *fmt, ...) VKD3D_PRINTF_FUNC(1, 2);
+const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args);
+const char *debugstr_a(const char *str);
+const char *debugstr_an(const char *str, size_t n);
+const char *debugstr_w(const WCHAR *wstr, size_t wchar_size);
+
+#define VKD3D_DBG_LOG(level) \
+        do { \
+        const enum vkd3d_dbg_level vkd3d_dbg_level = VKD3D_DBG_LEVEL_##level; \
+        VKD3D_DBG_PRINTF
+
+#define VKD3D_DBG_LOG_ONCE(first_time_level, level) \
+        do { \
+        static bool vkd3d_dbg_next_time; \
+        const enum vkd3d_dbg_level vkd3d_dbg_level = vkd3d_dbg_next_time \
+        ? VKD3D_DBG_LEVEL_##level : VKD3D_DBG_LEVEL_##first_time_level; \
+        vkd3d_dbg_next_time = true; \
+        VKD3D_DBG_PRINTF
+
+#define VKD3D_DBG_PRINTF(...) \
+        vkd3d_dbg_printf(vkd3d_dbg_level, __FUNCTION__, __VA_ARGS__); } while (0)
+
+#ifndef TRACE
+#define TRACE VKD3D_DBG_LOG(TRACE)
+#endif
+
+#ifndef WARN
+#define WARN  VKD3D_DBG_LOG(WARN)
+#endif
+
+#ifndef FIXME
+#define FIXME VKD3D_DBG_LOG(FIXME)
+#endif
+
+#define ERR   VKD3D_DBG_LOG(ERR)
+
+#ifndef TRACE_ON
+#define TRACE_ON() (vkd3d_dbg_get_level() == VKD3D_DBG_LEVEL_TRACE)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON() (vkd3d_dbg_get_level() >= VKD3D_DBG_LEVEL_WARN)
+#endif
+
+#define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, WARN)
+
+#define VKD3D_DEBUG_ENV_NAME(name) const char *const vkd3d_dbg_env_name = name
+
+static inline const char *debugstr_guid(const GUID *guid)
+{
+    if (!guid)
+        return "(null)";
+
+    return vkd3d_dbg_sprintf("{%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}",
+            (unsigned long)guid->Data1, guid->Data2, guid->Data3, guid->Data4[0],
+            guid->Data4[1], guid->Data4[2], guid->Data4[3], guid->Data4[4],
+            guid->Data4[5], guid->Data4[6], guid->Data4[7]);
+}
+
+static inline const char *debugstr_hresult(HRESULT hr)
+{
+    switch (hr)
+    {
+#define TO_STR(u) case u: return #u;
+        TO_STR(S_OK)
+        TO_STR(S_FALSE)
+        TO_STR(E_NOTIMPL)
+        TO_STR(E_NOINTERFACE)
+        TO_STR(E_POINTER)
+        TO_STR(E_ABORT)
+        TO_STR(E_FAIL)
+        TO_STR(E_OUTOFMEMORY)
+        TO_STR(E_INVALIDARG)
+        TO_STR(DXGI_ERROR_NOT_FOUND)
+        TO_STR(DXGI_ERROR_MORE_DATA)
+        TO_STR(DXGI_ERROR_UNSUPPORTED)
+#undef TO_STR
+        default:
+            return vkd3d_dbg_sprintf("%#x", (int)hr);
+    }
+}
+
+unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value);
+
+struct vkd3d_debug_option
+{
+    const char *name;
+    uint64_t flag;
+};
+
+bool vkd3d_debug_list_has_member(const char *string, const char *member);
+uint64_t vkd3d_parse_debug_options(const char *string,
+        const struct vkd3d_debug_option *options, unsigned int option_count);
+void vkd3d_set_thread_name(const char *name);
 
 static inline unsigned int vkd3d_popcount(unsigned int v)
 {
@@ -267,30 +392,105 @@ static inline int ascii_strcasecmp(const char *a, const char *b)
     return c_a - c_b;
 }
 
-#ifndef _WIN32
-# if HAVE_SYNC_ADD_AND_FETCH
-static inline LONG InterlockedIncrement(LONG volatile *x)
+static inline uint64_t vkd3d_atomic_add_fetch_u64(uint64_t volatile *x, uint64_t val)
 {
-    return __sync_add_and_fetch(x, 1);
+#if HAVE_SYNC_ADD_AND_FETCH
+    return __sync_add_and_fetch(x, val);
+#elif defined(_WIN32)
+    return InterlockedAdd64((LONG64 *)x, val);
+#else
+# error "vkd3d_atomic_add_fetch_u64() not implemented for this platform"
+#endif
 }
-static inline LONG64 InterlockedIncrement64(LONG64 volatile *x)
-{
-    return __sync_add_and_fetch(x, 1);
-}
-# else
-#  error "InterlockedIncrement() not implemented for this platform"
-# endif  /* HAVE_SYNC_ADD_AND_FETCH */
 
-# if HAVE_SYNC_SUB_AND_FETCH
-static inline LONG InterlockedDecrement(LONG volatile *x)
+static inline uint32_t vkd3d_atomic_add_fetch_u32(uint32_t volatile *x, uint32_t val)
 {
-    return __sync_sub_and_fetch(x, 1);
+#if HAVE_SYNC_ADD_AND_FETCH
+    return __sync_add_and_fetch(x, val);
+#elif defined(_WIN32)
+    return InterlockedAdd((LONG *)x, val);
+#else
+# error "vkd3d_atomic_add_fetch_u32() not implemented for this platform"
+#endif
 }
-# else
-#  error "InterlockedDecrement() not implemented for this platform"
-# endif
 
-#endif  /* _WIN32 */
+static inline uint64_t vkd3d_atomic_increment_u64(uint64_t volatile *x)
+{
+    return vkd3d_atomic_add_fetch_u64(x, 1);
+}
+
+static inline uint32_t vkd3d_atomic_decrement_u32(uint32_t volatile *x)
+{
+    return vkd3d_atomic_add_fetch_u32(x, ~0u);
+}
+
+static inline uint32_t vkd3d_atomic_increment_u32(uint32_t volatile *x)
+{
+    return vkd3d_atomic_add_fetch_u32(x, 1);
+}
+
+struct vkd3d_mutex
+{
+#ifdef _WIN32
+    CRITICAL_SECTION lock;
+#else
+    pthread_mutex_t lock;
+#endif
+};
+
+#ifdef _WIN32
+#define VKD3D_MUTEX_INITIALIZER {{NULL, -1, 0, 0, 0, 0}}
+#else
+#define VKD3D_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+#endif
+
+static inline void vkd3d_mutex_init(struct vkd3d_mutex *lock)
+{
+#ifdef _WIN32
+    InitializeCriticalSection(&lock->lock);
+#else
+    int ret;
+
+    if ((ret = pthread_mutex_init(&lock->lock, NULL)))
+        ERR("Failed to initialise the mutex, ret %d.\n", ret);
+#endif
+}
+
+static inline void vkd3d_mutex_lock(struct vkd3d_mutex *lock)
+{
+#ifdef _WIN32
+    EnterCriticalSection(&lock->lock);
+#else
+    int ret;
+
+    if ((ret = pthread_mutex_lock(&lock->lock)))
+        ERR("Failed to lock the mutex, ret %d.\n", ret);
+#endif
+}
+
+static inline void vkd3d_mutex_unlock(struct vkd3d_mutex *lock)
+{
+#ifdef _WIN32
+    LeaveCriticalSection(&lock->lock);
+#else
+    int ret;
+
+    if ((ret = pthread_mutex_unlock(&lock->lock)))
+        ERR("Failed to unlock the mutex, ret %d.\n", ret);
+#endif
+}
+
+static inline void vkd3d_mutex_destroy(struct vkd3d_mutex *lock)
+{
+#ifdef _WIN32
+    DeleteCriticalSection(&lock->lock);
+#else
+    int ret;
+
+    if ((ret = pthread_mutex_destroy(&lock->lock)))
+        ERR("Failed to destroy the mutex, ret %d.\n", ret);
+#endif
+}
 
 static inline void vkd3d_parse_version(const char *version, int *major, int *minor)
 {

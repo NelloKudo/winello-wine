@@ -23,6 +23,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winternl.h"
+#include "rtlsupportapi.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msvcp);
@@ -997,6 +998,26 @@ bool __cdecl MSVCP__uncaught_exception(void)
     return __uncaught_exception();
 }
 
+#if _MSVCP_VER >= 140
+/* ?_XGetLastError@std@@YAXXZ */
+void __cdecl _XGetLastError(void)
+{
+    int err = GetLastError();
+    system_error se;
+    const char *msg;
+
+    TRACE("() GetLastError()=%d\n", err);
+
+    msg = _Winerror_map_str(err);
+    MSVCP_runtime_error_ctor(&se.base, &msg);
+    se.code.code = err;
+    se.code.category = std_system_category();
+    se.base.e.vtable = &system_error_vtable;
+
+    _CxxThrowException(&se, &system_error_cxx_type);
+}
+#endif
+
 #if _MSVCP_VER >= 110
 typedef struct
 {
@@ -1074,7 +1095,7 @@ static void exception_ptr_rethrow(const exception_ptr *ep)
         return;
     }
 
-    RaiseException(ep->rec->ExceptionCode, ep->rec->ExceptionFlags & (~EH_UNWINDING),
+    RaiseException(ep->rec->ExceptionCode, ep->rec->ExceptionFlags & ~EXCEPTION_UNWINDING,
             ep->rec->NumberParameters, ep->rec->ExceptionInformation);
 }
 
@@ -1404,7 +1425,7 @@ void __cdecl __ExceptionPtrCopyException(exception_ptr *ep,
 
     memset(ep->rec, 0, sizeof(EXCEPTION_RECORD));
     ep->rec->ExceptionCode = CXX_EXCEPTION;
-    ep->rec->ExceptionFlags = EH_NONCONTINUABLE;
+    ep->rec->ExceptionFlags = EXCEPTION_NONCONTINUABLE;
     ep->rec->NumberParameters = 3;
     ep->rec->ExceptionInformation[0] = CXX_FRAME_MAGIC_VC6;
     ep->rec->ExceptionInformation[2] = (ULONG_PTR)type;
@@ -1442,7 +1463,7 @@ void __cdecl __ExceptionPtrCopyException(exception_ptr *ep,
 
     memset(ep->rec, 0, sizeof(EXCEPTION_RECORD));
     ep->rec->ExceptionCode = CXX_EXCEPTION;
-    ep->rec->ExceptionFlags = EH_NONCONTINUABLE;
+    ep->rec->ExceptionFlags = EXCEPTION_NONCONTINUABLE;
     ep->rec->NumberParameters = 4;
     ep->rec->ExceptionInformation[0] = CXX_FRAME_MAGIC_VC6;
     ep->rec->ExceptionInformation[2] = (ULONG_PTR)type;

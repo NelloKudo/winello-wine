@@ -264,7 +264,13 @@ static inline void list_move_slice_tail( struct list *dst, struct list *begin, s
 
 /* get pointer to object containing list element */
 #undef LIST_ENTRY
-#define LIST_ENTRY(elem, type, field) \
-    ((type *)((char *)(elem) - offsetof(type, field)))
+#ifdef __GNUC__
+# define LIST_ENTRY(elem, type, field) ({               \
+     const typeof(((type *)0)->field) *__ptr = (elem);  \
+     (type *)((char *)__ptr - offsetof(type, field)); })
+#else
+# define LIST_ENTRY(elem, type, field) \
+     ((type *)((char *)(elem) - offsetof(type, field)))
+#endif
 
 #endif  /* __WINE_SERVER_LIST_H */

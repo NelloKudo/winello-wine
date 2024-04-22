@@ -722,4 +722,20 @@ typedef struct DECLSPEC_ALIGN(8)
     };
 } MEM_EXTENDED_PARAMETER32;
 
+typedef struct
+{
+    ULONG Token;
+    ULONG Thread;
+} PROCESS_ACCESS_TOKEN32;
+
+typedef struct
+{
+    ULONG PagedPoolLimit;
+    ULONG NonPagedPoolLimit;
+    ULONG MinimumWorkingSetSize;
+    ULONG MaximumWorkingSetSize;
+    ULONG PagefileLimit;
+    LARGE_INTEGER TimeLimit;
+} QUOTA_LIMITS32;
+
 #endif /* __WOW64_STRUCT32_H */

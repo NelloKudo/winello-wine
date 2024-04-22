@@ -26,11 +26,6 @@
 #include <stdbool.h>
 #include <gst/gst.h>
 
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-
 /* unixlib.c */
 
 GST_DEBUG_CATEGORY_EXTERN(wine);
@@ -57,20 +52,6 @@ extern void wg_format_from_caps(struct wg_format *format, const GstCaps *caps);
 extern bool wg_format_compare(const struct wg_format *a, const struct wg_format *b);
 extern GstCaps *wg_format_to_caps(const struct wg_format *format);
 
-/* wg_source.c */
-
-extern NTSTATUS wg_source_create(void *args);
-extern NTSTATUS wg_source_destroy(void *args);
-extern NTSTATUS wg_source_get_stream_count(void *args);
-extern NTSTATUS wg_source_get_duration(void *args);
-extern NTSTATUS wg_source_get_position(void *args);
-extern NTSTATUS wg_source_set_position(void *args);
-extern NTSTATUS wg_source_push_data(void *args);
-extern NTSTATUS wg_source_read_data(void *args);
-extern NTSTATUS wg_source_get_stream_format(void *args);
-extern NTSTATUS wg_source_get_stream_tag(void *args);
-extern NTSTATUS wg_source_set_stream_flags(void *args);
-
 /* wg_transform.c */
 
 extern NTSTATUS wg_transform_create(void *args);
@@ -93,10 +74,6 @@ extern NTSTATUS wg_muxer_push_sample(void *args);
 extern NTSTATUS wg_muxer_read_data(void *args);
 extern NTSTATUS wg_muxer_finalize(void *args);
 
-/* wg_task_pool.c */
-
-extern GstTaskPool *wg_task_pool_new(void);
-
 /* wg_allocator.c */
 
 static inline BYTE *wg_sample_data(struct wg_sample *sample)
@@ -111,35 +88,5 @@ extern void wg_allocator_destroy(GstAllocator *allocator);
 extern void wg_allocator_provide_sample(GstAllocator *allocator, struct wg_sample *sample);
 extern void wg_allocator_release_sample(GstAllocator *allocator, struct wg_sample *sample,
         bool discard_data);
-
-static inline void touch_h264_used_tag(void)
-{
-    const char *e;
-
-    GST_LOG("h264 is used");
-
-    if ((e = getenv("STEAM_COMPAT_SHADER_PATH")))
-    {
-        char buffer[PATH_MAX];
-        int fd;
-
-        snprintf(buffer, sizeof(buffer), "%s/h264-used", e);
-
-        fd = open(buffer, O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-        if (fd == -1)
-        {
-            GST_WARNING("Failed to open/create \"%s/h264-used\"", e);
-            return;
-        }
-
-        futimens(fd, NULL);
-
-        close(fd);
-    }
-    else
-    {
-        GST_WARNING("STEAM_COMPAT_SHADER_PATH not set, cannot create h264-used file");
-    }
-}
 
 #endif /* __WINE_WINEGSTREAMER_UNIX_PRIVATE_H */

@@ -207,12 +207,11 @@ static const event_target_vtbl_t SVGElement_event_target_vtbl = {
     .handle_event       = HTMLElement_handle_event
 };
 
-dispex_static_data_t SVGElement_dispex = {
+static dispex_static_data_t SVGElement_dispex = {
     "HTMLUnknownElement",
     &SVGElement_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLGenericElement,
-    DispHTMLGenericElement_tid,
-    HTMLGenericElement_iface_tids,
+    DispHTMLUnknownElement_tid,
+    HTMLElement_iface_tids,
     HTMLElement_init_dispex_info
 };
 
@@ -759,12 +758,11 @@ static const event_target_vtbl_t SVGSVGElement_event_target_vtbl = {
     .handle_event       = HTMLElement_handle_event
 };
 
-dispex_static_data_t SVGSVGElement_dispex = {
+static dispex_static_data_t SVGSVGElement_dispex = {
     "HTMLUnknownElement",
     &SVGSVGElement_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLGenericElement,
-    DispHTMLGenericElement_tid,
-    HTMLGenericElement_iface_tids,
+    DispHTMLUnknownElement_tid,
+    HTMLElement_iface_tids,
     HTMLElement_init_dispex_info
 };
 
@@ -941,12 +939,11 @@ static const event_target_vtbl_t SVGCircleElement_event_target_vtbl = {
     .handle_event       = HTMLElement_handle_event
 };
 
-dispex_static_data_t SVGCircleElement_dispex = {
+static dispex_static_data_t SVGCircleElement_dispex = {
     "HTMLUnknownElement",
     &SVGCircleElement_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLGenericElement,
-    DispHTMLGenericElement_tid,
-    HTMLGenericElement_iface_tids,
+    DispHTMLUnknownElement_tid,
+    HTMLElement_iface_tids,
     HTMLElement_init_dispex_info
 };
 
@@ -1198,12 +1195,11 @@ static const event_target_vtbl_t SVGTSpanElement_event_target_vtbl = {
     .handle_event       = HTMLElement_handle_event
 };
 
-dispex_static_data_t SVGTSpanElement_dispex = {
+static dispex_static_data_t SVGTSpanElement_dispex = {
     "HTMLUnknownElement",
     &SVGTSpanElement_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLGenericElement,
-    DispHTMLGenericElement_tid,
-    HTMLGenericElement_iface_tids,
+    DispHTMLUnknownElement_tid,
+    HTMLElement_iface_tids,
     HTMLElement_init_dispex_info
 };
 

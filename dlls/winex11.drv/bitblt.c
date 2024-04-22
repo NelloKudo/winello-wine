@@ -48,6 +48,7 @@
 
 #include "x11drv.h"
 #include "winternl.h"
+#include "wine/server.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(bitblt);
@@ -1627,6 +1628,48 @@ static inline void add_row( HRGN rgn, RGNDATA *data, int x, int y, int len )
 }
 #endif
 
+static void set_layer_region( struct x11drv_window_surface *surface, HRGN hrgn )
+{
+    static const RECT empty_rect;
+    RGNDATA *data;
+    DWORD size;
+    HWND hwnd;
+
+    if (XFindContext( thread_init_display(), surface->window, winContext, (char **)&hwnd ))
+        return;
+
+    if (hrgn)
+    {
+        if (!(size = NtGdiGetRegionData( hrgn, 0, NULL ))) return;
+        if (!(data = malloc( size ))) return;
+        if (!NtGdiGetRegionData( hrgn, size, data ))
+        {
+            free( data );
+            return;
+        }
+        SERVER_START_REQ( set_layer_region )
+        {
+            req->window = wine_server_user_handle( hwnd );
+            if (data->rdh.nCount)
+                wine_server_add_data( req, data->Buffer, data->rdh.nCount * sizeof(RECT) );
+            else
+                wine_server_add_data( req, &empty_rect, sizeof(empty_rect) );
+            wine_server_call( req );
+        }
+        SERVER_END_REQ;
+        free( data );
+    }
+    else  /* clear existing region */
+    {
+        SERVER_START_REQ( set_layer_region )
+        {
+            req->window = wine_server_user_handle( hwnd );
+            wine_server_call( req );
+        }
+        SERVER_END_REQ;
+    }
+}
+
 /***********************************************************************
  *           update_surface_region
  */
@@ -1645,6 +1688,7 @@ static void update_surface_region( struct x11drv_window_surface *surface )
     if (!surface->is_argb && surface->color_key == CLR_INVALID)
     {
         XShapeCombineMask( gdi_display, surface->window, ShapeBounding, 0, 0, None, ShapeSet );
+        set_layer_region( surface, NULL );
         return;
     }
 
@@ -1750,24 +1794,12 @@ static void update_surface_region( struct x11drv_window_surface *surface )
 
     if ((data = X11DRV_GetRegionData( rgn, 0 )))
     {
-        if (!data->rdh.nCount && wm_is_mutter(gdi_display))
-        {
-            XRectangle xrect;
-
-            xrect.x = xrect.y = -1;
-            xrect.width = 1;
-            xrect.height = 1;
-            XShapeCombineRectangles( gdi_display, surface->window, ShapeBounding, 0, 0,
-                                     &xrect, 1, ShapeSet, YXBanded );
-        }
-        else
-        {
-            XShapeCombineRectangles( gdi_display, surface->window, ShapeBounding, 0, 0,
-                                     (XRectangle *)data->Buffer, data->rdh.nCount, ShapeSet, YXBanded );
-        }
+        XShapeCombineRectangles( gdi_display, surface->window, ShapeBounding, 0, 0,
+                                 (XRectangle *)data->Buffer, data->rdh.nCount, ShapeSet, YXBanded );
         free( data );
     }
 
+    set_layer_region( surface, rgn );
     NtGdiDeleteObjectApp( rgn );
 #endif
 }

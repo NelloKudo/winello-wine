@@ -2014,7 +2014,7 @@ exit:
     if(params->result == S_FALSE && !params->fmt_out)
         params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
 
-    if(params->result == S_FALSE && params->fmt_out) {
+    if(params->result == S_FALSE) {
         closest->Format.nBlockAlign = closest->Format.nChannels * closest->Format.wBitsPerSample / 8;
         closest->Format.nAvgBytesPerSec = closest->Format.nBlockAlign * closest->Format.nSamplesPerSec;
         if(closest->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE)
@@ -2532,7 +2532,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     alsa_set_volumes,
     alsa_set_event_handle,
     alsa_not_implemented,
-    alsa_not_implemented,
     alsa_is_started,
     alsa_get_prop_value,
     alsa_not_implemented,
@@ -2988,7 +2987,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     alsa_wow64_get_position,
     alsa_wow64_set_volumes,
     alsa_wow64_set_event_handle,
-    alsa_not_implemented,
     alsa_not_implemented,
     alsa_is_started,
     alsa_wow64_get_prop_value,

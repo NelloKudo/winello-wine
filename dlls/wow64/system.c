@@ -755,7 +755,30 @@ NTSTATUS WINAPI wow64_NtSystemDebugControl( UINT *args )
     ULONG out_len = get_ulong( &args );
     ULONG *retlen = get_ptr( &args );
 
-    return NtSystemDebugControl( command, in_buf, in_len, out_buf, out_len, retlen );
+    switch (command)
+    {
+    case SysDbgBreakPoint:
+    case SysDbgEnableKernelDebugger:
+    case SysDbgDisableKernelDebugger:
+    case SysDbgGetAutoKdEnable:
+    case SysDbgSetAutoKdEnable:
+    case SysDbgGetPrintBufferSize:
+    case SysDbgSetPrintBufferSize:
+    case SysDbgGetKdUmExceptionEnable:
+    case SysDbgSetKdUmExceptionEnable:
+    case SysDbgGetTriageDump:
+    case SysDbgGetKdBlockEnable:
+    case SysDbgSetKdBlockEnable:
+    case SysDbgRegisterForUmBreakInfo:
+    case SysDbgGetUmBreakPid:
+    case SysDbgClearUmBreakPid:
+    case SysDbgGetUmAttachPid:
+    case SysDbgClearUmAttachPid:
+        return NtSystemDebugControl( command, in_buf, in_len, out_buf, out_len, retlen );
+
+    default:
+        return STATUS_NOT_IMPLEMENTED;  /* not implemented on Windows either */
+    }
 }
 
 
@@ -808,22 +831,4 @@ NTSTATUS WINAPI wow64_NtWow64GetNativeSystemInformation( UINT *args )
     default:
         return STATUS_INVALID_INFO_CLASS;
     }
-}
-
-
-/**********************************************************************
- *           wow64___wine_set_unix_env
- */
-NTSTATUS WINAPI wow64___wine_set_unix_env( UINT *args )
-{
-    const char *var = get_ptr( &args );
-    const char *val = get_ptr( &args );
-
-    return __wine_set_unix_env( var, val );
-}
-
-BOOL WINAPI __wine_needs_override_large_address_aware(void);
-NTSTATUS WINAPI wow64___wine_needs_override_large_address_aware( UINT * args )
-{
-    return __wine_needs_override_large_address_aware();
 }

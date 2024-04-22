@@ -163,29 +163,16 @@ static const char *crit_section_get_name( const RTL_CRITICAL_SECTION *crit )
 
 static inline HANDLE get_semaphore( RTL_CRITICAL_SECTION *crit )
 {
-    HANDLE ret = crit->LockSemaphore;
-    if (!ret)
-    {
-        HANDLE sem;
-        if (NtCreateSemaphore( &sem, SEMAPHORE_ALL_ACCESS, NULL, 0, 1 )) return 0;
-        if (!(ret = InterlockedCompareExchangePointer( &crit->LockSemaphore, sem, 0 )))
-            ret = sem;
-        else
-            NtClose(sem);  /* somebody beat us to it */
-    }
-    return ret;
+    if ((ULONG_PTR)crit->LockSemaphore > 1) return crit->LockSemaphore;
+    return NULL;
 }
 
 static inline NTSTATUS wait_semaphore( RTL_CRITICAL_SECTION *crit, int timeout )
 {
     LARGE_INTEGER time = {.QuadPart = timeout * (LONGLONG)-10000000};
+    HANDLE sem = get_semaphore( crit );
 
-    /* debug info is cleared by MakeCriticalSectionGlobal */
-    if (!crit_section_has_debuginfo( crit ))
-    {
-        HANDLE sem = get_semaphore( crit );
-        return NtWaitForSingleObject( sem, FALSE, &time );
-    }
+    if (sem) return NtWaitForSingleObject( sem, FALSE, &time );
     else
     {
         LONG *lock = (LONG *)&crit->LockSemaphore;
@@ -205,7 +192,7 @@ static inline NTSTATUS wait_semaphore( RTL_CRITICAL_SECTION *crit, int timeout )
  */
 NTSTATUS WINAPI RtlInitializeCriticalSection( RTL_CRITICAL_SECTION *crit )
 {
-    return RtlInitializeCriticalSectionEx( crit, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO );
+    return RtlInitializeCriticalSectionEx( crit, 0, 0 );
 }
 
 
@@ -214,7 +201,7 @@ NTSTATUS WINAPI RtlInitializeCriticalSection( RTL_CRITICAL_SECTION *crit )
  */
 NTSTATUS WINAPI RtlInitializeCriticalSectionAndSpinCount( RTL_CRITICAL_SECTION *crit, ULONG spincount )
 {
-    return RtlInitializeCriticalSectionEx( crit, spincount, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO );
+    return RtlInitializeCriticalSectionEx( crit, spincount, 0 );
 }
 
 
@@ -276,6 +263,8 @@ ULONG WINAPI RtlSetCriticalSectionSpinCount( RTL_CRITICAL_SECTION *crit, ULONG s
  */
 NTSTATUS WINAPI RtlDeleteCriticalSection( RTL_CRITICAL_SECTION *crit )
 {
+    HANDLE sem;
+
     crit->LockCount      = -1;
     crit->RecursionCount = 0;
     crit->OwningThread   = 0;
@@ -288,11 +277,9 @@ NTSTATUS WINAPI RtlDeleteCriticalSection( RTL_CRITICAL_SECTION *crit )
             crit->DebugInfo = NULL;
         }
     }
-    else
-    {
-        NtClose( crit->LockSemaphore );
-        crit->DebugInfo = NULL;
-    }
+    else crit->DebugInfo = NULL;
+
+    if ((sem = get_semaphore( crit ))) NtClose( sem );
     crit->LockSemaphore = 0;
     return STATUS_SUCCESS;
 }
@@ -335,13 +322,9 @@ NTSTATUS WINAPI RtlpWaitForCriticalSection( RTL_CRITICAL_SECTION *crit )
 NTSTATUS WINAPI RtlpUnWaitCriticalSection( RTL_CRITICAL_SECTION *crit )
 {
     NTSTATUS ret;
+    HANDLE sem = get_semaphore( crit );
 
-    /* debug info is cleared by MakeCriticalSectionGlobal */
-    if (!crit_section_has_debuginfo( crit ))
-    {
-        HANDLE sem = get_semaphore( crit );
-        ret = NtReleaseSemaphore( sem, 1, NULL );
-    }
+    if (sem) ret = NtReleaseSemaphore( sem, 1, NULL );
     else
     {
         LONG *lock = (LONG *)&crit->LockSemaphore;
@@ -915,14 +898,11 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
 
     ret = NtWaitForAlertByThreadId( NULL, timeout );
 
-    /* We may have already been removed by a call to RtlWakeAddressSingle() or RtlWakeAddressAll(). */
+    spin_lock( &queue->lock );
+    /* We may have already been removed by a call to RtlWakeAddressSingle(). */
     if (entry.addr)
-    {
-        spin_lock( &queue->lock );
-        if (entry.addr)
-            list_remove( &entry.entry );
-        spin_unlock( &queue->lock );
-    }
+        list_remove( &entry.entry );
+    spin_unlock( &queue->lock );
 
     TRACE("returning %#lx\n", ret);
 
@@ -936,8 +916,8 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
 void WINAPI RtlWakeAddressAll( const void *addr )
 {
     struct futex_queue *queue = get_futex_queue( addr );
-    struct futex_entry *entry, *next;
     unsigned int count = 0, i;
+    struct futex_entry *entry;
     DWORD tids[256];
 
     TRACE("%p\n", addr);
@@ -949,12 +929,10 @@ void WINAPI RtlWakeAddressAll( const void *addr )
     if (!queue->queue.next)
         list_init(&queue->queue);
 
-    LIST_FOR_EACH_ENTRY_SAFE( entry, next, &queue->queue, struct futex_entry, entry )
+    LIST_FOR_EACH_ENTRY( entry, &queue->queue, struct futex_entry, entry )
     {
         if (entry->addr == addr)
         {
-            entry->addr = NULL;
-            list_remove( &entry->entry );
             /* Try to buffer wakes, so that we don't make a system call while
              * holding a spinlock. */
             if (count < ARRAY_SIZE(tids))

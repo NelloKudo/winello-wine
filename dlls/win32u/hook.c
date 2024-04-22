@@ -60,31 +60,12 @@ static const char *debugstr_hook_id( unsigned int id )
     return hook_names[id - WH_MINHOOK];
 }
 
-/***********************************************************************
- *      get_active_hooks
- *
- */
-static UINT get_active_hooks(void)
+BOOL is_hooked( INT id )
 {
     struct user_thread_info *thread_info = get_user_thread_info();
 
-    if (!thread_info->active_hooks)
-    {
-        SERVER_START_REQ( get_active_hooks )
-        {
-            if (!wine_server_call( req )) thread_info->active_hooks = reply->active_hooks;
-        }
-        SERVER_END_REQ;
-    }
-
-    return thread_info->active_hooks;
-}
-
-BOOL is_hooked( INT id )
-{
-    UINT active_hooks = get_active_hooks();
-    if (!active_hooks) return TRUE;
-    return (active_hooks & (1 << (id - WH_MINHOOK))) != 0;
+    if (!thread_info->active_hooks) return TRUE;
+    return (thread_info->active_hooks & (1 << (id - WH_MINHOOK))) != 0;
 }
 
 /***********************************************************************
@@ -223,7 +204,6 @@ static LRESULT call_hook( struct win_hook_params *info, const WCHAR *module, siz
                           size_t message_size, BOOL ansi )
 {
     DWORD_PTR ret = 0;
-    LRESULT lres = 0;
 
     if (info->tid)
     {
@@ -238,25 +218,19 @@ static LRESULT call_hook( struct win_hook_params *info, const WCHAR *module, siz
         switch(info->id)
         {
         case WH_KEYBOARD_LL:
-            lres = send_internal_message_timeout( info->pid, info->tid, WM_WINE_KEYBOARD_LL_HOOK,
-                                                  info->wparam, (LPARAM)&h_extra, SMTO_ABORTIFHUNG,
-                                                  get_ll_hook_timeout(), &ret );
+            send_internal_message_timeout( info->pid, info->tid, WM_WINE_KEYBOARD_LL_HOOK,
+                                           info->wparam, (LPARAM)&h_extra, SMTO_ABORTIFHUNG,
+                                           get_ll_hook_timeout(), &ret );
             break;
         case WH_MOUSE_LL:
-            lres = send_internal_message_timeout( info->pid, info->tid, WM_WINE_MOUSE_LL_HOOK,
-                                                  info->wparam, (LPARAM)&h_extra, SMTO_ABORTIFHUNG,
-                                                  get_ll_hook_timeout(), &ret );
+            send_internal_message_timeout( info->pid, info->tid, WM_WINE_MOUSE_LL_HOOK,
+                                           info->wparam, (LPARAM)&h_extra, SMTO_ABORTIFHUNG,
+                                           get_ll_hook_timeout(), &ret );
             break;
         default:
             ERR("Unknown hook id %d\n", info->id);
             assert(0);
             break;
-        }
-
-        if (!lres && RtlGetLastWin32Error() == ERROR_TIMEOUT)
-        {
-            TRACE( "Hook %p timed out; removing it.\n", info->handle );
-            NtUserUnhookWindowsHookEx( info->handle );
         }
     }
     else if (info->proc)
@@ -356,9 +330,14 @@ static LRESULT call_hook( struct win_hook_params *info, const WCHAR *module, siz
         thread_info->hook = params->handle;
         thread_info->hook_unicode = params->next_unicode;
         thread_info->hook_call_depth++;
-        ret = KeUserModeCallback( NtUserCallWindowsHook, params, size, &ret_ptr, &ret_len );
-        if (ret_len && ret_len == lparam_ret_size)
-            memcpy( (void *)params->lparam, ret_ptr, ret_len );
+        if (!KeUserModeCallback( NtUserCallWindowsHook, params, size, &ret_ptr, &ret_len ) &&
+            ret_len >= sizeof(ret))
+        {
+            LRESULT *result_ptr = ret_ptr;
+            ret = *result_ptr;
+            if (ret_len == sizeof(ret) + lparam_ret_size)
+                memcpy( (void *)params->lparam, result_ptr + 1, ret_len - sizeof(ret) );
+        }
         thread_info->hook = prev;
         thread_info->hook_unicode = prev_unicode;
         thread_info->hook_call_depth--;
@@ -366,6 +345,8 @@ static LRESULT call_hook( struct win_hook_params *info, const WCHAR *module, siz
         if (params != info) free( params );
     }
 
+    if (info->id == WH_KEYBOARD_LL || info->id == WH_MOUSE_LL)
+        InterlockedIncrement( &global_key_state_counter ); /* force refreshing the key state cache */
     return ret;
 }
 
@@ -451,7 +432,7 @@ LRESULT call_message_hooks( INT id, INT code, WPARAM wparam, LPARAM lparam, size
 
     if (!is_hooked( id ))
     {
-        TRACE( "skipping hook %s mask %x\n", hook_names[id-WH_MINHOOK], get_active_hooks() );
+        TRACE( "skipping hook %s mask %x\n", hook_names[id-WH_MINHOOK], thread_info->active_hooks );
         return 0;
     }
 
@@ -590,7 +571,7 @@ void WINAPI NtUserNotifyWinEvent( DWORD event, HWND hwnd, LONG object_id, LONG c
 
     if (!is_hooked( WH_WINEVENT ))
     {
-        TRACE( "skipping hook mask %x\n", get_active_hooks() );
+        TRACE( "skipping hook mask %x\n", thread_info->active_hooks );
         return;
     }
 

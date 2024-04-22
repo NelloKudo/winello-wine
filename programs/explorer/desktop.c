@@ -271,7 +271,8 @@ static void draw_launchers( HDC hdc, RECT update_rect )
                        DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
     }
 
-    SelectObject( hdc, font );
+    font = SelectObject( hdc, font );
+    DeleteObject( font );
     SetTextColor( hdc, color );
     SetBkMode( hdc, mode );
 }
@@ -433,7 +434,8 @@ static BOOL get_icon_text_metrics( HWND hwnd, TEXTMETRICW *tm )
     SystemParametersInfoW( SPI_GETICONTITLELOGFONT, sizeof(lf), &lf, 0 );
     hfont = SelectObject( hdc, CreateFontIndirectW( &lf ) );
     ret = GetTextMetricsW( hdc, tm );
-    SelectObject( hdc, hfont );
+    hfont = SelectObject( hdc, hfont );
+    DeleteObject( hfont );
     ReleaseDC( hwnd, hdc );
     return ret;
 }
@@ -841,6 +843,35 @@ static BOOL get_default_enable_shell( const WCHAR *name )
     return result;
 }
 
+static BOOL get_default_show_systray( const WCHAR *name )
+{
+    HKEY hkey;
+    BOOL found = FALSE;
+    BOOL result;
+    DWORD size = sizeof(result);
+
+    /* @@ Wine registry key: HKCU\Software\Wine\Explorer\Desktops */
+    if (name && !RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Desktops", &hkey ))
+    {
+        if (!RegGetValueW( hkey, name, L"ShowSystray", RRF_RT_REG_DWORD, NULL, &result, &size ))
+            found = TRUE;
+        RegCloseKey( hkey );
+    }
+
+    /* Try again with a global Explorer setting */
+    /* @@ Wine registry key: HKCU\Software\Wine\Explorer */
+    if (!found && !RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer", &hkey ))
+    {
+        if (!RegGetValueW( hkey, NULL, L"ShowSystray", RRF_RT_REG_DWORD, NULL, &result, &size ))
+            found = TRUE;
+        RegCloseKey( hkey );
+    }
+
+    /* Default on */
+    if (!found) result = TRUE;
+    return result;
+}
+
 static void load_graphics_driver( const WCHAR *driver, GUID *guid )
 {
     static const WCHAR device_keyW[] = L"System\\CurrentControlSet\\Control\\Video\\{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}\\0000";
@@ -1014,38 +1045,6 @@ static inline BOOL is_whitespace(WCHAR c)
     return c == ' ' || c == '\t';
 }
 
-static HANDLE start_tabtip_process(void)
-{
-    static const WCHAR tabtip_started_event[] = L"TABTIP_STARTED_EVENT";
-    PROCESS_INFORMATION pi;
-    STARTUPINFOW si = { sizeof(si) };
-    HANDLE wait_handles[2];
-
-    if (!CreateProcessW(L"C:\\windows\\system32\\tabtip.exe", NULL,
-                        NULL, NULL, TRUE, DETACHED_PROCESS, NULL, NULL, &si, &pi))
-    {
-        WINE_ERR("Couldn't start tabtip.exe: error %lu\n", GetLastError());
-        return FALSE;
-    }
-    CloseHandle(pi.hThread);
-
-    wait_handles[0] = CreateEventW(NULL, TRUE, FALSE, tabtip_started_event);
-    wait_handles[1] = pi.hProcess;
-
-    /* wait for the event to become available or the process to exit */
-    if ((WaitForMultipleObjects(2, wait_handles, FALSE, INFINITE)) == WAIT_OBJECT_0 + 1)
-    {
-        DWORD exit_code;
-        GetExitCodeProcess(pi.hProcess, &exit_code);
-        WINE_ERR("Unexpected termination of tabtip.exe - exit code %ld\n", exit_code);
-        CloseHandle(wait_handles[0]);
-        return pi.hProcess;
-    }
-
-    CloseHandle(wait_handles[0]);
-    return pi.hProcess;
-}
-
 /* main desktop management function */
 void manage_desktop( WCHAR *arg )
 {
@@ -1053,12 +1052,11 @@ void manage_desktop( WCHAR *arg )
     GUID guid;
     MSG msg;
     HWND hwnd;
-    HANDLE tabtip = NULL;
     unsigned int width, height;
     WCHAR *cmdline = NULL, *driver = NULL;
     WCHAR *p = arg;
     const WCHAR *name = NULL;
-    BOOL enable_shell = FALSE;
+    BOOL enable_shell = FALSE, show_systray = TRUE;
     void (WINAPI *pShellDDEInit)( BOOL ) = NULL;
     HMODULE shell32;
     HANDLE thread;
@@ -1092,8 +1090,8 @@ void manage_desktop( WCHAR *arg )
         if (!get_default_desktop_size( name, &width, &height )) width = height = 0;
     }
 
-    if (name)
-        enable_shell = get_default_enable_shell( name );
+    if (name) enable_shell = get_default_enable_shell( name );
+    show_systray = get_default_show_systray( name );
 
     UuidCreate( &guid );
     TRACE( "display guid %s\n", debugstr_guid(&guid) );
@@ -1103,8 +1101,8 @@ void manage_desktop( WCHAR *arg )
     {
         DEVMODEW devmode = {.dmPelsWidth = width, .dmPelsHeight = height};
         /* magic: desktop "root" means use the root window */
-        if ((using_root = !wcsicmp( name, L"root" ))) desktop = CreateDesktopW( name, NULL, NULL, 0, DESKTOP_ALL_ACCESS, NULL );
-        else desktop = CreateDesktopW( name, NULL, &devmode, DF_WINE_CREATE_DESKTOP, DESKTOP_ALL_ACCESS, NULL );
+        if ((using_root = !wcsicmp( name, L"root" ))) desktop = CreateDesktopW( name, NULL, NULL, DF_WINE_ROOT_DESKTOP, DESKTOP_ALL_ACCESS, NULL );
+        else desktop = CreateDesktopW( name, NULL, &devmode, DF_WINE_VIRTUAL_DESKTOP, DESKTOP_ALL_ACCESS, NULL );
         if (!desktop)
         {
             ERR( "failed to create desktop %s error %ld\n", debugstr_w(name), GetLastError() );
@@ -1139,7 +1137,7 @@ void manage_desktop( WCHAR *arg )
 
         if (using_root) enable_shell = FALSE;
 
-        initialize_systray( using_root, enable_shell );
+        initialize_systray( using_root, enable_shell, show_systray );
         if (!using_root) initialize_launchers( hwnd );
 
         if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
@@ -1171,22 +1169,12 @@ void manage_desktop( WCHAR *arg )
     /* run the desktop message loop */
     if (hwnd)
     {
-        /* FIXME: hack, run tabtip.exe on startup. */
-        tabtip = start_tabtip_process();
-
         TRACE( "desktop message loop starting on hwnd %p\n", hwnd );
         while (GetMessageW( &msg, 0, 0, 0 )) DispatchMessageW( &msg );
         TRACE( "desktop message loop exiting for hwnd %p\n", hwnd );
     }
 
     if (pShellDDEInit) pShellDDEInit( FALSE );
-
-    if (tabtip)
-    {
-        TerminateProcess( tabtip, 0 );
-        WaitForSingleObject( tabtip, INFINITE );
-        CloseHandle( tabtip );
-    }
 
     ExitProcess( 0 );
 }
@@ -2421,7 +2409,7 @@ static void shellwindows_init(void)
     CoInitialize(NULL);
 
     shellwindows.IShellWindows_iface.lpVtbl = &shellwindowsvtbl;
-    InitializeCriticalSection(&shellwindows.cs);
+    InitializeCriticalSectionEx(&shellwindows.cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     shellwindows.cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": shellwindows.cs");
 
     hr = CoRegisterClassObject(&CLSID_ShellWindows,

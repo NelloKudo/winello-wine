@@ -101,7 +101,7 @@ static HRESULT ComponentInfo_GetGUIDValue(HKEY classkey, LPCWSTR value,
 }
 
 static HRESULT ComponentInfo_GetUINTValue(HKEY classkey, LPCWSTR value,
-    UINT *result)
+    void *result)
 {
     LONG ret;
     DWORD cbdata = sizeof(DWORD);
@@ -110,11 +110,11 @@ static HRESULT ComponentInfo_GetUINTValue(HKEY classkey, LPCWSTR value,
         return E_INVALIDARG;
 
     ret = RegGetValueW(classkey, NULL, value, RRF_RT_DWORD, NULL,
-        (DWORD *)result, &cbdata);
+        result, &cbdata);
 
     if (ret == ERROR_FILE_NOT_FOUND)
     {
-        *result = 0;
+        *(UINT *)result = 0;
         return S_OK;
     }
 
@@ -198,7 +198,7 @@ typedef struct {
 
 static inline BitmapDecoderInfo *impl_from_IWICBitmapDecoderInfo(IWICBitmapDecoderInfo *iface)
 {
-    return CONTAINING_RECORD(iface, BitmapDecoderInfo, base.IWICComponentInfo_iface);
+    return CONTAINING_RECORD((IWICComponentInfo*)iface, BitmapDecoderInfo, base.IWICComponentInfo_iface);
 }
 
 static HRESULT WINAPI BitmapDecoderInfo_QueryInterface(IWICBitmapDecoderInfo *iface, REFIID iid,
@@ -682,7 +682,7 @@ typedef struct {
 
 static inline BitmapEncoderInfo *impl_from_IWICBitmapEncoderInfo(IWICBitmapEncoderInfo *iface)
 {
-    return CONTAINING_RECORD(iface, BitmapEncoderInfo, base.IWICComponentInfo_iface);
+    return CONTAINING_RECORD((IWICComponentInfo*)iface, BitmapEncoderInfo, base.IWICComponentInfo_iface);
 }
 
 static HRESULT WINAPI BitmapEncoderInfo_QueryInterface(IWICBitmapEncoderInfo *iface, REFIID iid,
@@ -973,7 +973,7 @@ typedef struct {
 
 static inline FormatConverterInfo *impl_from_IWICFormatConverterInfo(IWICFormatConverterInfo *iface)
 {
-    return CONTAINING_RECORD(iface, FormatConverterInfo, base.IWICComponentInfo_iface);
+    return CONTAINING_RECORD((IWICComponentInfo*)iface, FormatConverterInfo, base.IWICComponentInfo_iface);
 }
 
 static HRESULT WINAPI FormatConverterInfo_QueryInterface(IWICFormatConverterInfo *iface, REFIID iid,
@@ -1186,7 +1186,7 @@ typedef struct {
 
 static inline PixelFormatInfo *impl_from_IWICPixelFormatInfo2(IWICPixelFormatInfo2 *iface)
 {
-    return CONTAINING_RECORD(iface, PixelFormatInfo, base.IWICComponentInfo_iface);
+    return CONTAINING_RECORD((IWICComponentInfo*)iface, PixelFormatInfo, base.IWICComponentInfo_iface);
 }
 
 static HRESULT WINAPI PixelFormatInfo_QueryInterface(IWICPixelFormatInfo2 *iface, REFIID iid,
@@ -1413,7 +1413,7 @@ static HRESULT WINAPI PixelFormatInfo_SupportsTransparency(IWICPixelFormatInfo2 
 
     TRACE("(%p,%p)\n", iface, pfSupportsTransparency);
 
-    return ComponentInfo_GetUINTValue(This->classkey, L"SupportsTransparency", (UINT *)pfSupportsTransparency);
+    return ComponentInfo_GetUINTValue(This->classkey, L"SupportsTransparency", pfSupportsTransparency);
 }
 
 static HRESULT WINAPI PixelFormatInfo_GetNumericRepresentation(IWICPixelFormatInfo2 *iface,
@@ -1496,7 +1496,7 @@ static struct metadata_container *get_metadata_container(MetadataReaderInfo *inf
 
 static inline MetadataReaderInfo *impl_from_IWICMetadataReaderInfo(IWICMetadataReaderInfo *iface)
 {
-    return CONTAINING_RECORD(iface, MetadataReaderInfo, base.IWICComponentInfo_iface);
+    return CONTAINING_RECORD((IWICComponentInfo*)iface, MetadataReaderInfo, base.IWICComponentInfo_iface);
 }
 
 static HRESULT WINAPI MetadataReaderInfo_QueryInterface(IWICMetadataReaderInfo *iface,
@@ -1682,7 +1682,7 @@ static HRESULT WINAPI MetadataReaderInfo_DoesRequireFullStream(IWICMetadataReade
 {
     MetadataReaderInfo *This = impl_from_IWICMetadataReaderInfo(iface);
     TRACE("(%p,%p)\n", iface, param);
-    return ComponentInfo_GetUINTValue(This->classkey, L"RequiresFullStream", (UINT *)param);
+    return ComponentInfo_GetUINTValue(This->classkey, L"RequiresFullStream", param);
 }
 
 static HRESULT WINAPI MetadataReaderInfo_DoesSupportPadding(IWICMetadataReaderInfo *iface,
@@ -1690,7 +1690,7 @@ static HRESULT WINAPI MetadataReaderInfo_DoesSupportPadding(IWICMetadataReaderIn
 {
     MetadataReaderInfo *This = impl_from_IWICMetadataReaderInfo(iface);
     TRACE("(%p,%p)\n", iface, param);
-    return ComponentInfo_GetUINTValue(This->classkey, L"SupportsPadding", (UINT *)param);
+    return ComponentInfo_GetUINTValue(This->classkey, L"SupportsPadding", param);
 }
 
 static HRESULT WINAPI MetadataReaderInfo_DoesRequireFixedSize(IWICMetadataReaderInfo *iface,
@@ -2291,7 +2291,7 @@ static HRESULT WINAPI ComponentEnum_Clone(IEnumUnknown *iface, IEnumUnknown **pp
     new_enum->ref = 1;
     new_enum->cursor = NULL;
     list_init(&new_enum->objects);
-    InitializeCriticalSection(&new_enum->lock);
+    InitializeCriticalSectionEx(&new_enum->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     new_enum->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": ComponentEnum.lock");
 
     EnterCriticalSection(&This->lock);
@@ -2361,7 +2361,7 @@ HRESULT CreateComponentEnumerator(DWORD componentTypes, DWORD options, IEnumUnkn
     This->IEnumUnknown_iface.lpVtbl = &ComponentEnumVtbl;
     This->ref = 1;
     list_init(&This->objects);
-    InitializeCriticalSection(&This->lock);
+    InitializeCriticalSectionEx(&This->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     This->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": ComponentEnum.lock");
 
     for (category=categories; category->type && hr == S_OK; category++)

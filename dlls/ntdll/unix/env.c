@@ -59,7 +59,6 @@
 #include "error.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(environ);
-WINE_DECLARE_DEBUG_CHANNEL(nls);
 
 PEB *peb = NULL;
 WOW_PEB *wow_peb = NULL;
@@ -276,14 +275,13 @@ static const struct { const char *name; UINT cp; } charset_names[] =
 
 static void init_unix_codepage(void)
 {
-    const char *name, *ctype;
     char charset_name[16];
+    const char *name;
     size_t i, j;
     int min = 0, max = ARRAY_SIZE(charset_names) - 1;
 
-    if (!(ctype = setlocale( LC_CTYPE, "" ))) name = "UTF-8";
-    else if (!(name = nl_langinfo( CODESET ))) return;
-    TRACE_(nls)( "Unix LC_CTYPE %s, using %s codeset\n", debugstr_a(ctype), debugstr_a(name) );
+    setlocale( LC_CTYPE, "" );
+    if (!(name = nl_langinfo( CODESET ))) return;
 
     /* remove punctuation characters from charset name */
     for (i = j = 0; name[i] && j < sizeof(charset_name)-1; i++)
@@ -343,7 +341,6 @@ static BOOL is_special_env_var( const char *var )
             STARTS_WITH( var, "TEMP=" ) ||
             STARTS_WITH( var, "TMP=" ) ||
             STARTS_WITH( var, "QT_" ) ||
-            STARTS_WITH( var, "SDL_AUDIODRIVER=" ) ||
             STARTS_WITH( var, "VK_" ));
 }
 
@@ -399,7 +396,7 @@ DWORD ntdll_umbstowcs( const char *src, DWORD srclen, WCHAR *dst, DWORD dstlen )
  */
 int ntdll_wcstoumbs( const WCHAR *src, DWORD srclen, char *dst, DWORD dstlen, BOOL strict )
 {
-    unsigned int i, reslen = 0;
+    unsigned int i, reslen;
 
     if (unix_cp.CodePage != CP_UTF8)
     {
@@ -800,22 +797,13 @@ static const NLS_LOCALE_DATA *get_win_locale( const NLS_LOCALE_HEADER *header, c
 static void init_locale(void)
 {
     struct locale_nls_header *header;
-    const char *all, *ctype, *messages;
     const NLS_LOCALE_HEADER *locale_table;
     const NLS_LOCALE_DATA *locale;
     char *p;
 
-    if (!(all = setlocale( LC_ALL, "" )) && (all = getenv( "LC_ALL" )))
-        FIXME_(nls)( "Failed to set LC_ALL to %s, is the locale supported?\n", debugstr_a(all) );
-    if (!(ctype = setlocale( LC_CTYPE, "" )) && (ctype = getenv( "LC_CTYPE" )))
-        FIXME_(nls)( "Failed to set LC_CTYPE to %s, is the locale supported?\n", debugstr_a(ctype) );
-    if (!(messages = setlocale( LC_MESSAGES, "" )) && (messages = getenv( "LC_MESSAGES" )))
-        FIXME_(nls)( "Failed to set LC_MESSAGES to %s, is the locale supported?\n", debugstr_a(messages) );
-
-    if (!unix_to_win_locale( ctype, system_locale )) system_locale[0] = 0;
-    TRACE_(nls)( "Unix LC_CTYPE is %s, setting system locale to %s\n", debugstr_a(ctype), debugstr_a(user_locale) );
-    if (!unix_to_win_locale( messages, user_locale )) user_locale[0] = 0;
-    TRACE_(nls)( "Unix LC_MESSAGES is %s, user system locale to %s\n", debugstr_a(messages), debugstr_a(user_locale) );
+    setlocale( LC_ALL, "" );
+    if (!unix_to_win_locale( setlocale( LC_CTYPE, NULL ), system_locale )) system_locale[0] = 0;
+    if (!unix_to_win_locale( setlocale( LC_MESSAGES, NULL ), user_locale )) user_locale[0] = 0;
 
 #ifdef __APPLE__
     if (!system_locale[0])
@@ -1394,27 +1382,6 @@ static void add_registry_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
     }
 }
 
-static void get_std_handle( int fd, unsigned int access, unsigned int attributes, HANDLE *handle )
-{
-    IO_STATUS_BLOCK io;
-    FILE_POSITION_INFORMATION pos_info;
-    FILE_NAME_INFORMATION name_info;
-    NTSTATUS status;
-
-    wine_server_fd_to_handle( fd, access, attributes, handle );
-    if (!*handle) return;
-
-    /* Python checks if a file is seekable and if so expects the file name to be gettable from handle. */
-    if (NtQueryInformationFile( *handle, &io, &pos_info, sizeof(pos_info), FilePositionInformation ))
-        return;
-
-    TRACE("handle for fd %d is seekable.\n", fd);
-    if (!(status = NtQueryInformationFile( *handle, &io, &name_info, sizeof(name_info), FileNameInformation ))
-          || status == STATUS_BUFFER_OVERFLOW) return;
-    TRACE("closing handle for fd %d.\n", fd);
-    NtClose( *handle );
-    *handle = NULL;
-}
 
 /*************************************************************************
  *		get_initial_console
@@ -1425,9 +1392,9 @@ static void get_initial_console( RTL_USER_PROCESS_PARAMETERS *params )
 {
     int output_fd = -1;
 
-    get_std_handle( 0, GENERIC_READ|SYNCHRONIZE,  OBJ_INHERIT, &params->hStdInput );
-    get_std_handle( 1, GENERIC_WRITE|SYNCHRONIZE, OBJ_INHERIT, &params->hStdOutput );
-    get_std_handle( 2, GENERIC_WRITE|SYNCHRONIZE, OBJ_INHERIT, &params->hStdError );
+    wine_server_fd_to_handle( 0, GENERIC_READ|SYNCHRONIZE,  OBJ_INHERIT, &params->hStdInput );
+    wine_server_fd_to_handle( 1, GENERIC_WRITE|SYNCHRONIZE, OBJ_INHERIT, &params->hStdOutput );
+    wine_server_fd_to_handle( 2, GENERIC_WRITE|SYNCHRONIZE, OBJ_INHERIT, &params->hStdError );
 
     if (main_image_info.SubSystemType != IMAGE_SUBSYSTEM_WINDOWS_CUI)
         return;
@@ -2499,15 +2466,4 @@ void WINAPI RtlSetLastWin32Error( DWORD err )
     if (wow_teb) wow_teb->LastErrorValue = err;
 #endif
     teb->LastErrorValue = err;
-}
-
-
-/**********************************************************************
- *      __wine_set_unix_env  (ntdll.so)
- */
-NTSTATUS WINAPI __wine_set_unix_env( const char *var, const char *val )
-{
-    if (!val) unsetenv(var);
-    else setenv(var, val, 1);
-    return 0;
 }

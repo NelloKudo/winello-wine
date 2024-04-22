@@ -20,6 +20,7 @@
 
 #include "ntdll_test.h"
 #include <winnls.h>
+#include <ddk/ntddk.h>
 #include <stdio.h>
 
 static NTSTATUS (WINAPI * pNtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
@@ -2676,6 +2677,59 @@ static void test_query_process_debug_flags(int argc, char **argv)
     }
 }
 
+static void test_query_process_quota_limits(void)
+{
+    QUOTA_LIMITS qlimits;
+    NTSTATUS status;
+    HANDLE process;
+    ULONG ret_len;
+
+    status = NtQueryInformationProcess(NULL, ProcessQuotaLimits, NULL, sizeof(qlimits), NULL);
+    ok(status == STATUS_INVALID_HANDLE, "NtQueryInformationProcess failed, status %#lx.\n", status);
+
+    status = NtQueryInformationProcess(NULL, ProcessQuotaLimits, &qlimits, sizeof(qlimits), NULL);
+    ok(status == STATUS_INVALID_HANDLE, "NtQueryInformationProcess failed, status %#lx.\n", status);
+
+    process = GetCurrentProcess();
+    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, 2, &ret_len);
+    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
+
+    memset(&qlimits, 0, sizeof(qlimits));
+    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits), &ret_len);
+    ok(status == STATUS_SUCCESS, "NtQueryInformationProcess failed, status %#lx.\n", status);
+    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
+    ok(qlimits.MinimumWorkingSetSize == 204800,"Expected MinimumWorkingSetSize = 204800, got %s\n",
+        wine_dbgstr_longlong(qlimits.MinimumWorkingSetSize));
+    ok(qlimits.MaximumWorkingSetSize == 1413120,"Expected MaximumWorkingSetSize = 1413120, got %s\n",
+        wine_dbgstr_longlong(qlimits.MaximumWorkingSetSize));
+    ok(qlimits.PagefileLimit == ~0,"Expected PagefileLimit = ~0, got %s\n",
+        wine_dbgstr_longlong(qlimits.PagefileLimit));
+    ok(qlimits.TimeLimit.QuadPart == ~0,"Expected TimeLimit = ~0, got %s\n",
+        wine_dbgstr_longlong(qlimits.TimeLimit.QuadPart));
+
+    if (winetest_debug > 1)
+    {
+        trace("Quota Limits:\n");
+        trace("PagedPoolLimit: %s\n", wine_dbgstr_longlong(qlimits.PagedPoolLimit));
+        trace("NonPagedPoolLimit: %s\n", wine_dbgstr_longlong(qlimits.NonPagedPoolLimit));
+    }
+
+    memset(&qlimits, 0, sizeof(qlimits));
+    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits) * 2, &ret_len);
+    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
+    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
+
+    memset(&qlimits, 0, sizeof(qlimits));
+    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits) - 1, &ret_len);
+    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
+    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
+
+    memset(&qlimits, 0, sizeof(qlimits));
+    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits) + 1, &ret_len);
+    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
+    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
+}
+
 static void test_readvirtualmemory(void)
 {
     HANDLE process;
@@ -3742,7 +3796,7 @@ static void test_system_debug_control(void)
     NTSTATUS status;
     int class;
 
-    for (class = 0; class <= SysDbgSetKdBlockEnable; ++class)
+    for (class = 0; class < SysDbgMaxInfoClass; ++class)
     {
         status = pNtSystemDebugControl( class, NULL, 0, NULL, 0, NULL );
         if (is_wow64)
@@ -3753,9 +3807,82 @@ static void test_system_debug_control(void)
         }
         else
         {
-            ok( status == STATUS_DEBUGGER_INACTIVE || status == STATUS_ACCESS_DENIED, "class %d, got %#lx.\n", class, status );
+            ok( status == STATUS_DEBUGGER_INACTIVE || status == STATUS_ACCESS_DENIED || status == STATUS_INFO_LENGTH_MISMATCH,
+                "class %d, got %#lx.\n", class, status );
         }
     }
+}
+
+static void test_process_token(int argc, char **argv)
+{
+    STARTUPINFOA si = {.cb = sizeof(si)};
+    PROCESS_ACCESS_TOKEN token_info = {0};
+    TOKEN_STATISTICS stats1, stats2;
+    HANDLE token, their_token;
+    PROCESS_INFORMATION pi;
+    char cmdline[MAX_PATH];
+    NTSTATUS status;
+    DWORD size;
+    BOOL ret;
+
+    token_info.Thread = (HANDLE)0xdeadbeef;
+
+    sprintf( cmdline, "%s %s dummy", argv[0], argv[1] );
+
+    ret = CreateProcessA( NULL, cmdline, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi );
+    ok( ret, "got error %lu\n", GetLastError() );
+
+    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) - 1 );
+    ok( status == STATUS_INFO_LENGTH_MISMATCH, "got %#lx\n", status );
+
+    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
+    ok( status == STATUS_INVALID_HANDLE, "got %#lx\n", status );
+
+    ret = OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL | TOKEN_DUPLICATE
+            | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_DEFAULT, &token );
+    ok( ret, "got error %lu\n", GetLastError() );
+
+    token_info.Token = token;
+    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
+    todo_wine ok( status == STATUS_TOKEN_ALREADY_IN_USE, "got %#lx\n", status );
+
+    ret = DuplicateTokenEx( token, TOKEN_ALL_ACCESS, NULL, SecurityAnonymous, TokenImpersonation, &token_info.Token );
+    ok( ret, "got error %lu\n", GetLastError() );
+    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
+    todo_wine ok( status == STATUS_BAD_IMPERSONATION_LEVEL, "got %#lx\n", status );
+    CloseHandle( token_info.Token );
+
+    ret = DuplicateTokenEx( token, TOKEN_QUERY, NULL, SecurityAnonymous, TokenPrimary, &token_info.Token );
+    ok( ret, "got error %lu\n", GetLastError() );
+    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
+    ok( status == STATUS_ACCESS_DENIED, "got %#lx\n", status );
+    CloseHandle( token_info.Token );
+
+    ret = DuplicateTokenEx( token, TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY, NULL, SecurityAnonymous, TokenPrimary, &token_info.Token );
+    ok(ret, "got error %lu\n", GetLastError());
+    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
+    ok( status == STATUS_SUCCESS, "got %#lx\n", status );
+
+    ret = OpenProcessToken( pi.hProcess, TOKEN_QUERY, &their_token );
+    ok( ret, "got error %lu\n", GetLastError() );
+
+    /* The tokens should be the same. */
+    ret = GetTokenInformation( token_info.Token, TokenStatistics, &stats1, sizeof(stats1), &size );
+    ok( ret, "got error %lu\n", GetLastError() );
+    ret = GetTokenInformation( their_token, TokenStatistics, &stats2, sizeof(stats2), &size );
+    ok( ret, "got error %lu\n", GetLastError() );
+    ok( !memcmp( &stats1.TokenId, &stats2.TokenId, sizeof(LUID) ), "expected same IDs\n" );
+
+    CloseHandle( token_info.Token );
+    CloseHandle( their_token );
+
+    ResumeThread( pi.hThread );
+    ret = WaitForSingleObject( pi.hProcess, 1000 );
+    ok( !ret, "got %d\n", ret );
+
+    CloseHandle( pi.hProcess );
+    CloseHandle( pi.hThread );
+    CloseHandle( token );
 }
 
 START_TEST(info)
@@ -3812,6 +3939,7 @@ START_TEST(info)
     test_query_process_debug_object_handle(argc, argv);
     test_query_process_debug_flags(argc, argv);
     test_query_process_image_info();
+    test_query_process_quota_limits();
     test_mapprotection();
     test_threadstack();
 
@@ -3834,4 +3962,5 @@ START_TEST(info)
     test_ThreadEnableAlignmentFaultFixup();
     test_process_instrumentation_callback();
     test_system_debug_control();
+    test_process_token(argc, argv);
 }

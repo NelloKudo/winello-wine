@@ -200,6 +200,11 @@ struct draw_text_params
     UINT flags;
     WCHAR str[1];
 };
+struct draw_text_result
+{
+    int height;
+    RECT rect;
+};
 
 /* NtUserFreeCachedClipboardData params */
 struct free_cached_data_params
@@ -262,20 +267,18 @@ struct render_synthesized_format_params
 };
 
 /* NtUserUnpackDDEMessage params */
-struct unpack_dde_message_result
-{
-    WPARAM wparam;
-    LPARAM lparam;
-};
-
 struct unpack_dde_message_params
 {
-    struct unpack_dde_message_result *result;  /* FIXME: Use NtCallbackReturn instead */
     HWND hwnd;
     UINT message;
     WPARAM wparam;
     LPARAM lparam;
     char data[1];
+};
+struct unpack_dde_message_result
+{
+    WPARAM wparam;
+    LPARAM lparam;
 };
 
 /* process DPI awareness contexts */
@@ -294,7 +297,8 @@ struct unpack_dde_message_params
 #define SPY_RESULT_DEFWND  0x0002
 
 /* CreateDesktop wine specific flag */
-#define DF_WINE_CREATE_DESKTOP   0x80000000
+#define DF_WINE_ROOT_DESKTOP      0x40000000
+#define DF_WINE_VIRTUAL_DESKTOP   0x80000000
 
 /* NtUserMessageCall codes */
 enum
@@ -511,6 +515,7 @@ enum wine_ime_call
 {
     WINE_IME_PROCESS_KEY,
     WINE_IME_TO_ASCII_EX,
+    WINE_IME_POST_UPDATE,  /* for the user drivers */
 };
 
 /* NtUserImeDriverCall params */
@@ -671,7 +676,6 @@ W32KAPI ULONG   WINAPI NtUserGetSystemDpiForProcess( HANDLE process );
 W32KAPI HMENU   WINAPI NtUserGetSystemMenu( HWND hwnd, BOOL revert );
 W32KAPI HDESK   WINAPI NtUserGetThreadDesktop( DWORD thread );
 W32KAPI BOOL    WINAPI NtUserGetTitleBarInfo( HWND hwnd, TITLEBARINFO *info );
-W32KAPI BOOL    WINAPI NtUserGetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size );
 W32KAPI INT     WINAPI NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase );
 W32KAPI BOOL    WINAPI NtUserGetUpdatedClipboardFormats( UINT *formats, UINT size, UINT *out_size );
 W32KAPI BOOL    WINAPI NtUserGetUpdateRect( HWND hwnd, RECT *rect, BOOL erase );
@@ -689,7 +693,6 @@ W32KAPI BOOL    WINAPI NtUserIsClipboardFormatAvailable( UINT format );
 W32KAPI BOOL    WINAPI NtUserIsMouseInPointerEnabled(void);
 W32KAPI BOOL    WINAPI NtUserInvalidateRect( HWND hwnd, const RECT *rect, BOOL erase );
 W32KAPI BOOL    WINAPI NtUserInvalidateRgn( HWND hwnd, HRGN hrgn, BOOL erase );
-W32KAPI BOOL    WINAPI NtUserIsTouchWindow( HWND hwnd, ULONG *flags );
 W32KAPI BOOL    WINAPI NtUserKillTimer( HWND hwnd, UINT_PTR id );
 W32KAPI BOOL    WINAPI NtUserLockWindowUpdate( HWND hwnd );
 W32KAPI BOOL    WINAPI NtUserLogicalToPerMonitorDPIPhysicalPoint( HWND hwnd, POINT *pt );
@@ -781,6 +784,7 @@ W32KAPI BOOL    WINAPI NtUserShowWindow( HWND hwnd, INT cmd );
 W32KAPI BOOL    WINAPI NtUserShowWindowAsync( HWND hwnd, INT cmd );
 W32KAPI BOOL    WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT winini );
 W32KAPI BOOL    WINAPI NtUserSystemParametersInfoForDpi( UINT action, UINT val, PVOID ptr, UINT winini, UINT dpi );
+W32KAPI BOOL    WINAPI NtUserSwitchDesktop( HDESK desktop );
 W32KAPI BOOL    WINAPI NtUserThunkedMenuInfo( HMENU menu, const MENUINFO *info );
 W32KAPI UINT    WINAPI NtUserThunkedMenuItemInfo( HMENU menu, UINT pos, UINT flags, UINT method,
                                                   MENUITEMINFOW *info, UNICODE_STRING *str );
@@ -894,7 +898,6 @@ enum
     NtUserCallOneParam_SetCaretBlinkTime,
     NtUserCallOneParam_SetProcessDefaultLayout,
     NtUserCallOneParam_SetKeyboardAutoRepeat,
-    NtUserCallOneParam_UnregisterTouchWindow,
     /* temporary exports */
     NtUserGetDeskPattern,
 };
@@ -1021,7 +1024,6 @@ enum
     NtUserCallTwoParam_GetMonitorInfo,
     NtUserCallTwoParam_GetSystemMetricsForDpi,
     NtUserCallTwoParam_MonitorFromRect,
-    NtUserCallTwoParam_RegisterTouchWindow,
     NtUserCallTwoParam_SetCaretPos,
     NtUserCallTwoParam_SetIconParam,
     NtUserCallTwoParam_UnhookWindowsHook,
@@ -1234,7 +1236,7 @@ enum
     NtUserCallHwndParam_SetMDIClientInfo,
     NtUserCallHwndParam_SetWindowContextHelpId,
     NtUserCallHwndParam_ShowOwnedPopups,
-    NtUserCallHwndParam_EnumChildWindows,
+    NtUserCallHwndParam_SendHardwareInput,
     /* temporary exports */
     NtUserSetWindowStyle,
 };
@@ -1405,39 +1407,37 @@ static inline BOOL NtUserShowOwnedPopups( HWND hwnd, BOOL show )
     return NtUserCallHwndParam( hwnd, show, NtUserCallHwndParam_ShowOwnedPopups );
 }
 
-struct enum_child_windows_params
+struct hid_input
 {
-    WNDENUMPROC proc;
-    LPARAM lparam;
+    UINT device;
+    UINT usage;
+    UINT count;
+    UINT length;
 };
 
-static inline BOOL NtUserEnumChildWindows( HWND hwnd, WNDENUMPROC proc, LPARAM lparam )
+struct hid_packet
 {
-    struct enum_child_windows_params params = {.proc = proc, .lparam = lparam};
-    return NtUserCallHwndParam( hwnd, (UINT_PTR)&params, NtUserCallHwndParam_EnumChildWindows );
-}
+    struct hid_input head;
+    BYTE data[];
+};
 
-/* Wine extensions */
-W32KAPI BOOL WINAPI __wine_send_input( HWND hwnd, const INPUT *input, const RAWINPUT *rawinput );
+C_ASSERT(sizeof(struct hid_packet) == offsetof(struct hid_packet, data[0]));
 
-/* HACK: We use some WM specific hacks in user32 and we need the user
- * driver to export that information. */
+#define SEND_HWMSG_INJECTED 1
+#define SEND_HWMSG_NO_RAW   2
+#define SEND_HWMSG_NO_MSG   4
 
-#define WINE_WM_UNKNOWN          0
-#define WINE_WM_X11_MUTTER       1
-#define WINE_WM_X11_STEAMCOMPMGR 2
-#define WINE_WM_X11_KDE          3
-
-static inline LONG_PTR __wine_get_window_manager(void)
+struct send_hardware_input_params
 {
-    static const WCHAR __wine_window_managerW[] = {'_','_','w','i','n','e','_','w','i','n','d','o','w','_','m','a','n','a','g','e','r',0};
-    return (LONG_PTR)NtUserGetProp(NtUserGetDesktopWindow(), __wine_window_managerW);
-}
+    UINT flags;
+    const INPUT *input;
+    LPARAM lparam;  /* struct hid_packet pointer for WM_INPUT* messages */
+};
 
-static inline void __wine_set_window_manager(LONG_PTR window_manager)
+static inline BOOL NtUserSendHardwareInput( HWND hwnd, UINT flags, const INPUT *input, LPARAM lparam )
 {
-    static const WCHAR __wine_window_managerW[] = {'_','_','w','i','n','e','_','w','i','n','d','o','w','_','m','a','n','a','g','e','r',0};
-    NtUserSetProp(NtUserGetDesktopWindow(), __wine_window_managerW, (HANDLE)window_manager);
+    struct send_hardware_input_params params = {.flags = flags, .input = input, .lparam = lparam};
+    return NtUserCallHwndParam( hwnd, (UINT_PTR)&params, NtUserCallHwndParam_SendHardwareInput );
 }
 
 #endif /* _NTUSER_ */

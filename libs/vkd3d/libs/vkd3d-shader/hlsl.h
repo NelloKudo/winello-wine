@@ -95,6 +95,9 @@ enum hlsl_base_type
     HLSL_TYPE_UAV,
     HLSL_TYPE_PIXELSHADER,
     HLSL_TYPE_VERTEXSHADER,
+    HLSL_TYPE_PASS,
+    HLSL_TYPE_RENDERTARGETVIEW,
+    HLSL_TYPE_DEPTHSTENCILVIEW,
     HLSL_TYPE_TECHNIQUE,
     HLSL_TYPE_EFFECT_GROUP,
     HLSL_TYPE_STRING,
@@ -103,7 +106,7 @@ enum hlsl_base_type
 
 enum hlsl_sampler_dim
 {
-    HLSL_SAMPLER_DIM_GENERIC,
+    HLSL_SAMPLER_DIM_GENERIC = 0,
     HLSL_SAMPLER_DIM_COMPARISON,
     HLSL_SAMPLER_DIM_1D,
     HLSL_SAMPLER_DIM_2D,
@@ -115,10 +118,10 @@ enum hlsl_sampler_dim
     HLSL_SAMPLER_DIM_2DMS,
     HLSL_SAMPLER_DIM_2DMSARRAY,
     HLSL_SAMPLER_DIM_CUBEARRAY,
-    HLSL_SAMPLER_DIM_LAST_TEXTURE = HLSL_SAMPLER_DIM_CUBEARRAY,
     HLSL_SAMPLER_DIM_BUFFER,
     HLSL_SAMPLER_DIM_STRUCTURED_BUFFER,
     HLSL_SAMPLER_DIM_MAX = HLSL_SAMPLER_DIM_STRUCTURED_BUFFER,
+    /* NOTE: Remember to update object_methods[] in hlsl.y if this enum is modified. */
 };
 
 enum hlsl_regset
@@ -148,7 +151,8 @@ struct hlsl_type
     enum hlsl_base_type base_type;
 
     /* If base_type is HLSL_TYPE_SAMPLER, then sampler_dim is <= HLSL_SAMPLER_DIM_LAST_SAMPLER.
-     * If base_type is HLSL_TYPE_TEXTURE, then sampler_dim is <= HLSL_SAMPLER_DIM_LAST_TEXTURE.
+     * If base_type is HLSL_TYPE_TEXTURE, then sampler_dim can be any value of the enum except
+     *   HLSL_SAMPLER_DIM_GENERIC and HLSL_SAMPLER_DIM_COMPARISON.
      * If base_type is HLSL_TYPE_UAV, then sampler_dim must be one of HLSL_SAMPLER_DIM_1D,
      *   HLSL_SAMPLER_DIM_2D, HLSL_SAMPLER_DIM_3D, HLSL_SAMPLER_DIM_1DARRAY, HLSL_SAMPLER_DIM_2DARRAY,
      *   HLSL_SAMPLER_DIM_BUFFER, or HLSL_SAMPLER_DIM_STRUCTURED_BUFFER.
@@ -192,9 +196,15 @@ struct hlsl_type
             /* Array length, or HLSL_ARRAY_ELEMENTS_COUNT_IMPLICIT if it is not known yet at parse time. */
             unsigned int elements_count;
         } array;
-        /* Format of the data contained within the type if the base_type is HLSL_TYPE_TEXTURE or
-         *   HLSL_TYPE_UAV. */
-        struct hlsl_type *resource_format;
+        /* Additional information if the base_type is HLSL_TYPE_TEXTURE or
+         * HLSL_TYPE_UAV. */
+        struct
+        {
+            /* Format of the data contained within the type. */
+            struct hlsl_type *format;
+            /* The type is a rasteriser-ordered view. */
+            bool rasteriser_ordered;
+        } resource;
         /* Additional field to distinguish object types. Currently used only for technique types. */
         unsigned int version;
     } e;
@@ -288,6 +298,7 @@ enum hlsl_ir_node_type
     HLSL_IR_STORE,
     HLSL_IR_SWIZZLE,
     HLSL_IR_SWITCH,
+    HLSL_IR_STATEBLOCK_CONSTANT,
 };
 
 /* Common data for every type of IR instruction node. */
@@ -347,23 +358,25 @@ struct hlsl_attribute
     struct hlsl_src args[];
 };
 
-#define HLSL_STORAGE_EXTERN          0x00000001
-#define HLSL_STORAGE_NOINTERPOLATION 0x00000002
-#define HLSL_MODIFIER_PRECISE        0x00000004
-#define HLSL_STORAGE_SHARED          0x00000008
-#define HLSL_STORAGE_GROUPSHARED     0x00000010
-#define HLSL_STORAGE_STATIC          0x00000020
-#define HLSL_STORAGE_UNIFORM         0x00000040
-#define HLSL_MODIFIER_VOLATILE       0x00000080
-#define HLSL_MODIFIER_CONST          0x00000100
-#define HLSL_MODIFIER_ROW_MAJOR      0x00000200
-#define HLSL_MODIFIER_COLUMN_MAJOR   0x00000400
-#define HLSL_STORAGE_IN              0x00000800
-#define HLSL_STORAGE_OUT             0x00001000
-#define HLSL_MODIFIER_INLINE         0x00002000
-#define HLSL_STORAGE_CENTROID        0x00004000
-#define HLSL_STORAGE_NOPERSPECTIVE   0x00008000
-#define HLSL_STORAGE_LINEAR          0x00010000
+#define HLSL_STORAGE_EXTERN              0x00000001
+#define HLSL_STORAGE_NOINTERPOLATION     0x00000002
+#define HLSL_MODIFIER_PRECISE            0x00000004
+#define HLSL_STORAGE_SHARED              0x00000008
+#define HLSL_STORAGE_GROUPSHARED         0x00000010
+#define HLSL_STORAGE_STATIC              0x00000020
+#define HLSL_STORAGE_UNIFORM             0x00000040
+#define HLSL_MODIFIER_VOLATILE           0x00000080
+#define HLSL_MODIFIER_CONST              0x00000100
+#define HLSL_MODIFIER_ROW_MAJOR          0x00000200
+#define HLSL_MODIFIER_COLUMN_MAJOR       0x00000400
+#define HLSL_STORAGE_IN                  0x00000800
+#define HLSL_STORAGE_OUT                 0x00001000
+#define HLSL_MODIFIER_INLINE             0x00002000
+#define HLSL_STORAGE_CENTROID            0x00004000
+#define HLSL_STORAGE_NOPERSPECTIVE       0x00008000
+#define HLSL_STORAGE_LINEAR              0x00010000
+#define HLSL_MODIFIER_SINGLE             0x00020000
+#define HLSL_MODIFIER_EXPORT             0x00040000
 
 #define HLSL_TYPE_MODIFIERS_MASK     (HLSL_MODIFIER_PRECISE | HLSL_MODIFIER_VOLATILE | \
                                       HLSL_MODIFIER_CONST | HLSL_MODIFIER_ROW_MAJOR | \
@@ -408,6 +421,16 @@ struct hlsl_ir_var
     struct list extern_entry;
     /* Scope that variable itself defines, used to provide a container for techniques and passes. */
     struct hlsl_scope *scope;
+    /* Scope that contains annotations for this variable. */
+    struct hlsl_scope *annotations;
+
+    /* A dynamic array containing the state block on the variable's declaration, if any.
+     * An array variable may contain multiple state blocks.
+     * A technique pass will always contain one.
+     * These are only really used for effect profiles. */
+    struct hlsl_state_block **state_blocks;
+    unsigned int state_block_count;
+    size_t state_block_capacity;
 
     /* Indexes of the IR instructions where the variable is first written and last read (liveness
      *   range). The IR instructions are numerated starting from 2, because 0 means unused, and 1
@@ -442,6 +465,38 @@ struct hlsl_ir_var
     uint32_t is_uniform : 1;
     uint32_t is_param : 1;
     uint32_t is_separated_resource : 1;
+};
+
+/* This struct is used to represent assignments in state block entries:
+ *     name = {args[0], args[1], ...};
+ *       - or -
+ *     name = args[0]
+ *       - or -
+ *     name[lhs_index] = args[0]
+ *       - or -
+ *     name[lhs_index] = {args[0], args[1], ...};
+ */
+struct hlsl_state_block_entry
+{
+    /* For assignments, the name in the lhs. */
+    char *name;
+
+    /* Whether the lhs in the assignment is indexed and, in that case, its index. */
+    bool lhs_has_index;
+    unsigned int lhs_index;
+
+    /* Instructions present in the rhs. */
+    struct hlsl_block *instrs;
+
+    /* For assignments, arguments of the rhs initializer. */
+    struct hlsl_ir_node **args;
+    unsigned int args_count;
+};
+
+struct hlsl_state_block
+{
+    struct hlsl_state_block_entry **entries;
+    size_t count, capacity;
 };
 
 /* Sized array of variables representing a function's parameters. */
@@ -581,18 +636,15 @@ enum hlsl_ir_expr_op
     HLSL_OP2_MUL,
     HLSL_OP2_NEQUAL,
     HLSL_OP2_RSHIFT,
+    /* SLT(a, b) retrieves 1.0 if (a < b), else 0.0. Only used for SM1-SM3 target vertex shaders. */
+    HLSL_OP2_SLT,
 
     /* DP2ADD(a, b, c) computes the scalar product of a.xy and b.xy,
      * then adds c. */
     HLSL_OP3_DP2ADD,
-    /* MOVC(a, b, c) returns c if a is bitwise zero and b otherwise.
-     * TERNARY(a, b, c) returns c if a == 0 and b otherwise.
-     * They differ for floating point numbers, because
-     * -0.0 == 0.0, but it is not bitwise zero. CMP(a, b, c) returns b
-       if a >= 0, and c otherwise. It's used only for SM1-SM3 targets, while
-       SM4+ is using MOVC in such cases. */
+    /* TERNARY(a, b, c) returns 'b' if 'a' is true and 'c' otherwise. 'a' must always be boolean.
+     * CMP(a, b, c) returns 'b' if 'a' >= 0, and 'c' otherwise. It's used only for SM1-SM3 targets. */
     HLSL_OP3_CMP,
-    HLSL_OP3_MOVC,
     HLSL_OP3_TERNARY,
 };
 
@@ -738,6 +790,14 @@ struct hlsl_ir_constant
     struct hlsl_reg reg;
 };
 
+/* Stateblock constants are undeclared values found on state blocks or technique passes descriptions,
+ *   that do not concern regular pixel, vertex, or compute shaders, except for parsing. */
+struct hlsl_ir_stateblock_constant
+{
+    struct hlsl_ir_node node;
+    char *name;
+};
+
 struct hlsl_scope
 {
     /* Item entry for hlsl_ctx.scopes. */
@@ -786,10 +846,13 @@ struct hlsl_buffer
     struct vkd3d_shader_location loc;
     enum hlsl_buffer_type type;
     const char *name;
+    uint32_t modifiers;
     /* Register reserved for this buffer, if any.
      * If provided, it should be of type 'b' if type is HLSL_BUFFER_CONSTANT and 't' if type is
      *   HLSL_BUFFER_TEXTURE. */
     struct hlsl_reg_reservation reservation;
+    /* Scope that contains annotations for this buffer. */
+    struct hlsl_scope *annotations;
     /* Item entry for hlsl_ctx.buffers */
     struct list entry;
 
@@ -908,7 +971,20 @@ struct hlsl_ctx
     uint32_t found_numthreads : 1;
 
     bool semantic_compat_mapping;
+    bool child_effect;
+    bool include_empty_buffers;
+    bool warn_implicit_truncation;
 };
+
+static inline bool hlsl_version_ge(const struct hlsl_ctx *ctx, unsigned int major, unsigned int minor)
+{
+    return ctx->profile->major_version > major || (ctx->profile->major_version == major && ctx->profile->minor_version >= minor);
+}
+
+static inline bool hlsl_version_lt(const struct hlsl_ctx *ctx, unsigned int major, unsigned int minor)
+{
+    return !hlsl_version_ge(ctx, major, minor);
+}
 
 struct hlsl_resource_load_params
 {
@@ -995,6 +1071,12 @@ static inline struct hlsl_ir_switch *hlsl_ir_switch(const struct hlsl_ir_node *n
 {
     assert(node->type == HLSL_IR_SWITCH);
     return CONTAINING_RECORD(node, struct hlsl_ir_switch, node);
+}
+
+static inline struct hlsl_ir_stateblock_constant *hlsl_ir_stateblock_constant(const struct hlsl_ir_node *node)
+{
+    assert(node->type == HLSL_IR_STATEBLOCK_CONSTANT);
+    return CONTAINING_RECORD(node, struct hlsl_ir_stateblock_constant, node);
 }
 
 static inline void hlsl_block_init(struct hlsl_block *block)
@@ -1143,6 +1225,11 @@ static inline unsigned int hlsl_sampler_dim_count(enum hlsl_sampler_dim dim)
     }
 }
 
+static inline bool hlsl_var_has_buffer_offset_register_reservation(struct hlsl_ctx *ctx, const struct hlsl_ir_var *var)
+{
+    return var->reg_reservation.reg_type == 'c' && var->buffer == ctx->globals_buffer;
+}
+
 char *hlsl_sprintf_alloc(struct hlsl_ctx *ctx, const char *fmt, ...) VKD3D_PRINTF_FUNC(2, 3);
 
 const char *debug_hlsl_expr_op(enum hlsl_ir_expr_op op);
@@ -1184,6 +1271,7 @@ void hlsl_replace_node(struct hlsl_ir_node *old, struct hlsl_ir_node *new);
 void hlsl_free_attribute(struct hlsl_attribute *attr);
 void hlsl_free_instr(struct hlsl_ir_node *node);
 void hlsl_free_instr_list(struct list *list);
+void hlsl_free_state_block(struct hlsl_state_block *state_block);
 void hlsl_free_type(struct hlsl_type *type);
 void hlsl_free_var(struct hlsl_ir_var *decl);
 
@@ -1205,7 +1293,8 @@ struct hlsl_ir_node *hlsl_new_binary_expr(struct hlsl_ctx *ctx, enum hlsl_ir_exp
         struct hlsl_ir_node *arg2);
 struct hlsl_ir_node *hlsl_new_bool_constant(struct hlsl_ctx *ctx, bool b, const struct vkd3d_shader_location *loc);
 struct hlsl_buffer *hlsl_new_buffer(struct hlsl_ctx *ctx, enum hlsl_buffer_type type, const char *name,
-        const struct hlsl_reg_reservation *reservation, const struct vkd3d_shader_location *loc);
+        uint32_t modifiers, const struct hlsl_reg_reservation *reservation, struct hlsl_scope *annotations,
+        const struct vkd3d_shader_location *loc);
 struct hlsl_ir_node *hlsl_new_call(struct hlsl_ctx *ctx, struct hlsl_ir_function_decl *decl,
         const struct vkd3d_shader_location *loc);
 struct hlsl_ir_node *hlsl_new_cast(struct hlsl_ctx *ctx, struct hlsl_ir_node *node, struct hlsl_type *type,
@@ -1226,6 +1315,8 @@ struct hlsl_ir_node *hlsl_new_if(struct hlsl_ctx *ctx, struct hlsl_ir_node *cond
 struct hlsl_ir_node *hlsl_new_int_constant(struct hlsl_ctx *ctx, int32_t n, const struct vkd3d_shader_location *loc);
 struct hlsl_ir_node *hlsl_new_jump(struct hlsl_ctx *ctx,
         enum hlsl_ir_jump_type type, struct hlsl_ir_node *condition, const struct vkd3d_shader_location *loc);
+struct hlsl_ir_node *hlsl_new_ternary_expr(struct hlsl_ctx *ctx, enum hlsl_ir_expr_op op,
+        struct hlsl_ir_node *arg1, struct hlsl_ir_node *arg2, struct hlsl_ir_node *arg3);
 
 void hlsl_init_simple_deref_from_var(struct hlsl_deref *deref, struct hlsl_ir_var *var);
 
@@ -1248,6 +1339,7 @@ bool hlsl_new_store_component(struct hlsl_ctx *ctx, struct hlsl_block *block,
 
 bool hlsl_index_is_noncontiguous(struct hlsl_ir_index *index);
 bool hlsl_index_is_resource_access(struct hlsl_ir_index *index);
+bool hlsl_index_chain_has_resource_access(struct hlsl_ir_index *index);
 
 struct hlsl_ir_node *hlsl_new_index(struct hlsl_ctx *ctx, struct hlsl_ir_node *val,
         struct hlsl_ir_node *idx, const struct vkd3d_shader_location *loc);
@@ -1261,13 +1353,16 @@ struct hlsl_type *hlsl_new_struct_type(struct hlsl_ctx *ctx, const char *name,
         struct hlsl_struct_field *fields, size_t field_count);
 struct hlsl_ir_node *hlsl_new_swizzle(struct hlsl_ctx *ctx, uint32_t s, unsigned int components,
         struct hlsl_ir_node *val, const struct vkd3d_shader_location *loc);
+struct hlsl_ir_node *hlsl_new_stateblock_constant(struct hlsl_ctx *ctx, const char *name,
+        struct vkd3d_shader_location *loc);
 struct hlsl_ir_var *hlsl_new_synthetic_var(struct hlsl_ctx *ctx, const char *template,
         struct hlsl_type *type, const struct vkd3d_shader_location *loc);
 struct hlsl_ir_var *hlsl_new_synthetic_var_named(struct hlsl_ctx *ctx, const char *name,
     struct hlsl_type *type, const struct vkd3d_shader_location *loc, bool dummy_scope);
 struct hlsl_type *hlsl_new_texture_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim dim, struct hlsl_type *format,
         unsigned int sample_count);
-struct hlsl_type *hlsl_new_uav_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim dim, struct hlsl_type *format);
+struct hlsl_type *hlsl_new_uav_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim dim,
+        struct hlsl_type *format, bool rasteriser_ordered);
 struct hlsl_ir_node *hlsl_new_uint_constant(struct hlsl_ctx *ctx, unsigned int n,
         const struct vkd3d_shader_location *loc);
 struct hlsl_ir_node *hlsl_new_unary_expr(struct hlsl_ctx *ctx, enum hlsl_ir_expr_op op, struct hlsl_ir_node *arg,
@@ -1310,6 +1405,9 @@ bool hlsl_type_is_resource(const struct hlsl_type *type);
 unsigned int hlsl_type_get_sm4_offset(const struct hlsl_type *type, unsigned int offset);
 bool hlsl_types_are_equal(const struct hlsl_type *t1, const struct hlsl_type *t2);
 
+void hlsl_calculate_buffer_offsets(struct hlsl_ctx *ctx);
+void hlsl_prepend_global_uniform_copy(struct hlsl_ctx *ctx, struct hlsl_block *block);
+
 const struct hlsl_type *hlsl_get_multiarray_element_type(const struct hlsl_type *type);
 unsigned int hlsl_get_multiarray_size(const struct hlsl_type *type);
 
@@ -1334,6 +1432,8 @@ bool hlsl_fold_constant_swizzles(struct hlsl_ctx *ctx, struct hlsl_ir_node *inst
 bool hlsl_transform_ir(struct hlsl_ctx *ctx, bool (*func)(struct hlsl_ctx *ctx, struct hlsl_ir_node *, void *),
         struct hlsl_block *block, void *context);
 
+D3DXPARAMETER_CLASS hlsl_sm1_class(const struct hlsl_type *type);
+D3DXPARAMETER_TYPE hlsl_sm1_base_type(const struct hlsl_type *type);
 bool hlsl_sm1_register_from_semantic(struct hlsl_ctx *ctx, const struct hlsl_semantic *semantic,
         bool output, D3DSHADER_PARAM_REGISTER_TYPE *type, unsigned int *reg);
 bool hlsl_sm1_usage_from_semantic(const struct hlsl_semantic *semantic, D3DDECLUSAGE *usage, uint32_t *usage_idx);

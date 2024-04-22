@@ -29,8 +29,7 @@
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wmadec);
-
-extern const GUID MFAudioFormat_XMAudio2;
+WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 static const GUID *const wma_decoder_input_types[] =
 {
@@ -38,7 +37,6 @@ static const GUID *const wma_decoder_input_types[] =
     &MFAudioFormat_WMAudioV8,
     &MFAudioFormat_WMAudioV9,
     &MFAudioFormat_WMAudio_Lossless,
-    &MFAudioFormat_XMAudio2,
 };
 static const GUID *const wma_decoder_output_types[] =
 {
@@ -319,19 +317,19 @@ static HRESULT WINAPI transform_GetOutputAvailableType(IMFTransform *iface, DWOR
         goto done;
 
     if (FAILED(hr = IMFMediaType_SetUINT32(media_type, &MF_MT_AUDIO_NUM_CHANNELS,
-            decoder->input_format.u.audio_wma.channels)))
+            decoder->input_format.u.audio.channels)))
         goto done;
 
     if (FAILED(hr = IMFMediaType_SetUINT32(media_type, &MF_MT_AUDIO_SAMPLES_PER_SECOND,
-            decoder->input_format.u.audio_wma.rate)))
+            decoder->input_format.u.audio.rate)))
         goto done;
 
-    block_alignment = sample_size * decoder->input_format.u.audio_wma.channels / 8;
+    block_alignment = sample_size * decoder->input_format.u.audio.channels / 8;
     if (FAILED(hr = IMFMediaType_SetUINT32(media_type, &MF_MT_AUDIO_BLOCK_ALIGNMENT,
             block_alignment)))
         goto done;
     if (FAILED(hr = IMFMediaType_SetUINT32(media_type, &MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
-            decoder->input_format.u.audio_wma.rate * block_alignment)))
+            decoder->input_format.u.audio.rate * block_alignment)))
         goto done;
 
     if (FAILED(hr = IMFMediaType_SetUINT32(media_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, 1)))
@@ -448,7 +446,7 @@ static HRESULT WINAPI transform_SetOutputType(IMFTransform *iface, DWORD id, IMF
     if (flags & MFT_SET_TYPE_TEST_ONLY)
         return S_OK;
 
-    decoder->input_format.u.audio_wma.depth = sample_size;
+    decoder->input_format.u.audio.depth = sample_size;
 
     mf_media_type_to_wg_format(type, &decoder->output_format);
     decoder->output_buf_size = 1024 * block_alignment * channel_count;
@@ -501,18 +499,7 @@ static HRESULT WINAPI transform_ProcessEvent(IMFTransform *iface, DWORD id, IMFM
 
 static HRESULT WINAPI transform_ProcessMessage(IMFTransform *iface, MFT_MESSAGE_TYPE message, ULONG_PTR param)
 {
-    struct wma_decoder *decoder = impl_from_IMFTransform(iface);
-
-    TRACE("iface %p, message %#x, param %p.\n", iface, message, (void *)param);
-
-    if (!decoder->wg_transform)
-        return MF_E_TRANSFORM_TYPE_NOT_SET;
-
-    if (message == MFT_MESSAGE_COMMAND_DRAIN)
-        return wg_transform_drain(decoder->wg_transform);
-
-    FIXME("Ignoring message %#x.\n", message);
-
+    FIXME("iface %p, message %#x, param %p stub!\n", iface, message, (void *)param);
     return S_OK;
 }
 
@@ -695,13 +682,13 @@ static HRESULT WINAPI media_object_GetOutputType(IMediaObject *iface, DWORD inde
     memset(type->pbFormat, 0, type->cbFormat);
 
     wfx = (WAVEFORMATEX *)type->pbFormat;
-    if (decoder->input_format.u.audio_wma.depth == 32)
+    if (decoder->input_format.u.audio.depth == 32)
         wfx->wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
     else
         wfx->wFormatTag = WAVE_FORMAT_PCM;
-    wfx->nChannels = decoder->input_format.u.audio_wma.channels;
-    wfx->nSamplesPerSec = decoder->input_format.u.audio_wma.rate;
-    wfx->wBitsPerSample = decoder->input_format.u.audio_wma.depth;
+    wfx->nChannels = decoder->input_format.u.audio.channels;
+    wfx->nSamplesPerSec = decoder->input_format.u.audio.rate;
+    wfx->wBitsPerSample = decoder->input_format.u.audio.depth;
     wfx->nAvgBytesPerSec = wfx->nChannels * wfx->nSamplesPerSec * wfx->wBitsPerSample / 8;
     wfx->nBlockAlign = wfx->nChannels * wfx->wBitsPerSample / 8;
 
@@ -713,6 +700,7 @@ static HRESULT WINAPI media_object_SetInputType(IMediaObject *iface, DWORD index
 {
     struct wma_decoder *decoder = impl_from_IMediaObject(iface);
     struct wg_format wg_format;
+    unsigned int i;
 
     TRACE("iface %p, index %lu, type %p, flags %#lx.\n", iface, index, type, flags);
 
@@ -739,8 +727,15 @@ static HRESULT WINAPI media_object_SetInputType(IMediaObject *iface, DWORD index
     if (!IsEqualGUID(&type->majortype, &MEDIATYPE_Audio))
         return DMO_E_TYPE_NOT_ACCEPTED;
 
+    for (i = 0; i < ARRAY_SIZE(wma_decoder_input_types); ++i)
+        if (IsEqualGUID(&type->subtype, wma_decoder_input_types[i]))
+            break;
+    if (i == ARRAY_SIZE(wma_decoder_input_types))
+        return DMO_E_TYPE_NOT_ACCEPTED;
+
     if (!amt_to_wg_format((const AM_MEDIA_TYPE *)type, &wg_format))
         return DMO_E_TYPE_NOT_ACCEPTED;
+    assert(wg_format.major_type == WG_MAJOR_TYPE_AUDIO_WMA);
 
     if (flags & DMO_SET_TYPEF_TEST_ONLY)
         return S_OK;
@@ -1031,10 +1026,31 @@ static const IPropertyBagVtbl property_bag_vtbl =
 
 HRESULT wma_decoder_create(IUnknown *outer, IUnknown **out)
 {
+    static const struct wg_format output_format =
+    {
+        .major_type = WG_MAJOR_TYPE_AUDIO,
+        .u.audio =
+        {
+            .format = WG_AUDIO_FORMAT_F32LE,
+            .channel_mask = 1,
+            .channels = 1,
+            .rate = 44100,
+        },
+    };
+    static const struct wg_format input_format = {.major_type = WG_MAJOR_TYPE_AUDIO_WMA};
+    struct wg_transform_attrs attrs = {0};
+    wg_transform_t transform;
     struct wma_decoder *decoder;
     HRESULT hr;
 
     TRACE("outer %p, out %p.\n", outer, out);
+
+    if (!(transform = wg_transform_create(&input_format, &output_format, &attrs)))
+    {
+        ERR_(winediag)("GStreamer doesn't support WMA decoding, please install appropriate plugins\n");
+        return E_FAIL;
+    }
+    wg_transform_destroy(transform);
 
     if (!(decoder = calloc(1, sizeof(*decoder))))
         return E_OUTOFMEMORY;

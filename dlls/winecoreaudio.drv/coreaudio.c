@@ -325,7 +325,12 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
 
     for(i = 0; i < params->num; i++){
         const SIZE_T name_len = CFStringGetLength(info[i].name) + 1;
-        const SIZE_T device_len = CFStringGetLength(info[i].uid) + 1;
+        CFIndex device_len;
+
+        CFStringGetBytes(info[i].uid, CFRangeMake(0, CFStringGetLength(info[i].uid)), kCFStringEncodingUTF8,
+                         0, false, NULL, 0, &device_len);
+        device_len++;   /* for null terminator */
+
         needed += name_len * sizeof(WCHAR) + ((device_len + 1) & ~1);
 
         if(needed <= params->size){
@@ -336,7 +341,8 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
             offset += name_len * sizeof(WCHAR);
 
             endpoint->device = offset;
-            CFStringGetCString(info[i].uid, (char *)params->endpoints + offset, params->size - offset, kCFStringEncodingUTF8);
+            CFStringGetBytes(info[i].uid, CFRangeMake(0, CFStringGetLength(info[i].uid)), kCFStringEncodingUTF8,
+                             0, false, (UInt8 *)params->endpoints + offset, params->size - offset, NULL);
             ((char *)params->endpoints)[offset + device_len - 1] = '\0';
             offset += (device_len + 1) & ~1;
 
@@ -1873,7 +1879,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_set_volumes,
     unix_set_event_handle,
     unix_not_implemented,
-    unix_not_implemented,
     unix_is_started,
     unix_get_prop_value,
     unix_midi_init,
@@ -2328,7 +2333,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     unix_wow64_get_position,
     unix_wow64_set_volumes,
     unix_wow64_set_event_handle,
-    unix_not_implemented,
     unix_not_implemented,
     unix_is_started,
     unix_wow64_get_prop_value,

@@ -80,7 +80,6 @@
 #include <setupapi.h>
 #include <wininet.h>
 #include <newdev.h>
-#include <wincrypt.h>
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wineboot);
@@ -196,10 +195,27 @@ static DWORD set_reg_value_dword( HKEY hkey, const WCHAR *name, DWORD value )
 
 #if defined(__i386__) || defined(__x86_64__)
 
+extern UINT64 WINAPI do_xgetbv( unsigned int cx);
+#ifdef __i386__
+__ASM_STDCALL_FUNC( do_xgetbv, 4,
+                   "movl 4(%esp),%ecx\n\t"
+                   "xgetbv\n\t"
+                   "ret $4" )
+#else
+__ASM_GLOBAL_FUNC( do_xgetbv,
+                   "xgetbv\n\t"
+                   "shlq $32,%rdx\n\t"
+                   "orq %rdx,%rax\n\t"
+                   "ret" )
+#endif
+
 static void initialize_xstate_features(struct _KUSER_SHARED_DATA *data)
 {
+    static const ULONG64 wine_xstate_supported_features = 0xfc; /* XSTATE_AVX, XSTATE_MPX_BNDREGS, XSTATE_MPX_BNDCSR,
+                                                                 * XSTATE_AVX512_KMASK, XSTATE_AVX512_ZMM_H, XSTATE_AVX512_ZMM */
     XSTATE_CONFIGURATION *xstate = &data->XState;
-    unsigned int i;
+    ULONG64 supported_mask;
+    unsigned int i, off;
     int regs[4];
 
     if (!data->ProcessorFeatures[PF_AVX_INSTRUCTIONS_AVAILABLE])
@@ -218,29 +234,40 @@ static void initialize_xstate_features(struct _KUSER_SHARED_DATA *data)
 
     __cpuidex(regs, 0xd, 0);
     TRACE("XSAVE details %#x, %#x, %#x, %#x.\n", regs[0], regs[1], regs[2], regs[3]);
-    if (!(regs[0] & XSTATE_AVX))
+    supported_mask = ((ULONG64)regs[3] << 32) | regs[0];
+    supported_mask &= do_xgetbv(0) & wine_xstate_supported_features;
+    if (!(supported_mask >> 2))
         return;
 
-    xstate->EnabledFeatures = (1 << XSTATE_LEGACY_FLOATING_POINT) | (1 << XSTATE_LEGACY_SSE) | (1 << XSTATE_AVX);
+    xstate->EnabledFeatures = (1 << XSTATE_LEGACY_FLOATING_POINT) | (1 << XSTATE_LEGACY_SSE) | supported_mask;
     xstate->EnabledVolatileFeatures = xstate->EnabledFeatures;
-    xstate->Size = sizeof(XSAVE_FORMAT) + sizeof(XSTATE);
     xstate->AllFeatureSize = regs[1];
-    xstate->AllFeatures[0] = offsetof(XSAVE_FORMAT, XmmRegisters);
-    xstate->AllFeatures[1] = sizeof(M128A) * 16;
-    xstate->AllFeatures[2] = sizeof(YMMCONTEXT);
-
-    for (i = 0; i < 3; ++i)
-        xstate->Features[i].Size = xstate->AllFeatures[i];
-
-    xstate->Features[1].Offset = xstate->Features[0].Size;
-    xstate->Features[2].Offset = sizeof(XSAVE_FORMAT) + offsetof(XSTATE, YmmContext);
 
     __cpuidex(regs, 0xd, 1);
     xstate->OptimizedSave = regs[0] & 1;
     xstate->CompactionEnabled = !!(regs[0] & 2);
 
-    __cpuidex(regs, 0xd, 2);
-    TRACE("XSAVE feature 2 %#x, %#x, %#x, %#x.\n", regs[0], regs[1], regs[2], regs[3]);
+    xstate->Features[0].Size = xstate->AllFeatures[0] = offsetof(XSAVE_FORMAT, XmmRegisters);
+    xstate->Features[1].Size = xstate->AllFeatures[1] = sizeof(M128A) * 16;
+    xstate->Features[1].Offset = xstate->Features[0].Size;
+    off = sizeof(XSAVE_FORMAT) + sizeof(XSAVE_AREA_HEADER);
+    supported_mask >>= 2;
+    for (i = 2; supported_mask; ++i, supported_mask >>= 1)
+    {
+        if (!(supported_mask & 1)) continue;
+        __cpuidex( regs, 0xd, i );
+        xstate->Features[i].Offset = regs[1];
+        xstate->Features[i].Size = xstate->AllFeatures[i] = regs[0];
+        if (regs[2] & 2)
+        {
+            xstate->AlignedFeatures |= (ULONG64)1 << i;
+            off = (off + 63) & ~63;
+        }
+        off += xstate->Features[i].Size;
+        TRACE("xstate[%d] offset %lu, size %lu, aligned %d.\n", i, xstate->Features[i].Offset, xstate->Features[i].Size, !!(regs[2] & 2));
+    }
+    xstate->Size = xstate->CompactionEnabled ? off : xstate->Features[i - 1].Offset + xstate->Features[i - 1].Size;
+    TRACE("xstate size %lu, compacted %d, optimized %d.\n", xstate->Size, xstate->CompactionEnabled, xstate->OptimizedSave);
 }
 
 static BOOL is_tsc_trusted_by_the_kernel(void)
@@ -335,13 +362,7 @@ static UINT64 read_tsc_frequency(void)
     }
     while (error > 500 && --retries);
 
-    if (!retries)
-    {
-        FIXME( "TSC frequency calibration failed, unstable TSC?");
-        FIXME( "time0 %I64u ns, time1 %I64u ns\n", time0 * 100, time1 * 100 );
-        FIXME( "tsc2 - tsc0 %I64u, tsc3 - tsc1 %I64u\n", tsc2 - tsc0, tsc3 - tsc1 );
-        FIXME( "freq0 %I64u Hz, freq2 %I64u Hz, error %I64u ppm\n", freq0, freq1, error );
-    }
+    if (!retries) WARN( "TSC frequency calibration failed, unstable TSC?\n" );
     else
     {
         freq = (freq0 + freq1) / 2;
@@ -449,6 +470,10 @@ static void create_user_shared_data(void)
         features[PF_ARM_V8_INSTRUCTIONS_AVAILABLE]        = TRUE;
         features[PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE]  = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V8_CRC32);
         features[PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V8_CRYPTO);
+        features[PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE]= !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V81_ATOMIC);
+        features[PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE]    = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V82_DP);
+        features[PF_ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V83_JSCVT);
+        features[PF_ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V83_LRCPC);
         features[PF_COMPARE_EXCHANGE_DOUBLE]              = TRUE;
         features[PF_NX_ENABLED]                           = TRUE;
         features[PF_FASTFAIL_AVAILABLE]                   = TRUE;
@@ -1541,6 +1566,37 @@ static BOOL start_services_process(void)
     return TRUE;
 }
 
+static INT_PTR CALLBACK wait_dlgproc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+        {
+            DWORD len;
+            WCHAR *buffer, text[1024];
+            const WCHAR *name = (WCHAR *)lp;
+            HICON icon = LoadImageW( 0, (LPCWSTR)IDI_WINLOGO, IMAGE_ICON, 48, 48, LR_SHARED );
+            SendDlgItemMessageW( hwnd, IDC_WAITICON, STM_SETICON, (WPARAM)icon, 0 );
+            SendDlgItemMessageW( hwnd, IDC_WAITTEXT, WM_GETTEXT, 1024, (LPARAM)text );
+            len = lstrlenW(text) + lstrlenW(name) + 1;
+            buffer = malloc( len * sizeof(WCHAR) );
+            swprintf( buffer, len, text, name );
+            SendDlgItemMessageW( hwnd, IDC_WAITTEXT, WM_SETTEXT, 0, (LPARAM)buffer );
+            free( buffer );
+        }
+        break;
+    }
+    return 0;
+}
+
+static HWND show_wait_window(void)
+{
+    HWND hwnd = CreateDialogParamW( GetModuleHandleW(0), MAKEINTRESOURCEW(IDD_WAITDLG), 0,
+                                    wait_dlgproc, (LPARAM)prettyprint_configdir() );
+    ShowWindow( hwnd, SW_SHOWNORMAL );
+    return hwnd;
+}
+
 static HANDLE start_rundll32( const WCHAR *inf_path, const WCHAR *install, WORD machine )
 {
     WCHAR app[MAX_PATH + ARRAY_SIZE(L"\\rundll32.exe" )];
@@ -1660,8 +1716,7 @@ static void update_user_profile(void)
 
 static void update_win_version(void)
 {
-    static const WCHAR win10_buildW[] = L"19043";
-    static const WCHAR win10_ntW[] = L"6.3";
+    static const WCHAR win10_buildW[] = L"18363";
 
     HKEY cv_h;
     DWORD type, sz;
@@ -1673,8 +1728,7 @@ static void update_win_version(void)
         sz = sizeof(current_version);
         if(RegQueryValueExW(cv_h, L"CurrentVersion", NULL, &type, (BYTE *)current_version, &sz) == ERROR_SUCCESS &&
                 type == REG_SZ){
-            if(!wcscmp(current_version, L"6.3") || !wcscmp(current_version, L"10.0")){
-                RegSetValueExW(cv_h, L"CurrentVersion", 0, REG_SZ, (const BYTE *)win10_ntW, sizeof(win10_ntW));
+            if(!wcscmp(current_version, L"10.0")){
                 RegSetValueExW(cv_h, L"CurrentBuild", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
                 RegSetValueExW(cv_h, L"CurrentBuildNumber", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
             }
@@ -1688,23 +1742,13 @@ static void update_win_version(void)
         sz = sizeof(current_version);
         if(RegQueryValueExW(cv_h, L"CurrentVersion", NULL, &type, (BYTE *)current_version, &sz) == ERROR_SUCCESS &&
                 type == REG_SZ){
-            if(!wcscmp(current_version, L"6.3") || !wcscmp(current_version, L"10.0")){
-                RegSetValueExW(cv_h, L"CurrentVersion", 0, REG_SZ, (const BYTE *)win10_ntW, sizeof(win10_ntW));
+            if(!wcscmp(current_version, L"10.0")){
                 RegSetValueExW(cv_h, L"CurrentBuild", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
                 RegSetValueExW(cv_h, L"CurrentBuildNumber", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
             }
         }
         RegCloseKey(cv_h);
     }
-}
-
-static void update_root_certs(void)
-{
-    HCERTSTORE store;
-
-    store = CertOpenStore( CERT_STORE_PROV_SYSTEM_REGISTRY_W, 0, 0, CERT_STORE_OPEN_EXISTING_FLAG
-                           | CERT_STORE_READONLY_FLAG | CERT_SYSTEM_STORE_LOCAL_MACHINE, L"Root");
-    CertCloseStore( store, 0 );
 }
 
 /* execute rundll32 on the wine.inf file if necessary */
@@ -1740,6 +1784,7 @@ static void update_wineprefix( BOOL force )
 
         if ((process = start_rundll32( inf_path, L"PreInstall", IMAGE_FILE_MACHINE_TARGET_HOST )))
         {
+            HWND hwnd = show_wait_window();
             for (;;)
             {
                 if (process)
@@ -1760,11 +1805,11 @@ static void update_wineprefix( BOOL force )
                     process = start_rundll32( inf_path, L"Wow64Install", machines[count].Machine );
                 count++;
             }
+            DestroyWindow( hwnd );
         }
         install_root_pnp_devices();
         update_user_profile();
         update_win_version();
-        update_root_certs();
 
         WINE_MESSAGE( "wine: configuration in %s has been updated.\n", debugstr_w(prettyprint_configdir()) );
     }

@@ -45,16 +45,28 @@
 #include "winternl.h"
 #include "ddk/d3dkmthk.h"
 #include "wine/debug.h"
-#include "wine/heap.h"
 
 #include "objbase.h"
 #include "wine/wined3d.h"
 #include "wine/list.h"
 #include "wine/rbtree.h"
+#include "wine/wgl.h"
 
 static inline size_t align(size_t addr, size_t alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);
+}
+
+static inline uint32_t float_to_int(float f)
+{
+    union
+    {
+        uint32_t u;
+        float f;
+    } u;
+
+    u.f = f;
+    return u.u;
 }
 
 static inline float int_to_float(uint32_t i)
@@ -221,6 +233,7 @@ struct wined3d_d3d_info
     uint32_t shader_output_interpolation : 1;
     uint32_t frag_coord_correction : 1;
     uint32_t viewport_array_index_any_shader : 1;
+    uint32_t stencil_export : 1;
     uint32_t texture_npot : 1;
     uint32_t texture_npot_conditional : 1;
     uint32_t normalized_texrect : 1;
@@ -236,6 +249,7 @@ struct wined3d_d3d_info
     uint32_t subpixel_viewport : 1;
     uint32_t fences : 1;
     uint32_t persistent_map : 1;
+    uint32_t gpu_push_constants : 1;
     enum wined3d_feature_level feature_level;
 
     DWORD multisample_draw_location;
@@ -453,8 +467,6 @@ enum wined3d_shader_backend
 {
     WINED3D_SHADER_BACKEND_AUTO,
     WINED3D_SHADER_BACKEND_GLSL,
-    WINED3D_SHADER_BACKEND_ARB,
-    WINED3D_SHADER_BACKEND_NONE,
 };
 
 #define WINED3D_CSMT_ENABLE    0x00000001
@@ -476,6 +488,7 @@ struct wined3d_settings
     unsigned int sample_count;
     BOOL check_float_constants;
     unsigned int strict_shader_math;
+    unsigned int multiply_special;
     unsigned int max_sm_vs;
     unsigned int max_sm_hs;
     unsigned int max_sm_ds;
@@ -581,6 +594,7 @@ enum wined3d_shader_register_type
     WINED3DSPR_DEPTHOUTGE,
     WINED3DSPR_DEPTHOUTLE,
     WINED3DSPR_RASTERIZER,
+    WINED3DSPR_STENCILREF,
 };
 
 enum wined3d_data_type
@@ -1155,7 +1169,7 @@ struct wined3d_shader_reg_maps
     DWORD input_rel_addressing : 1;
     DWORD viewport_array : 1;
     DWORD sample_mask    : 1;
-    DWORD padding        : 14;
+    DWORD stencil_ref    : 1;
 
     DWORD rt_mask; /* Used render targets, 32 max. */
 
@@ -1539,15 +1553,13 @@ struct wined3d_shader_backend_ops
 {
     void (*shader_handle_instruction)(const struct wined3d_shader_instruction *);
     void (*shader_precompile)(void *shader_priv, struct wined3d_shader *shader);
-    void (*shader_select)(void *shader_priv, struct wined3d_context *context,
+    void (*shader_apply_draw_state)(void *shader_priv, struct wined3d_context *context,
             const struct wined3d_state *state);
-    void (*shader_select_compute)(void *shader_priv, struct wined3d_context *context,
+    void (*shader_apply_compute_state)(void *shader_priv, struct wined3d_context *context,
             const struct wined3d_state *state);
     void (*shader_disable)(void *shader_priv, struct wined3d_context *context);
     void (*shader_update_float_vertex_constants)(struct wined3d_device *device, UINT start, UINT count);
     void (*shader_update_float_pixel_constants)(struct wined3d_device *device, UINT start, UINT count);
-    void (*shader_load_constants)(void *shader_priv, struct wined3d_context *context,
-            const struct wined3d_state *state);
     void (*shader_destroy)(struct wined3d_shader *shader);
     HRESULT (*shader_alloc_private)(struct wined3d_device *device, const struct wined3d_vertex_pipe_ops *vertex_pipe,
             const struct wined3d_fragment_pipe_ops *fragment_pipe);
@@ -1955,7 +1967,10 @@ struct wined3d_context
     DWORD destroyed : 1;
     DWORD destroy_delayed : 1;
     DWORD namedArraysLoaded : 1;
-    DWORD padding : 5;
+    DWORD update_primitive_type : 1;
+    DWORD update_patch_vertex_count : 1;
+    DWORD update_multisample_state : 1;
+    DWORD padding : 2;
 
     DWORD clip_distance_mask : 8; /* WINED3D_MAX_CLIP_DISTANCES, 8 */
 
@@ -2000,7 +2015,8 @@ struct wined3d_state_entry_template
 
 struct wined3d_fragment_pipe_ops
 {
-    void (*fp_enable)(const struct wined3d_context *context, BOOL enable);
+    void (*fp_apply_draw_state)(struct wined3d_context *context, const struct wined3d_state *state);
+    void (*fp_disable)(const struct wined3d_context *context);
     void (*get_caps)(const struct wined3d_adapter *adapter, struct fragment_caps *caps);
     unsigned int (*get_emul_mask)(const struct wined3d_adapter *adapter);
     void *(*alloc_private)(const struct wined3d_shader_backend_ops *shader_backend, void *shader_priv);
@@ -2027,7 +2043,8 @@ struct wined3d_vertex_caps
 
 struct wined3d_vertex_pipe_ops
 {
-    void (*vp_enable)(const struct wined3d_context *context, BOOL enable);
+    void (*vp_apply_draw_state)(struct wined3d_context *context, const struct wined3d_state *state);
+    void (*vp_disable)(const struct wined3d_context *context);
     void (*vp_get_caps)(const struct wined3d_adapter *adapter, struct wined3d_vertex_caps *caps);
     unsigned int (*vp_get_emul_mask)(const struct wined3d_adapter *adapter);
     void *(*vp_alloc)(const struct wined3d_shader_backend_ops *shader_backend, void *shader_priv);
@@ -2758,7 +2775,8 @@ struct wined3d_ffp_vs_settings
     DWORD texcoords       : 8;  /* WINED3D_MAX_FFP_TEXTURES */
     DWORD ortho_fog       : 1;
     DWORD flatshading     : 1;
-    DWORD padding         : 18;
+    DWORD specular_enable : 1;
+    DWORD padding         : 17;
 
     DWORD swizzle_map; /* MAX_ATTRIBS, 32 */
 
@@ -2785,10 +2803,6 @@ struct wined3d
 BOOL wined3d_filter_messages(HWND window, BOOL filter);
 HRESULT wined3d_init(struct wined3d *wined3d, uint32_t flags);
 void wined3d_unregister_window(HWND window);
-BOOL wined3d_get_activate_processed(HWND window);
-void wined3d_set_activate_processed(HWND window, BOOL activate_processed);
-BOOL wined3d_get_inside_mode_change(HWND window);
-BOOL wined3d_set_inside_mode_change(HWND window, BOOL inside_mode_change);
 
 BOOL wined3d_get_app_name(char *app_name, unsigned int app_name_size);
 
@@ -2901,7 +2915,7 @@ struct wined3d_state
     unsigned int render_states[WINEHIGHEST_RENDER_STATE + 1];
     struct wined3d_blend_state *blend_state;
     struct wined3d_color blend_factor;
-    unsigned int sample_mask;
+    uint32_t sample_mask;
     struct wined3d_depth_stencil_state *depth_stencil_state;
     unsigned int stencil_ref;
     bool depth_bounds_enable;
@@ -2942,6 +2956,14 @@ struct wined3d_so_desc_entry
     struct wine_rb_entry entry;
     struct wined3d_stream_output_desc desc;
     struct wined3d_stream_output_element elements[1];
+};
+
+struct wined3d_vr_gl_context
+{
+    HWND window;
+    HDC dc;
+    HGLRC gl_ctx;
+    const struct wined3d_gl_info *gl_info;
 };
 
 struct wined3d_device
@@ -3014,6 +3036,8 @@ struct wined3d_device
     /* Context management */
     struct wined3d_context **contexts;
     UINT context_count;
+
+    struct wined3d_vr_gl_context vr_context;
 
     CRITICAL_SECTION bo_map_lock;
 };
@@ -3409,7 +3433,7 @@ static inline void *wined3d_texture_allocate_object_memory(SIZE_T s, SIZE_T leve
     if (level_count > ((~(SIZE_T)0 - s) / sizeof(*t->sub_resources)) / layer_count)
         return NULL;
 
-    return heap_alloc_zero(s + level_count * layer_count * sizeof(*t->sub_resources));
+    return calloc(1, s + level_count * layer_count * sizeof(*t->sub_resources));
 }
 
 static inline struct wined3d_texture *texture_from_resource(struct wined3d_resource *resource)
@@ -3670,6 +3694,17 @@ static inline void wined3d_cs_finish(struct wined3d_cs *cs, enum wined3d_cs_queu
 {
     cs->c.ops->finish(&cs->c, queue_id);
 }
+
+void wined3d_cs_emit_gl_texture_callback(struct wined3d_cs *cs, struct wined3d_texture *texture,
+        wined3d_gl_texture_callback callback, struct wined3d_texture *depth_texture,
+        const void *data, unsigned int size);
+void wined3d_cs_emit_user_callback(struct wined3d_cs *cs,
+        wined3d_cs_callback callback, const void *data, unsigned int size);
+
+GLsync wined3d_cs_synchronize(struct wined3d_cs *cs, struct wined3d_texture *texture);
+
+void wined3d_destroy_gl_vr_context(struct wined3d_vr_gl_context *ctx);
+
 
 void wined3d_device_context_emit_blt_sub_resource(struct wined3d_device_context *context,
         struct wined3d_resource *dst_resource, unsigned int dst_sub_resource_idx, const struct wined3d_box *dst_box,
@@ -4146,7 +4181,7 @@ struct wined3d_shader_limits
 #define wined3d_lock_init(lock, name) wined3d_lock_init_(lock, __FILE__ ": " name)
 static inline void wined3d_lock_init_(CRITICAL_SECTION *lock, const char *name)
 {
-    InitializeCriticalSection(lock);
+    InitializeCriticalSectionEx(lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     if (lock->DebugInfo != (RTL_CRITICAL_SECTION_DEBUG *)-1)
         lock->DebugInfo->Spare[0] = (DWORD_PTR)name;
 }
@@ -4254,6 +4289,7 @@ struct wined3d_shader
     void *byte_code;
     unsigned int byte_code_size;
     BOOL load_local_constsF;
+    enum vkd3d_shader_source_type source_type;
     const struct wined3d_shader_frontend *frontend;
     void *frontend_data;
     void *backend_data;
@@ -4338,6 +4374,7 @@ static inline BOOL shader_is_scalar(const struct wined3d_shader_register *reg)
         case WINED3DSPR_PRIMID:     /* primID */
         case WINED3DSPR_COVERAGE: /* vCoverage */
         case WINED3DSPR_SAMPLEMASK: /* oMask */
+        case WINED3DSPR_STENCILREF: /* oStencilRef */
             return TRUE;
 
         case WINED3DSPR_MISCTYPE:

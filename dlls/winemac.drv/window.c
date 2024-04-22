@@ -59,6 +59,14 @@ static void get_cocoa_window_features(struct macdrv_win_data *data,
 
     if (ex_style & WS_EX_NOACTIVATE) wf->prevents_app_activation = TRUE;
 
+    /* The dock_icon flag is only relevant when the window is visible, so we
+       don't need to worry about any other styles or the window rect. */
+    if (NtUserGetWindowRelative(data->hwnd, GW_OWNER))
+        wf->dock_icon = FALSE;
+    else
+        wf->dock_icon = (ex_style & WS_EX_APPWINDOW) ||
+                        ((ex_style & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) == 0);
+
     if (disable_window_decorations) return;
     if (IsRectEmpty(window_rect)) return;
     if (EqualRect(window_rect, client_rect)) return;
@@ -1930,6 +1938,11 @@ BOOL macdrv_UpdateLayeredWindow(HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
     else set_surface_use_alpha(surface, TRUE);
 
     if (surface) window_surface_add_ref(surface);
+
+    /* Since layered attributes are now set, can now show the window */
+    if (data->cocoa_window && !data->on_screen && NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_VISIBLE)
+        show_window(data);
+
     release_win_data(data);
 
     if (!surface) return FALSE;

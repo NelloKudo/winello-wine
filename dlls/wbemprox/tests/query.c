@@ -483,6 +483,7 @@ static void test_Win32_Bios( IWbemServices *services )
     check_property( obj, L"SMBIOSBIOSVersion", VT_BSTR, CIM_STRING );
     check_property( obj, L"SMBIOSMajorVersion", VT_I4, CIM_UINT16 );
     check_property( obj, L"SMBIOSMinorVersion", VT_I4, CIM_UINT16 );
+    check_property( obj, L"Status", VT_BSTR, CIM_STRING );
     check_property( obj, L"Version", VT_BSTR, CIM_STRING );
 
     IWbemClassObject_Release( obj );
@@ -2286,8 +2287,7 @@ static void test_SystemRestore( IWbemServices *services )
 
 static void test_Win32_LogicalDisk( IWbemServices *services )
 {
-    BSTR wql = SysAllocString( L"wql" );
-    BSTR query = SysAllocString( L"SELECT * FROM Win32_LogicalDisk" );
+    BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_LogicalDisk" );
     IEnumWbemClassObject *result;
     IWbemClassObject *obj;
     HRESULT hr;
@@ -2328,6 +2328,17 @@ static void test_Win32_LogicalDisk( IWbemServices *services )
     ok( count == 1, "got %lu\n", count );
     IWbemClassObject_Release( obj );
     IEnumWbemClassObject_Release( result );
+    SysFreeString( query );
+
+    query = SysAllocString( L"Win32_LogicalDisk = \"C:\"" );
+    hr = IWbemServices_GetObject( services, query, 0, NULL, &obj, NULL );
+    ok( hr == WBEM_E_INVALID_OBJECT_PATH, "got %#lx\n", hr );
+    SysFreeString( query );
+
+    query = SysAllocString( L"Win32_LogicalDisk=\"C:\"" );
+    hr = IWbemServices_GetObject( services, query, 0, NULL, &obj, NULL );
+    ok( hr == S_OK, "got %#lx\n", hr );
+    IWbemClassObject_Release( obj );
     SysFreeString( query );
     SysFreeString( wql );
 }

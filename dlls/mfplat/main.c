@@ -6296,17 +6296,6 @@ static HRESULT resolver_get_bytestream_url_hint(IMFByteStream *stream, WCHAR con
 static HRESULT resolver_create_gstreamer_handler(IMFByteStreamHandler **handler)
 {
     static const GUID CLSID_GStreamerByteStreamHandler = {0x317df618, 0x5e5a, 0x468a, {0x9f, 0x15, 0xd8, 0x27, 0xa9, 0xa0, 0x81, 0x62}};
-    static const GUID CLSID_GStreamerByteStreamHandler2 = {0x317df619, 0x5e5a, 0x468a, {0x9f, 0x15, 0xd8, 0x27, 0xa9, 0xa0, 0x81, 0x62}};
-
-    const char *env = getenv("WINE_NEW_MEDIA_SOURCE"), *sgi = getenv("SteamGameId");
-    if (!env && sgi)
-    {
-        if (!strcmp(sgi, "399810") /* Call of Cthulhu */) env = "1";
-        if (!strcmp(sgi, "606880") /* Greedfall */) env = "1";
-        if (!strcmp(sgi, "692850") /* Bloodstained */) env = "1";
-    }
-    if (env && atoi(env)) return CoCreateInstance(&CLSID_GStreamerByteStreamHandler2, NULL, CLSCTX_INPROC_SERVER, &IID_IMFByteStreamHandler, (void **)handler);
-
     return CoCreateInstance(&CLSID_GStreamerByteStreamHandler, NULL, CLSCTX_INPROC_SERVER, &IID_IMFByteStreamHandler, (void **)handler);
 }
 
@@ -9222,15 +9211,8 @@ static const IMFDXGIDeviceManagerVtbl dxgi_device_manager_vtbl =
 HRESULT WINAPI MFCreateDXGIDeviceManager(UINT *token, IMFDXGIDeviceManager **manager)
 {
     struct dxgi_device_manager *object;
-    const char *do_not_create = getenv("WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER");
 
     TRACE("%p, %p.\n", token, manager);
-
-    if (do_not_create && do_not_create[0] != '\0')
-    {
-        FIXME("stubbing out\n");
-        return E_NOTIMPL;
-    }
 
     if (!token || !manager)
         return E_POINTER;

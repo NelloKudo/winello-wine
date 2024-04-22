@@ -987,8 +987,8 @@ static HRESULT HTMLFrameElement_get_name(DispatchEx *dispex, DISPID id, BSTR *na
     return *name ? S_OK : E_OUTOFMEMORY;
 }
 
-static HRESULT HTMLFrameElement_invoke(DispatchEx *dispex, IDispatch *this_obj, DISPID id, LCID lcid, WORD flags,
-        DISPPARAMS *params, VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
+static HRESULT HTMLFrameElement_invoke(DispatchEx *dispex, DISPID id, LCID lcid, WORD flags, DISPPARAMS *params,
+        VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
 {
     HTMLFrameElement *This = frame_from_DispatchEx(dispex);
 
@@ -997,8 +997,8 @@ static HRESULT HTMLFrameElement_invoke(DispatchEx *dispex, IDispatch *this_obj, 
         return E_FAIL;
     }
 
-    return dispex_invoke(&This->framebase.content_window->base.inner_window->event_target.dispex,
-                         this_obj, id, lcid, flags, params, res, ei, caller);
+    return IDispatchEx_InvokeEx(&This->framebase.content_window->base.IDispatchEx_iface, id, lcid,
+            flags, params, res, ei, caller);
 }
 
 static const NodeImplVtbl HTMLFrameElementImplVtbl = {
@@ -1034,10 +1034,9 @@ static const tid_t HTMLFrameElement_iface_tids[] = {
     0
 };
 
-dispex_static_data_t HTMLFrameElement_dispex = {
+static dispex_static_data_t HTMLFrameElement_dispex = {
     "HTMLFrameElement",
     &HTMLFrameElement_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLFrameElement,
     DispHTMLFrameElement_tid,
     HTMLFrameElement_iface_tids,
     HTMLElement_init_dispex_info
@@ -1578,8 +1577,8 @@ static HRESULT HTMLIFrame_get_name(DispatchEx *dispex, DISPID id, BSTR *name)
     return *name ? S_OK : E_OUTOFMEMORY;
 }
 
-static HRESULT HTMLIFrame_invoke(DispatchEx *dispex, IDispatch *this_obj, DISPID id, LCID lcid, WORD flags,
-        DISPPARAMS *params, VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
+static HRESULT HTMLIFrame_invoke(DispatchEx *dispex, DISPID id, LCID lcid, WORD flags, DISPPARAMS *params,
+        VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
 {
     HTMLIFrame *This = iframe_from_DispatchEx(dispex);
 
@@ -1588,8 +1587,8 @@ static HRESULT HTMLIFrame_invoke(DispatchEx *dispex, IDispatch *this_obj, DISPID
         return E_FAIL;
     }
 
-    return dispex_invoke(&This->framebase.content_window->base.inner_window->event_target.dispex,
-                         this_obj, id, lcid, flags, params, res, ei, caller);
+    return IDispatchEx_InvokeEx(&This->framebase.content_window->base.IDispatchEx_iface, id, lcid,
+            flags, params, res, ei, caller);
 }
 
 static const NodeImplVtbl HTMLIFrameImplVtbl = {
@@ -1627,10 +1626,9 @@ static const tid_t HTMLIFrame_iface_tids[] = {
     0
 };
 
-dispex_static_data_t HTMLIFrame_dispex = {
+static dispex_static_data_t HTMLIFrame_dispex = {
     "HTMLIFrameElement",
     &HTMLIFrame_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLIFrameElement,
     DispHTMLIFrame_tid,
     HTMLIFrame_iface_tids,
     HTMLElement_init_dispex_info

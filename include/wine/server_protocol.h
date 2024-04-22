@@ -14,6 +14,7 @@
 
 #include <windef.h>
 #include <winbase.h>
+#include <ntuser.h>
 
 typedef unsigned int obj_handle_t;
 typedef unsigned int user_handle_t;
@@ -263,33 +264,12 @@ struct hw_msg_source
     unsigned int    origin;
 };
 
-union rawinput
+struct rawinput
 {
-    int type;
-    struct
-    {
-        int            type;
-        unsigned int   message;
-        unsigned short vkey;
-        unsigned short scan;
-    } kbd;
-    struct
-    {
-        int            type;
-        int            x;
-        int            y;
-        unsigned int   data;
-    } mouse;
-    struct
-    {
-        int            type;
-        unsigned int   device;
-        unsigned int   param;
-        unsigned short usage_page;
-        unsigned short usage;
-        unsigned int   count;
-        unsigned int   length;
-    } hid;
+    int                  type;
+    unsigned int         device;
+    unsigned int         wparam;
+    unsigned int         usage;
 };
 
 struct hardware_msg_data
@@ -300,7 +280,7 @@ struct hardware_msg_data
     unsigned int         hw_id;
     unsigned int         flags;
     struct hw_msg_source source;
-    union rawinput       rawinput;
+    struct rawinput      rawinput;
 };
 
 struct callback_msg_data
@@ -344,8 +324,9 @@ typedef union
     {
         int            type;
         unsigned int   msg;
+        lparam_t       wparam;
         lparam_t       lparam;
-        union rawinput rawinput;
+        struct hid_input hid;
     } hw;
 } hw_input_t;
 
@@ -844,7 +825,8 @@ typedef struct
     unsigned char  contains_code : 1;
     unsigned char  wine_builtin : 1;
     unsigned char  wine_fakedll : 1;
-    unsigned char  padding : 5;
+    unsigned char  is_hybrid : 1;
+    unsigned char  padding : 4;
     unsigned char  image_flags;
     unsigned int   loader_flags;
     unsigned int   header_size;
@@ -862,8 +844,7 @@ typedef struct
 
 struct rawinput_device
 {
-    unsigned short usage_page;
-    unsigned short usage;
+    unsigned int   usage;
     unsigned int   flags;
     user_handle_t  target;
 };
@@ -876,63 +857,6 @@ typedef struct
     int __pad;
     lparam_t info;
 } cursor_pos_t;
-
-struct cpu_topology_override
-{
-    unsigned int cpu_count;
-    unsigned char host_cpu_id[64];
-};
-
-struct shared_cursor
-{
-    int                  x;
-    int                  y;
-    unsigned int         last_change;
-    rectangle_t          clip;
-    unsigned int         clip_flags;
-};
-
-struct desktop_shared_memory
-{
-    unsigned int         seq;
-    struct shared_cursor cursor;
-    unsigned char        keystate[256];
-    thread_id_t          foreground_tid;
-    __int64              update_serial;
-};
-typedef volatile struct desktop_shared_memory desktop_shm_t;
-
-struct queue_shared_memory
-{
-    unsigned int         seq;
-    int                  created;
-    unsigned int         wake_bits;
-    unsigned int         changed_bits;
-    unsigned int         wake_mask;
-    unsigned int         changed_mask;
-    thread_id_t          input_tid;
-};
-typedef volatile struct queue_shared_memory queue_shm_t;
-
-struct input_shared_memory
-{
-    unsigned int         seq;
-    int                  created;
-    thread_id_t          tid;
-    user_handle_t        focus;
-    user_handle_t        capture;
-    user_handle_t        active;
-    user_handle_t        menu_owner;
-    user_handle_t        move_size;
-    user_handle_t        caret;
-    user_handle_t        cursor;
-    rectangle_t          caret_rect;
-    int                  cursor_count;
-    unsigned char        keystate[256];
-    int                  keystate_lock;
-    __int64              sync_serial;
-};
-typedef volatile struct input_shared_memory input_shm_t;
 
 
 
@@ -1031,10 +955,8 @@ struct init_process_done_request
 struct init_process_done_reply
 {
     struct reply_header __header;
-    client_ptr_t entry;
-    /* VARARG(cpu_override,cpu_topology_override); */
     int          suspend;
-    char __pad_20[4];
+    char __pad_12[4];
 };
 
 
@@ -1192,6 +1114,8 @@ struct set_process_info_request
     int          mask;
     int          priority;
     affinity_t   affinity;
+    obj_handle_t token;
+    char __pad_36[4];
 };
 struct set_process_info_reply
 {
@@ -1199,6 +1123,7 @@ struct set_process_info_reply
 };
 #define SET_PROCESS_INFO_PRIORITY 0x01
 #define SET_PROCESS_INFO_AFFINITY 0x02
+#define SET_PROCESS_INFO_TOKEN    0x04
 
 
 
@@ -1275,14 +1200,12 @@ struct suspend_thread_request
 {
     struct request_header __header;
     obj_handle_t handle;
-    obj_handle_t waited_handle;
-    char __pad_20[4];
 };
 struct suspend_thread_reply
 {
     struct reply_header __header;
     int          count;
-    obj_handle_t wait_handle;
+    char __pad_12[4];
 };
 
 
@@ -1391,12 +1314,14 @@ struct compare_objects_reply
 
 
 
-struct make_temporary_request
+struct set_object_permanence_request
 {
     struct request_header __header;
     obj_handle_t handle;
+    int          permanent;
+    char __pad_20[4];
 };
-struct make_temporary_reply
+struct set_object_permanence_reply
 {
     struct reply_header __header;
 };
@@ -1764,6 +1689,7 @@ enum server_fd_type
 {
     FD_TYPE_INVALID,
     FD_TYPE_FILE,
+    FD_TYPE_SYMLINK,
     FD_TYPE_DIR,
     FD_TYPE_SOCKET,
     FD_TYPE_SERIAL,
@@ -2373,9 +2299,7 @@ struct read_process_memory_request
 struct read_process_memory_reply
 {
     struct reply_header __header;
-    int unix_pid;
     /* VARARG(data,bytes); */
-    char __pad_12[4];
 };
 
 
@@ -2966,8 +2890,6 @@ struct send_hardware_message_reply
     int             new_y;
     char __pad_28[4];
 };
-#define SEND_HWMSG_INJECTED    0x01
-#define SEND_HWMSG_RAWINPUT    0x02
 
 
 
@@ -2981,6 +2903,8 @@ struct get_message_request
     unsigned int    hw_id;
     unsigned int    wake_mask;
     unsigned int    changed_mask;
+    unsigned int    internal;
+    char __pad_44[4];
 };
 struct get_message_reply
 {
@@ -2993,9 +2917,9 @@ struct get_message_reply
     int             x;
     int             y;
     unsigned int    time;
+    unsigned int    active_hooks;
     data_size_t     total;
     /* VARARG(data,message_data); */
-    char __pad_52[4];
 };
 
 
@@ -3679,6 +3603,19 @@ struct set_window_region_reply
 
 
 
+struct set_layer_region_request
+{
+    struct request_header __header;
+    user_handle_t  window;
+    /* VARARG(region,rectangles); */
+};
+struct set_layer_region_reply
+{
+    struct reply_header __header;
+};
+
+
+
 struct get_update_region_request
 {
     struct request_header __header;
@@ -3939,6 +3876,18 @@ struct open_input_desktop_reply
 
 
 
+struct set_input_desktop_request
+{
+    struct request_header __header;
+    obj_handle_t handle;
+};
+struct set_input_desktop_reply
+{
+    struct reply_header __header;
+};
+
+
+
 struct close_desktop_request
 {
     struct request_header __header;
@@ -4000,7 +3949,6 @@ struct set_user_object_info_request
     obj_handle_t handle;
     unsigned int flags;
     unsigned int obj_flags;
-    timeout_t    close_timeout;
 };
 struct set_user_object_info_reply
 {
@@ -4011,7 +3959,6 @@ struct set_user_object_info_reply
 };
 #define SET_USER_OBJECT_SET_FLAGS       1
 #define SET_USER_OBJECT_GET_FULL_NAME   2
-#define SET_USER_OBJECT_SET_CLOSE_TIMEOUT 4
 
 
 
@@ -4076,10 +4023,14 @@ struct get_thread_input_reply
     user_handle_t  focus;
     user_handle_t  capture;
     user_handle_t  active;
+    user_handle_t  foreground;
     user_handle_t  menu_owner;
     user_handle_t  move_size;
     user_handle_t  caret;
+    user_handle_t  cursor;
+    int            show_count;
     rectangle_t    rect;
+    char __pad_60[4];
 };
 
 
@@ -4158,8 +4109,6 @@ struct set_active_window_request
 {
     struct request_header __header;
     user_handle_t  handle;
-    unsigned int   internal_msg;
-    char __pad_20[4];
 };
 struct set_active_window_reply
 {
@@ -4235,20 +4184,6 @@ enum caret_state
     CARET_STATE_ON,
     CARET_STATE_TOGGLE,
     CARET_STATE_ON_IF_MOVED
-};
-
-
-
-struct get_active_hooks_request
-{
-    struct request_header __header;
-    char __pad_12[4];
-};
-struct get_active_hooks_reply
-{
-    struct reply_header __header;
-    unsigned int   active_hooks;
-    char __pad_12[4];
 };
 
 
@@ -5235,7 +5170,6 @@ struct make_process_system_request
 {
     struct request_header __header;
     obj_handle_t handle;
-    timeout_t    desktop_close_timeout;
 };
 struct make_process_system_reply
 {
@@ -5335,8 +5269,6 @@ struct remove_completion_request
 {
     struct request_header __header;
     obj_handle_t handle;
-    int          waited;
-    char __pad_20[4];
 };
 struct remove_completion_reply
 {
@@ -5559,11 +5491,9 @@ struct get_cursor_history_reply
 struct get_rawinput_buffer_request
 {
     struct request_header __header;
-    data_size_t rawinput_size;
-    data_size_t buffer_size;
-    int         clear_qs_rawinput;
-    int         __pad;
-    char __pad_28[4];
+    data_size_t header_size;
+    int         read_data;
+    char __pad_20[4];
 };
 struct get_rawinput_buffer_reply
 {
@@ -5828,8 +5758,6 @@ struct get_esync_apc_fd_reply
     struct reply_header __header;
 };
 
-#define FSYNC_SHM_PAGE_SIZE 0x10000
-
 enum fsync_type
 {
     FSYNC_SEMAPHORE = 1,
@@ -5916,16 +5844,6 @@ struct get_fsync_apc_idx_reply
     char __pad_12[4];
 };
 
-struct fsync_free_shm_idx_request
-{
-    struct request_header __header;
-    unsigned int shm_idx;
-};
-struct fsync_free_shm_idx_reply
-{
-    struct reply_header __header;
-};
-
 
 enum request
 {
@@ -5954,7 +5872,7 @@ enum request
     REQ_set_handle_info,
     REQ_dup_handle,
     REQ_compare_objects,
-    REQ_make_temporary,
+    REQ_set_object_permanence,
     REQ_open_process,
     REQ_open_thread,
     REQ_select,
@@ -6089,6 +6007,7 @@ enum request
     REQ_get_surface_region,
     REQ_get_window_region,
     REQ_set_window_region,
+    REQ_set_layer_region,
     REQ_get_update_region,
     REQ_update_window_zorder,
     REQ_redraw_window,
@@ -6105,6 +6024,7 @@ enum request
     REQ_create_desktop,
     REQ_open_desktop,
     REQ_open_input_desktop,
+    REQ_set_input_desktop,
     REQ_close_desktop,
     REQ_get_thread_desktop,
     REQ_set_thread_desktop,
@@ -6123,7 +6043,6 @@ enum request
     REQ_set_capture_window,
     REQ_set_caret_window,
     REQ_set_caret_info,
-    REQ_get_active_hooks,
     REQ_set_hook,
     REQ_remove_hook,
     REQ_start_hook_chain,
@@ -6225,7 +6144,6 @@ enum request
     REQ_get_fsync_idx,
     REQ_fsync_msgwait,
     REQ_get_fsync_apc_idx,
-    REQ_fsync_free_shm_idx,
     REQ_NB_REQUESTS
 };
 
@@ -6258,7 +6176,7 @@ union generic_request
     struct set_handle_info_request set_handle_info_request;
     struct dup_handle_request dup_handle_request;
     struct compare_objects_request compare_objects_request;
-    struct make_temporary_request make_temporary_request;
+    struct set_object_permanence_request set_object_permanence_request;
     struct open_process_request open_process_request;
     struct open_thread_request open_thread_request;
     struct select_request select_request;
@@ -6393,6 +6311,7 @@ union generic_request
     struct get_surface_region_request get_surface_region_request;
     struct get_window_region_request get_window_region_request;
     struct set_window_region_request set_window_region_request;
+    struct set_layer_region_request set_layer_region_request;
     struct get_update_region_request get_update_region_request;
     struct update_window_zorder_request update_window_zorder_request;
     struct redraw_window_request redraw_window_request;
@@ -6409,6 +6328,7 @@ union generic_request
     struct create_desktop_request create_desktop_request;
     struct open_desktop_request open_desktop_request;
     struct open_input_desktop_request open_input_desktop_request;
+    struct set_input_desktop_request set_input_desktop_request;
     struct close_desktop_request close_desktop_request;
     struct get_thread_desktop_request get_thread_desktop_request;
     struct set_thread_desktop_request set_thread_desktop_request;
@@ -6427,7 +6347,6 @@ union generic_request
     struct set_capture_window_request set_capture_window_request;
     struct set_caret_window_request set_caret_window_request;
     struct set_caret_info_request set_caret_info_request;
-    struct get_active_hooks_request get_active_hooks_request;
     struct set_hook_request set_hook_request;
     struct remove_hook_request remove_hook_request;
     struct start_hook_chain_request start_hook_chain_request;
@@ -6529,7 +6448,6 @@ union generic_request
     struct get_fsync_idx_request get_fsync_idx_request;
     struct fsync_msgwait_request fsync_msgwait_request;
     struct get_fsync_apc_idx_request get_fsync_apc_idx_request;
-    struct fsync_free_shm_idx_request fsync_free_shm_idx_request;
 };
 union generic_reply
 {
@@ -6560,7 +6478,7 @@ union generic_reply
     struct set_handle_info_reply set_handle_info_reply;
     struct dup_handle_reply dup_handle_reply;
     struct compare_objects_reply compare_objects_reply;
-    struct make_temporary_reply make_temporary_reply;
+    struct set_object_permanence_reply set_object_permanence_reply;
     struct open_process_reply open_process_reply;
     struct open_thread_reply open_thread_reply;
     struct select_reply select_reply;
@@ -6695,6 +6613,7 @@ union generic_reply
     struct get_surface_region_reply get_surface_region_reply;
     struct get_window_region_reply get_window_region_reply;
     struct set_window_region_reply set_window_region_reply;
+    struct set_layer_region_reply set_layer_region_reply;
     struct get_update_region_reply get_update_region_reply;
     struct update_window_zorder_reply update_window_zorder_reply;
     struct redraw_window_reply redraw_window_reply;
@@ -6711,6 +6630,7 @@ union generic_reply
     struct create_desktop_reply create_desktop_reply;
     struct open_desktop_reply open_desktop_reply;
     struct open_input_desktop_reply open_input_desktop_reply;
+    struct set_input_desktop_reply set_input_desktop_reply;
     struct close_desktop_reply close_desktop_reply;
     struct get_thread_desktop_reply get_thread_desktop_reply;
     struct set_thread_desktop_reply set_thread_desktop_reply;
@@ -6729,7 +6649,6 @@ union generic_reply
     struct set_capture_window_reply set_capture_window_reply;
     struct set_caret_window_reply set_caret_window_reply;
     struct set_caret_info_reply set_caret_info_reply;
-    struct get_active_hooks_reply get_active_hooks_reply;
     struct set_hook_reply set_hook_reply;
     struct remove_hook_reply remove_hook_reply;
     struct start_hook_chain_reply start_hook_chain_reply;
@@ -6831,12 +6750,11 @@ union generic_reply
     struct get_fsync_idx_reply get_fsync_idx_reply;
     struct fsync_msgwait_reply fsync_msgwait_reply;
     struct get_fsync_apc_idx_reply get_fsync_apc_idx_reply;
-    struct fsync_free_shm_idx_reply fsync_free_shm_idx_reply;
 };
 
 /* ### protocol_version begin ### */
 
-#define SERVER_PROTOCOL_VERSION 787
+#define SERVER_PROTOCOL_VERSION 800
 
 /* ### protocol_version end ### */
 

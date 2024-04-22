@@ -83,12 +83,11 @@ struct process
     unsigned int         rawinput_device_count;   /* number of registered rawinput devices */
     const struct rawinput_device *rawinput_mouse; /* rawinput mouse device, if any */
     const struct rawinput_device *rawinput_kbd;   /* rawinput keyboard device, if any */
+    struct list          rawinput_entry;  /* entry in the rawinput process list */
     struct list          kernel_object;   /* list of kernel object pointers */
     pe_image_info_t      image_info;      /* main exe image info */
     int                  esync_fd;        /* esync file descriptor (signaled on exit) */
     unsigned int         fsync_idx;
-    struct cpu_topology_override cpu_override; /* Overridden CPUs to host CPUs mapping. */
-    unsigned char   wine_cpu_id_from_host[64]; /* Host to overridden CPU mapping. */
 };
 
 /* process functions */

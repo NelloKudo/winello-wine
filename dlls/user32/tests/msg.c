@@ -5205,6 +5205,39 @@ static void test_showwindow(void)
     flush_sequence();
 }
 
+static void test_recursive_activation(void)
+{
+    static const struct message seq[] =
+    {
+        { HCBT_ACTIVATE, hook },
+        { WM_NCACTIVATE, sent|wparam, TRUE },
+        { WM_ACTIVATE, sent|wparam, WA_ACTIVE },
+        { HCBT_ACTIVATE, hook },
+        { WM_NCACTIVATE, sent|wparam, FALSE },
+        { WM_ACTIVATE, sent|wparam, WA_INACTIVE },
+        { WM_SETFOCUS, sent|optional },
+        { 0 }
+    };
+    HWND hwnd, recursive;
+
+    hwnd = CreateWindowExA(0, "SimpleWindowClass", NULL, WS_OVERLAPPED|WS_VISIBLE,
+                              100, 100, 200, 200, 0, 0, 0, NULL);
+    ok(hwnd != 0, "Failed to create simple window\n");
+
+    recursive = CreateWindowExA(0, "RecursiveActivationClass", NULL, WS_OVERLAPPED|WS_VISIBLE,
+                                10, 10, 50, 50, hwnd, 0, 0, NULL);
+    ok(recursive != 0, "Failed to create recursive activation window\n");
+    SetActiveWindow(hwnd);
+
+    flush_sequence();
+    SetActiveWindow(recursive);
+    ok_sequence(seq, "Recursive Activation", FALSE);
+
+    DestroyWindow(recursive);
+    DestroyWindow(hwnd);
+    flush_sequence();
+}
+
 static void test_sys_menu(void)
 {
     HWND hwnd;
@@ -7832,6 +7865,7 @@ static const struct message SetFocusComboBoxSeq[] =
     { WM_CTLCOLORBTN, sent|parent },
     { WM_SETFOCUS, sent },
     { WM_KILLFOCUS, sent|defwinproc },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { WM_SETFOCUS, sent },
     { WM_COMMAND, sent|defwinproc|wparam, MAKEWPARAM(1001, EN_SETFOCUS) },
     { EM_SETSEL, sent|defwinproc|wparam|lparam, 0, INT_MAX },
@@ -9805,7 +9839,6 @@ static DWORD WINAPI run_in_temp_desktop_thread_func(LPVOID param)
                                         curr_desktop_name, sizeof(curr_desktop_name), &length );
     ok_(file, line)( result, "GetUserObjectInformationA(post_inp_desktop=%p) error %lu [rl = %lu]\n",
                      post_inp_desktop, GetLastError(), length );
-    todo_wine
     ok_(file, line)( strcmp( curr_desktop_name, temp_desktop_name ) == 0,
                      "different desktop name: %s != %s (no switch or concurrent WineTest run?)\n",
                      debugstr_a( curr_desktop_name ), debugstr_a( temp_desktop_name ) );
@@ -11080,6 +11113,48 @@ static LRESULT WINAPI ShowWindowProcA(HWND hwnd, UINT message, WPARAM wParam, LP
     return ret;
 }
 
+static LRESULT WINAPI recursive_activation_wndprocA(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    static LONG defwndproc_counter = 0;
+    struct recvd_message msg;
+    LRESULT ret;
+
+    switch (message)
+    {
+    /* log only specific messages we are interested in */
+    case WM_NCACTIVATE:
+    case WM_ACTIVATE:
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS:
+        break;
+    default:
+        return DefWindowProcA(hwnd, message, wParam, lParam);
+    }
+
+    msg.hwnd = hwnd;
+    msg.message = message;
+    msg.flags = sent|wparam|lparam;
+    if (defwndproc_counter) msg.flags |= defwinproc;
+    msg.wParam = wParam;
+    msg.lParam = lParam;
+    msg.descr = "recursive_activation";
+    add_message(&msg);
+
+    /* recursively activate ourselves by first losing activation and changing it back */
+    if (message == WM_ACTIVATE && LOWORD(wParam) != WA_INACTIVE)
+    {
+        SetActiveWindow((HWND)lParam);
+        SetActiveWindow(hwnd);
+        return 0;
+    }
+
+    defwndproc_counter++;
+    ret = DefWindowProcA(hwnd, message, wParam, lParam);
+    defwndproc_counter--;
+
+    return ret;
+}
+
 static LRESULT WINAPI PaintLoopProcA(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
@@ -11177,6 +11252,10 @@ static void register_classes(void)
     cls.lpszClassName = "ShowWindowClass";
     register_class(&cls);
 
+    cls.lpfnWndProc = recursive_activation_wndprocA;
+    cls.lpszClassName = "RecursiveActivationClass";
+    register_class(&cls);
+
     cls.lpfnWndProc = PopupMsgCheckProcA;
     cls.lpszClassName = "TestPopupClass";
     register_class(&cls);
@@ -11235,6 +11314,7 @@ static BOOL is_our_logged_class(HWND hwnd)
     {
 	if (!lstrcmpiA(buf, "TestWindowClass") ||
 	    !lstrcmpiA(buf, "ShowWindowClass") ||
+	    !lstrcmpiA(buf, "RecursiveActivationClass") ||
 	    !lstrcmpiA(buf, "TestParentClass") ||
 	    !lstrcmpiA(buf, "TestPopupClass") ||
 	    !lstrcmpiA(buf, "SimpleWindowClass") ||
@@ -12430,6 +12510,29 @@ todo_wine {
 static HWND hook_hwnd;
 static HHOOK recursive_hook;
 static int hook_depth, max_hook_depth;
+static BOOL skip_WH_KEYBOARD_hook, skip_WH_MOUSE_hook;
+
+static void simulate_click(BOOL left, int x, int y)
+{
+    POINT old_pt;
+    INPUT input[2];
+    UINT events_no;
+
+    GetCursorPos(&old_pt);
+    SetCursorPos(x, y);
+    memset(input, 0, sizeof(input));
+    input[0].type = INPUT_MOUSE;
+    input[0].mi.dx = x;
+    input[0].mi.dy = y;
+    input[0].mi.dwFlags = left ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_RIGHTDOWN;
+    input[1].type = INPUT_MOUSE;
+    input[1].mi.dx = x;
+    input[1].mi.dy = y;
+    input[1].mi.dwFlags = left ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_RIGHTUP;
+    events_no = SendInput(2, input, sizeof(input[0]));
+    ok(events_no == 2, "SendInput returned %d\n", events_no);
+    SetCursorPos(old_pt.x, old_pt.y);
+}
 
 static LRESULT WINAPI rec_get_message_hook(int code, WPARAM w, LPARAM l)
 {
@@ -12450,12 +12553,85 @@ static LRESULT WINAPI rec_get_message_hook(int code, WPARAM w, LPARAM l)
     return res;
 }
 
+static LRESULT CALLBACK keyboard_recursive_hook_proc(int code, WPARAM wp, LPARAM lp)
+{
+    MSG msg;
+
+    if (code < 0)
+        return CallNextHookEx(0, code, wp, lp);
+
+    if (skip_WH_KEYBOARD_hook)
+        return 1;
+
+    hook_depth++;
+    max_hook_depth = max(max_hook_depth, hook_depth);
+    PeekMessageW(&msg, NULL, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE);
+    hook_depth--;
+    return CallNextHookEx(0, code, wp, lp);
+}
+
+static LRESULT CALLBACK mouse_recursive_hook_proc(int code, WPARAM wp, LPARAM lp)
+{
+    MSG msg;
+
+    if (code < 0)
+        return CallNextHookEx(0, code, wp, lp);
+
+    if (skip_WH_MOUSE_hook)
+        return 1;
+
+    hook_depth++;
+    max_hook_depth = max(max_hook_depth, hook_depth);
+    PeekMessageW(&msg, NULL, WM_MOUSEFIRST, WM_MOUSELAST, PM_REMOVE);
+    hook_depth--;
+    return CallNextHookEx(0, code, wp, lp);
+}
+
+static LRESULT CALLBACK keyboard_recursive_cbt_hook_proc(int code, WPARAM wp, LPARAM lp)
+{
+    MSG msg;
+
+    if (code < 0)
+        return CallNextHookEx(0, code, wp, lp);
+
+    if (code == HCBT_KEYSKIPPED)
+    {
+        hook_depth++;
+        max_hook_depth = max(max_hook_depth, hook_depth);
+        PeekMessageW(&msg, NULL, WM_KEYFIRST, WM_KEYLAST, PM_REMOVE);
+        hook_depth--;
+    }
+
+    return CallNextHookEx(0, code, wp, lp);
+}
+
+static LRESULT CALLBACK mouse_recursive_cbt_hook_proc(int code, WPARAM wp, LPARAM lp)
+{
+    MSG msg;
+
+    if (code < 0)
+        return CallNextHookEx(0, code, wp, lp);
+
+    if (code == HCBT_CLICKSKIPPED)
+    {
+        hook_depth++;
+        max_hook_depth = max(max_hook_depth, hook_depth);
+        PeekMessageW(&msg, NULL, WM_MOUSEFIRST, WM_MOUSELAST, PM_REMOVE);
+        hook_depth--;
+    }
+
+    return CallNextHookEx(0, code, wp, lp);
+}
+
 static void test_recursive_hook(void)
 {
+    HHOOK hook, cbt_hook;
+    INPUT input = {0};
     MSG msg;
     BOOL b;
 
-    hook_hwnd = CreateWindowA("Static", NULL, WS_POPUP, 0, 0, 200, 60, NULL, NULL, NULL, NULL);
+    hook_hwnd = CreateWindowExA(WS_EX_TOPMOST, "Static", NULL, WS_POPUP | WS_VISIBLE, 0, 0, 200, 60,
+                                NULL, NULL, NULL, NULL);
     ok(hook_hwnd != NULL, "CreateWindow failed\n");
 
     recursive_hook = SetWindowsHookExW(WH_GETMESSAGE, rec_get_message_hook, NULL, GetCurrentThreadId());
@@ -12472,7 +12648,119 @@ static void test_recursive_hook(void)
     b = UnhookWindowsHookEx(recursive_hook);
     ok(b, "UnhokWindowsHookEx failed\n");
 
+    /* Test possible recursive hook conditions */
+    b = SetForegroundWindow(hook_hwnd);
+    ok(b, "SetForegroundWindow failed, error %ld.\n", GetLastError());
+
+    /* Test a possible recursive WH_KEYBOARD hook condition */
+    max_hook_depth = 0;
+    hook = SetWindowsHookExA(WH_KEYBOARD, keyboard_recursive_hook_proc, NULL, GetCurrentThreadId());
+    ok(!!hook, "SetWindowsHookExA failed, error %ld.\n", GetLastError());
+
+    flush_events();
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = VK_F3;
+    SendInput(1, &input, sizeof(INPUT));
+    flush_events();
+
+    /* Expect the WH_KEYBOARD hook not gets called recursively */
+    ok(max_hook_depth == 1, "Got expected %d.\n", max_hook_depth);
+
+    /* Test a possible recursive WH_CBT HCBT_KEYSKIPPED hook condition */
+    max_hook_depth = 0;
+    skip_WH_KEYBOARD_hook = 1;
+    cbt_hook = SetWindowsHookExA(WH_CBT, keyboard_recursive_cbt_hook_proc, NULL, GetCurrentThreadId());
+    ok(!!cbt_hook, "SetWindowsHookExA failed, error %ld.\n", GetLastError());
+
+    flush_events();
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = VK_F3;
+    SendInput(1, &input, sizeof(INPUT));
+    while (PeekMessageA(&msg, hook_hwnd, WM_KEYFIRST, WM_KEYLAST, 0)) DispatchMessageA(&msg);
+
+    /* Expect the WH_CBT HCBT_KEYSKIPPED hook not gets called recursively */
+    ok(max_hook_depth == 1, "Got expected %d.\n", max_hook_depth);
+
+    UnhookWindowsHookEx(cbt_hook);
+    UnhookWindowsHookEx(hook);
+
+    /* Test a recursive WH_MOUSE hook condition */
+    SetCapture(hook_hwnd);
+
+    max_hook_depth = 0;
+    hook = SetWindowsHookExA(WH_MOUSE, mouse_recursive_hook_proc, NULL, GetCurrentThreadId());
+    ok(!!hook, "SetWindowsHookExA failed, error %ld.\n", GetLastError());
+
+    flush_events();
+    simulate_click(FALSE, 50, 50);
+    flush_events();
+
+    /* Expect the WH_MOUSE hook gets called recursively */
+    ok(max_hook_depth > 10, "Got expected %d.\n", max_hook_depth);
+
+    /* Test a possible recursive WH_CBT HCBT_CLICKSKIPPED hook condition */
+    max_hook_depth = 0;
+    skip_WH_MOUSE_hook = 1;
+    cbt_hook = SetWindowsHookExA(WH_CBT, mouse_recursive_cbt_hook_proc, NULL, GetCurrentThreadId());
+    ok(!!cbt_hook, "SetWindowsHookExA failed, error %ld.\n", GetLastError());
+
+    flush_events();
+    simulate_click(FALSE, 50, 50);
+    flush_events();
+
+    /* Expect the WH_CBT HCBT_CLICKSKIPPED hook not gets called recursively */
+    ok(max_hook_depth <= 10, "Got expected %d.\n", max_hook_depth);
+
+    UnhookWindowsHookEx(cbt_hook);
+    UnhookWindowsHookEx(hook);
+    ReleaseCapture();
     DestroyWindow(hook_hwnd);
+}
+
+static int max_msg_depth;
+
+static LRESULT WINAPI recursive_messages_proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
+{
+    static int msg_depth;
+    MSG msg;
+
+    if (message == WM_SETCURSOR && max_msg_depth < 15)
+    {
+        msg_depth++;
+        max_msg_depth = max(max_msg_depth, msg_depth);
+        PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
+        msg_depth--;
+    }
+    return DefWindowProcA(hwnd, message, wp, lp);
+}
+
+static void test_recursive_messages(void)
+{
+    WNDCLASSA cls = {0};
+    HWND hwnd;
+
+    cls.lpfnWndProc = recursive_messages_proc;
+    cls.hInstance = GetModuleHandleA(0);
+    cls.hCursor = LoadCursorA(0, (LPCSTR)IDC_ARROW);
+    cls.hbrBackground = GetStockObject(WHITE_BRUSH);
+    cls.lpszClassName = "TestRecursiveMsgClass";
+    register_class(&cls);
+
+    hwnd = CreateWindowExA(WS_EX_TOPMOST, "TestRecursiveMsgClass", NULL, WS_POPUP | WS_DISABLED | WS_VISIBLE, 0, 0,
+                           100, 100, NULL, NULL, NULL, NULL);
+    ok(hwnd != NULL, "CreateWindowExA failed, error %ld.\n", GetLastError());
+    SetForegroundWindow(hwnd);
+    flush_events();
+
+    max_msg_depth = 0;
+    simulate_click(FALSE, 50, 50);
+    flush_events();
+
+    /* Expect recursive_messages_proc() gets called recursively for WM_SETCURSOR */
+    ok(max_msg_depth == 15, "Got expected %d.\n", max_msg_depth);
+
+    DestroyWindow(hwnd);
+    UnregisterClassA(cls.lpszClassName, cls.hInstance);
 }
 
 static const struct message ScrollWindowPaint1[] = {
@@ -12921,6 +13209,7 @@ static const struct message sl_edit_setfocus[] =
     { HCBT_SETFOCUS, hook },
     { WM_IME_SETCONTEXT, sent|wparam|optional, 1 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 2 },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam|winevent_hook_todo, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent|wparam, 0 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 10 },
@@ -12939,6 +13228,7 @@ static const struct message sl_edit_invisible[] =
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 2 },
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam|optional, OBJID_CLIENT, 0 }, /* Sent for IME. */
     { WM_KILLFOCUS, sent|parent },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent },
     { EVENT_OBJECT_CREATE, winevent_hook|wparam|lparam|winevent_hook_todo, OBJID_CARET, 0 },
@@ -12951,6 +13241,7 @@ static const struct message ml_edit_setfocus[] =
     { HCBT_SETFOCUS, hook },
     { WM_IME_SETCONTEXT, sent|wparam|optional, 1 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 2 },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam|winevent_hook_todo, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent|wparam, 0 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 10 },
@@ -12985,6 +13276,7 @@ static const struct message sl_edit_lbutton_down[] =
     { HCBT_SETFOCUS, hook },
     { WM_IME_SETCONTEXT, sent|wparam|defwinproc|optional, 1 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 2 },
+    { EM_GETPASSWORDCHAR, sent|defwinproc|optional }, /* Sent on some Win10 machines */
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam|winevent_hook_todo, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent|wparam|defwinproc, 0 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 10 },
@@ -13009,6 +13301,7 @@ static const struct message ml_edit_lbutton_down[] =
     { HCBT_SETFOCUS, hook },
     { WM_IME_SETCONTEXT, sent|wparam|defwinproc|optional, 1 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 2 },
+    { EM_GETPASSWORDCHAR, sent|defwinproc|optional }, /* Sent on some Win10 machines */
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam|winevent_hook_todo, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent|wparam|defwinproc, 0 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 10 },
@@ -14113,13 +14406,10 @@ static void test_PeekMessage3(void)
     ok(msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     PostMessageA(hwnd, WM_USER, 0, 0);
     ret = PeekMessageA(&msg, hwnd, 0, 0, PM_NOREMOVE);
-    todo_wine
     ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     ret = GetMessageA(&msg, hwnd, 0, 0);
-    todo_wine
     ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     ret = GetMessageA(&msg, hwnd, 0, 0);
-    todo_wine
     ok(ret && msg.message == WM_USER, "msg.message = %u instead of WM_USER\n", msg.message);
     ret = PeekMessageA(&msg, hwnd, 0, 0, 0);
     ok(!ret, "expected PeekMessage to return FALSE, got %u\n", ret);
@@ -14129,10 +14419,8 @@ static void test_PeekMessage3(void)
     ok(msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     PostMessageA(hwnd, WM_USER, 0, 0);
     ret = PeekMessageA(&msg, hwnd, 0, 0, PM_REMOVE);
-    todo_wine
     ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     ret = PeekMessageA(&msg, hwnd, 0, 0, PM_REMOVE);
-    todo_wine
     ok(ret && msg.message == WM_USER, "msg.message = %u instead of WM_USER\n", msg.message);
     ret = PeekMessageA(&msg, hwnd, 0, 0, 0);
     ok(!ret, "expected PeekMessage to return FALSE, got %u\n", ret);
@@ -14144,10 +14432,11 @@ static void test_PeekMessage3(void)
     ok(msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     PostMessageA(hwnd, WM_USER, 0, 0);
     ret = GetMessageA(&msg, hwnd, 0, 0);
-    todo_wine
     ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     ret = GetMessageA(&msg, hwnd, 0, 0);
-    todo_wine
+    ret = GetMessageA(&msg, NULL, 0, 0);
+    ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
+    ret = GetMessageA(&msg, NULL, 0, 0);
     ok(ret && msg.message == WM_USER, "msg.message = %u instead of WM_USER\n", msg.message);
     ret = PeekMessageA(&msg, hwnd, 0, 0, 0);
     ok(!ret, "expected PeekMessage to return FALSE, got %u\n", ret);
@@ -14175,12 +14464,30 @@ static void test_PeekMessage3(void)
     ret = GetMessageA(&msg, hwnd, 0, 0);
     ok(ret && msg.message == WM_USER, "msg.message = %u instead of WM_USER\n", msg.message);
     ret = GetMessageA(&msg, hwnd, 0, 0);
-    todo_wine
     ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
     ret = GetMessageA(&msg, hwnd, 0, 0);
-    todo_wine
     ok(ret && msg.message == WM_USER + 1, "msg.message = %u instead of WM_USER + 1\n", msg.message);
     ret = PeekMessageA(&msg, hwnd, 0, 0, 0);
+    ok(!ret, "expected PeekMessage to return FALSE, got %u\n", ret);
+
+    /* Newer messages are still returned when specifying a message range. */
+
+    SetTimer(hwnd, 1, 0, NULL);
+    while (!PeekMessageA(&msg, NULL, WM_TIMER, WM_TIMER, PM_NOREMOVE));
+    ok(msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
+    PostMessageA(hwnd, WM_USER + 1, 0, 0);
+    PostMessageA(hwnd, WM_USER, 0, 0);
+    ret = PeekMessageA(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
+    ok(ret && msg.message == WM_USER, "msg.message = %u instead of WM_USER\n", msg.message);
+    ret = PeekMessageA(&msg, NULL, WM_USER, WM_USER + 1, PM_NOREMOVE);
+    ok(ret && msg.message == WM_USER + 1, "msg.message = %u instead of WM_USER + 1\n", msg.message);
+    ret = PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE);
+    ok(ret && msg.message == WM_TIMER, "msg.message = %u instead of WM_TIMER\n", msg.message);
+    ret = PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE);
+    ok(ret && msg.message == WM_USER + 1, "msg.message = %u instead of WM_USER + 1\n", msg.message);
+    ret = PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE);
+    ok(ret && msg.message == WM_USER, "msg.message = %u instead of WM_USER\n", msg.message);
+    ret = PeekMessageA(&msg, NULL, 0, 0, 0);
     ok(!ret, "expected PeekMessage to return FALSE, got %u\n", ret);
 
     /* Also works for posted messages, but the situation is a bit different,
@@ -15411,6 +15718,7 @@ static const struct message WmDefDlgSetFocus_1[] = {
     { HCBT_SETFOCUS, hook },
     { WM_IME_SETCONTEXT, sent|wparam|optional, 1 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 2 },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam|winevent_hook_todo, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent|wparam, 0 },
     { WM_IME_NOTIFY, sent|wparam|defwinproc|optional, 10 },
@@ -15514,6 +15822,7 @@ static const struct message WmCreateDialogParamSeq_3[] = {
     { WM_ACTIVATEAPP, sent|parent|wparam, 1 },
     { WM_NCACTIVATE, sent|parent },
     { WM_ACTIVATE, sent|parent|wparam, 1 },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { WM_SETFOCUS, sent },
     { WM_COMMAND, sent|parent|wparam, MAKELONG(200, EN_SETFOCUS) },
     { WM_GETDLGCODE, sent|wparam|lparam, 0, 0 },
@@ -15552,6 +15861,7 @@ static const struct message WmCreateDialogParamSeq_4[] = {
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam, OBJID_CLIENT, 0 },
     { WM_SETFOCUS, sent|parent },
     { WM_KILLFOCUS, sent|parent },
+    { EM_GETPASSWORDCHAR, sent|optional }, /* Sent on some Win10 machines */
     { WM_SETFOCUS, sent },
     { WM_COMMAND, sent|parent|wparam, MAKELONG(200, EN_SETFOCUS) },
     { WM_GETDLGCODE, sent|wparam|lparam, 0, 0 },
@@ -20276,6 +20586,7 @@ START_TEST(msg)
     test_messages();
     test_setwindowpos();
     test_showwindow();
+    test_recursive_activation();
     invisible_parent_tests();
     test_mdi_messages();
     test_button_messages();
@@ -20303,6 +20614,7 @@ START_TEST(msg)
         test_set_hook();
         test_recursive_hook();
     }
+    test_recursive_messages();
     test_DestroyWindow();
     test_DispatchMessage();
     test_SendMessageTimeout();

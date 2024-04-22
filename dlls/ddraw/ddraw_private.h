@@ -19,10 +19,6 @@
 #ifndef __WINE_DLLS_DDRAW_DDRAW_PRIVATE_H
 #define __WINE_DLLS_DDRAW_DDRAW_PRIVATE_H
 
-#ifdef __i386__
-#pragma GCC target ("fpmath=387")
-#endif
-
 #include <assert.h>
 #include <limits.h>
 #include <math.h>
@@ -81,31 +77,6 @@ enum ddraw_device_state
     DDRAW_DEVICE_STATE_NOT_RESTORED,
 };
 
-#define DDRAW_INVALID_HANDLE ~0U
-
-enum ddraw_handle_type
-{
-    DDRAW_HANDLE_FREE,
-    DDRAW_HANDLE_MATERIAL,
-    DDRAW_HANDLE_MATRIX,
-    DDRAW_HANDLE_STATEBLOCK,
-    DDRAW_HANDLE_SURFACE,
-};
-
-struct ddraw_handle_entry
-{
-    void *object;
-    enum ddraw_handle_type type;
-};
-
-struct ddraw_handle_table
-{
-    struct ddraw_handle_entry *entries;
-    struct ddraw_handle_entry *free_entries;
-    UINT table_size;
-    UINT entry_count;
-};
-
 struct ddraw
 {
     /* Interfaces */
@@ -157,14 +128,9 @@ struct ddraw
      */
     struct list surface_list;
 
-    struct ddraw_handle_table handle_table;
-
     /* FVF management */
     struct FvfToDecl       *decls;
     UINT                    numConvertedDecls, declArraySize;
-
-    struct wined3d_stateblock *state;
-    const struct wined3d_stateblock_state *stateblock_state;
 
     unsigned int frames;
     DWORD prev_frame_time;
@@ -312,6 +278,31 @@ struct ddraw_surface *unsafe_impl_from_IDirectDrawSurface7(IDirectDrawSurface7 *
 struct ddraw_surface *unsafe_impl_from_IDirect3DTexture(IDirect3DTexture *iface);
 struct ddraw_surface *unsafe_impl_from_IDirect3DTexture2(IDirect3DTexture2 *iface);
 
+#define DDRAW_INVALID_HANDLE ~0U
+
+enum ddraw_handle_type
+{
+    DDRAW_HANDLE_FREE,
+    DDRAW_HANDLE_MATERIAL,
+    DDRAW_HANDLE_MATRIX,
+    DDRAW_HANDLE_STATEBLOCK,
+    DDRAW_HANDLE_SURFACE,
+};
+
+struct ddraw_handle_entry
+{
+    void *object;
+    enum ddraw_handle_type type;
+};
+
+struct ddraw_handle_table
+{
+    struct ddraw_handle_entry *entries;
+    struct ddraw_handle_entry *free_entries;
+    UINT table_size;
+    UINT entry_count;
+};
+
 BOOL ddraw_handle_table_init(struct ddraw_handle_table *t, UINT initial_size);
 void ddraw_handle_table_destroy(struct ddraw_handle_table *t);
 DWORD ddraw_allocate_handle(struct ddraw_handle_table *t, void *object, enum ddraw_handle_type type);
@@ -337,6 +328,7 @@ struct d3d_device
     struct ddraw *ddraw;
     struct list ddraw_entry;
     IUnknown *rt_iface;
+    struct ddraw_surface *target, *target_ds;
 
     struct wined3d_streaming_buffer vertex_buffer, index_buffer;
 
@@ -376,6 +368,9 @@ struct d3d_device
 
     struct wined3d_stateblock *recording, *state, *update_state;
     const struct wined3d_stateblock_state *stateblock_state;
+
+    /* For temporary saving state during reset. */
+    struct wined3d_stateblock *saved_state;
 };
 
 HRESULT d3d_device_create(struct ddraw *ddraw, const GUID *guid, struct ddraw_surface *target, IUnknown *rt_iface,
@@ -710,7 +705,8 @@ static inline struct wined3d_texture *ddraw_surface_get_draw_texture(struct ddra
 
 static inline struct wined3d_texture *ddraw_surface_get_any_texture(struct ddraw_surface *surface, unsigned int flags)
 {
-    if (surface->texture_location & DDRAW_SURFACE_LOCATION_DEFAULT)
+    if ((surface->texture_location & DDRAW_SURFACE_LOCATION_DEFAULT)
+            || (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_SYSTEMMEMORY))
         return ddraw_surface_get_default_texture(surface, flags);
 
     assert(surface->texture_location & DDRAW_SURFACE_LOCATION_DRAW);

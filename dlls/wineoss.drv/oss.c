@@ -551,7 +551,7 @@ static HRESULT setup_oss_device(AUDCLNT_SHAREMODE share, int fd,
     if(ret == S_FALSE && !out)
         ret = AUDCLNT_E_UNSUPPORTED_FORMAT;
 
-    if(ret == S_FALSE && out){
+    if(ret == S_FALSE){
         closest->Format.nBlockAlign =
             closest->Format.nChannels * closest->Format.wBitsPerSample / 8;
         closest->Format.nAvgBytesPerSec =
@@ -1731,7 +1731,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     oss_get_position,
     oss_set_volumes,
     oss_set_event_handle,
-    NULL,
     oss_test_connect,
     oss_is_started,
     oss_get_prop_value,
@@ -2227,7 +2226,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     oss_wow64_get_position,
     oss_wow64_set_volumes,
     oss_wow64_set_event_handle,
-    oss_not_implemented,
     oss_wow64_test_connect,
     oss_is_started,
     oss_wow64_get_prop_value,
