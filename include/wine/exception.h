@@ -27,7 +27,6 @@
 
 #include <windef.h>
 #include <winternl.h>
-#include <rtlsupportapi.h>
 #include <excpt.h>
 
 #ifdef __cplusplus

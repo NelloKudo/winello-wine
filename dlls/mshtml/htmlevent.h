@@ -40,6 +40,7 @@ typedef enum {
     EVENTID_FOCUSOUT,
     EVENTID_HELP,
     EVENTID_INPUT,
+    EVENTID_INVALID,
     EVENTID_KEYDOWN,
     EVENTID_KEYPRESS,
     EVENTID_KEYUP,
@@ -76,6 +77,7 @@ typedef struct DOMEvent {
     DispatchEx dispex;
     IDOMEvent IDOMEvent_iface;
 
+    HTMLInnerWindow *window;
     nsIDOMEvent *nsevent;
 
     eventid_t event_id;
@@ -107,7 +109,7 @@ HRESULT fire_event(HTMLDOMNode*,const WCHAR*,VARIANT*,VARIANT_BOOL*);
 void update_doc_cp_events(HTMLDocumentNode*,cp_static_data_t*);
 HRESULT doc_init_events(HTMLDocumentNode*);
 void detach_events(HTMLDocumentNode *doc);
-HRESULT create_event_obj(DOMEvent*,compat_mode_t,IHTMLEventObj**);
+HRESULT create_event_obj(HTMLDocumentNode*,DOMEvent*,IHTMLEventObj**);
 void bind_target_event(HTMLDocumentNode*,EventTarget*,const WCHAR*,IDispatch*);
 HRESULT ensure_doc_nsevent_handler(HTMLDocumentNode*,nsIDOMNode*,eventid_t);
 
@@ -115,7 +117,7 @@ void dispatch_event(EventTarget*,DOMEvent*);
 
 HRESULT create_document_event(HTMLDocumentNode*,eventid_t,DOMEvent**);
 HRESULT create_document_event_str(HTMLDocumentNode*,const WCHAR*,IDOMEvent**);
-HRESULT create_event_from_nsevent(nsIDOMEvent*,compat_mode_t,DOMEvent**);
+HRESULT create_event_from_nsevent(nsIDOMEvent*,HTMLInnerWindow*,compat_mode_t,DOMEvent**);
 HRESULT create_message_event(HTMLDocumentNode*,IHTMLWindow2*,VARIANT*,DOMEvent**);
 HRESULT create_storage_event(HTMLDocumentNode*,BSTR,BSTR,BSTR,const WCHAR*,BOOL,DOMEvent**);
 

@@ -1051,7 +1051,7 @@ static HRESULT DdsFrameDecode_CreateInstance(DdsFrameDecode **frame_decode)
     result->IWICBitmapFrameDecode_iface.lpVtbl = &DdsFrameDecode_Vtbl;
     result->IWICDdsFrameDecode_iface.lpVtbl = &DdsFrameDecode_Dds_Vtbl;
     result->ref = 1;
-    InitializeCriticalSectionEx(&result->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&result->lock);
     result->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": DdsFrameDecode.lock");
 
     *frame_decode = result;
@@ -1761,7 +1761,7 @@ HRESULT DdsDecoder_CreateInstance(REFIID iid, void** ppv)
     This->ref = 1;
     This->initialized = FALSE;
     This->stream = NULL;
-    InitializeCriticalSectionEx(&This->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&This->lock);
     This->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": DdsDecoder.lock");
 
     ret = IWICBitmapDecoder_QueryInterface(&This->IWICBitmapDecoder_iface, iid, ppv);
@@ -2140,7 +2140,7 @@ HRESULT DdsEncoder_CreateInstance( REFIID iid, void **ppv)
     This->frame_index = 0;
     This->uncommitted_frame = FALSE;
     This->committed = FALSE;
-    InitializeCriticalSectionEx(&This->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&This->lock);
     This->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": DdsEncoder.lock");
 
     ret = IWICBitmapEncoder_QueryInterface(&This->IWICBitmapEncoder_iface, iid, ppv);

@@ -94,7 +94,7 @@ XMLPUBFUN xmlChar *
                 xmlStrncatNew            (const xmlChar *str1,
                                          const xmlChar *str2,
                                          int len);
-XMLPUBFUN int
+XMLPUBFUN int XMLCDECL
                 xmlStrPrintf             (xmlChar *buf,
                                          int len,
                                          const char *msg,

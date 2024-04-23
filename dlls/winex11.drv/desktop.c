@@ -86,8 +86,7 @@ BOOL X11DRV_CreateDesktop( const WCHAR *name, UINT width, UINT height )
                          0, 0, width, height, 0, default_visual.depth, InputOutput,
                          default_visual.visual, CWEventMask | CWCursor | CWColormap, &win_attr );
     if (!win) return FALSE;
-
-    x11drv_xinput2_enable( display, win );
+    X11DRV_XInput2_Enable( display, win, win_attr.event_mask );
     XFlush( display );
 
     X11DRV_init_desktop( win, width, height );
@@ -116,9 +115,9 @@ void X11DRV_resize_desktop(void)
     NtUserSetWindowPos( hwnd, 0, virtual_rect.left, virtual_rect.top, width, height,
                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_DEFERERASE );
 
-    if (old_virtual_rect.left != virtual_rect.left || old_virtual_rect.top != virtual_rect.top)
-        send_message_timeout( HWND_BROADCAST, WM_X11DRV_DESKTOP_RESIZED, old_virtual_rect.left,
-                              old_virtual_rect.top, SMTO_ABORTIFHUNG, 2000, FALSE );
+    /* HACK: always send the desktop resize notification, to eventually update fshack on windows */
+    send_message_timeout( HWND_BROADCAST, WM_X11DRV_DESKTOP_RESIZED, old_virtual_rect.left,
+                          old_virtual_rect.top, SMTO_ABORTIFHUNG, 2000, FALSE );
 
     old_virtual_rect = virtual_rect;
 }

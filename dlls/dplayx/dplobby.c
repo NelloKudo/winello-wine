@@ -2043,7 +2043,7 @@ HRESULT dplobby_create( REFIID riid, void **ppv )
     obj->ref3 = 1;
     obj->ref3A = 0;
 
-    InitializeCriticalSectionEx( &obj->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO );
+    InitializeCriticalSection( &obj->lock );
     obj->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": IDirectPlayLobbyImpl.lock");
     DPQ_INIT( obj->msgs );
 

@@ -1110,6 +1110,27 @@ static BOOL is_same_devmode(const DEVMODEW *a, const DEVMODEW *b)
            a->dmDisplayFrequency == b->dmDisplayFrequency;
 }
 
+static const char *debugstr_devmodew(const DEVMODEW *devmode)
+{
+    char position[32] = {0};
+
+    if (devmode->dmFields & DM_POSITION)
+    {
+        snprintf(position, sizeof(position), " at (%d,%d)",
+                 (int)devmode->dmPosition.x, (int)devmode->dmPosition.y);
+    }
+
+    return wine_dbg_sprintf("%ux%u %ubits %uHz rotated %u degrees %sstretched %sinterlaced%s",
+                            (unsigned int)devmode->dmPelsWidth,
+                            (unsigned int)devmode->dmPelsHeight,
+                            (unsigned int)devmode->dmBitsPerPel,
+                            (unsigned int)devmode->dmDisplayFrequency,
+                            (unsigned int)devmode->dmDisplayOrientation * 90,
+                            devmode->dmDisplayFixedOutput == DMDFO_STRETCH ? "" : "un",
+                            devmode->dmDisplayFlags & DM_INTERLACED ? "" : "non-",
+                            position);
+}
+
 BOOL macdrv_UpdateDisplayDevices( const struct gdi_device_manager *device_manager, BOOL force, void *param )
 {
     struct macdrv_adapter *adapters, *adapter;
@@ -1157,10 +1178,12 @@ BOOL macdrv_UpdateDisplayDevices( const struct gdi_device_manager *device_manage
         for (adapter = adapters; adapter < adapters + adapter_count; adapter++)
         {
             DEVMODEW current_mode = { .dmSize = sizeof(current_mode) };
-            char buffer[32];
-
-            sprintf( buffer, "%04x", adapter->id );
-            device_manager->add_source( buffer, adapter->state_flags, param );
+            struct gdi_adapter gdi_adapter =
+            {
+                .id = adapter->id,
+                .state_flags = adapter->state_flags,
+            };
+            device_manager->add_adapter( &gdi_adapter, param );
 
             if (macdrv_get_monitors(adapter->id, &monitors, &monitor_count)) break;
             TRACE("adapter: %#x, monitor count: %d\n", adapter->id, monitor_count);
@@ -1172,6 +1195,7 @@ BOOL macdrv_UpdateDisplayDevices( const struct gdi_device_manager *device_manage
                 {
                     .rc_monitor = rect_from_cgrect(monitor->rc_monitor),
                     .rc_work = rect_from_cgrect(monitor->rc_work),
+                    .state_flags = monitor->state_flags,
                 };
                 device_manager->add_monitor( &gdi_monitor, param );
             }
@@ -1190,7 +1214,23 @@ BOOL macdrv_UpdateDisplayDevices( const struct gdi_device_manager *device_manage
             }
 
             if (!(modes = display_get_modes(adapter->id, &mode_count))) break;
-            device_manager->add_modes( &current_mode, mode_count, modes, param );
+            TRACE("adapter: %#x, mode count: %d\n", adapter->id, mode_count);
+
+            /* Initialize modes */
+            for (mode = modes; mode < modes + mode_count; mode++)
+            {
+                if (is_same_devmode(mode, &current_mode))
+                {
+                    TRACE("current mode: %s\n", debugstr_devmodew(&current_mode));
+                    device_manager->add_mode( &current_mode, TRUE, param );
+                }
+                else
+                {
+                    TRACE("mode: %s\n", debugstr_devmodew(mode));
+                    device_manager->add_mode( mode, FALSE, param );
+                }
+            }
+
             free(modes);
             macdrv_free_monitors(monitors);
         }

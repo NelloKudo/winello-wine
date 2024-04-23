@@ -1443,7 +1443,6 @@ node_found:
      * Handle XInclude if asked for
      */
     if ((reader->xinclude) && (reader->in_xinclude == 0) &&
-        (reader->state != XML_TEXTREADER_BACKTRACK) &&
         (reader->node != NULL) &&
 	(reader->node->type == XML_ELEMENT_NODE) &&
 	(reader->node->ns != NULL) &&
@@ -3890,7 +3889,7 @@ xmlTextReaderPreserve(xmlTextReaderPtr reader) {
     }
     reader->preserves++;
 
-    parent = cur->parent;
+    parent = cur->parent;;
     while (parent != NULL) {
         if (parent->type == XML_ELEMENT_NODE)
 	    parent->extra |= NODE_IS_PRESERVED;
@@ -3980,19 +3979,19 @@ xmlTextReaderCurrentDoc(xmlTextReaderPtr reader) {
 #ifdef LIBXML_SCHEMAS_ENABLED
 static char *xmlTextReaderBuildMessage(const char *msg, va_list ap) LIBXML_ATTR_FORMAT(1,0);
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityError(void *ctxt, const char *msg, ...) LIBXML_ATTR_FORMAT(2,3);
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityWarning(void *ctxt, const char *msg, ...) LIBXML_ATTR_FORMAT(2,3);
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityErrorRelay(void *ctx, const char *msg, ...) LIBXML_ATTR_FORMAT(2,3);
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityWarningRelay(void *ctx, const char *msg, ...) LIBXML_ATTR_FORMAT(2,3);
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityErrorRelay(void *ctx, const char *msg, ...)
 {
     xmlTextReaderPtr reader = (xmlTextReaderPtr) ctx;
@@ -4015,7 +4014,7 @@ xmlTextReaderValidityErrorRelay(void *ctx, const char *msg, ...)
     va_end(ap);
 }
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityWarningRelay(void *ctx, const char *msg, ...)
 {
     xmlTextReaderPtr reader = (xmlTextReaderPtr) ctx;
@@ -4784,7 +4783,7 @@ xmlTextReaderStructuredError(void *ctxt, xmlErrorPtr error)
     }
 }
 
-static void LIBXML_ATTR_FORMAT(2,3)
+static void XMLCDECL LIBXML_ATTR_FORMAT(2,3)
 xmlTextReaderError(void *ctxt, const char *msg, ...)
 {
     va_list ap;
@@ -4797,7 +4796,7 @@ xmlTextReaderError(void *ctxt, const char *msg, ...)
 
 }
 
-static void LIBXML_ATTR_FORMAT(2,3)
+static void XMLCDECL LIBXML_ATTR_FORMAT(2,3)
 xmlTextReaderWarning(void *ctxt, const char *msg, ...)
 {
     va_list ap;
@@ -4809,7 +4808,7 @@ xmlTextReaderWarning(void *ctxt, const char *msg, ...)
     va_end(ap);
 }
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityError(void *ctxt, const char *msg, ...)
 {
     va_list ap;
@@ -4829,7 +4828,7 @@ xmlTextReaderValidityError(void *ctxt, const char *msg, ...)
     }
 }
 
-static void
+static void XMLCDECL
 xmlTextReaderValidityWarning(void *ctxt, const char *msg, ...)
 {
     va_list ap;

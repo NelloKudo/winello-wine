@@ -2862,11 +2862,8 @@ static UINT dialog_directorylist_up( msi_dialog *dialog )
 
     /* strip off the last directory */
     ptr = PathFindFileNameW( path );
-    if (ptr != path)
-    {
-        *(ptr - 1) = '\0';
-        PathAddBackslashW( path );
-    }
+    if (ptr != path) *(ptr - 1) = '\0';
+    PathAddBackslashW( path );
 
     dialog_set_property( dialog->package, prop, path );
 
@@ -3107,12 +3104,14 @@ static LONGLONG vcl_get_cost( msi_dialog *dialog )
         if (ERROR_SUCCESS == (MSI_GetFeatureCost(dialog->package, feature,
                 MSICOSTTREE_SELFONLY, INSTALLSTATE_LOCAL, &each_cost)))
         {
-            total_cost += each_cost;
+            /* each_cost is in 512-byte units */
+            total_cost += ((LONGLONG)each_cost) * 512;
         }
         if (ERROR_SUCCESS == (MSI_GetFeatureCost(dialog->package, feature,
                 MSICOSTTREE_SELFONLY, INSTALLSTATE_ABSENT, &each_cost)))
         {
-            total_cost -= each_cost;
+            /* each_cost is in 512-byte units */
+            total_cost -= ((LONGLONG)each_cost) * 512;
         }
     }
     return total_cost;
@@ -3129,7 +3128,7 @@ static void dialog_vcl_add_drives( msi_dialog *dialog, struct control *control )
     DWORD size, flags;
     int i = 0;
 
-    cost = vcl_get_cost(dialog) * 512;
+    cost = vcl_get_cost(dialog);
     StrFormatByteSizeW(cost, cost_text, MAX_PATH);
 
     size = GetLogicalDriveStringsW( 0, NULL );

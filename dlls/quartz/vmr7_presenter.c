@@ -33,8 +33,6 @@ struct vmr7_presenter
 
     IDirectDraw7 *ddraw;
     IDirectDrawSurface7 *frontbuffer;
-    IDirectDrawSurface7 *primary;
-    HWND window;
 };
 
 static struct vmr7_presenter *impl_from_IVMRImagePresenter(IVMRImagePresenter *iface)
@@ -84,7 +82,6 @@ static ULONG WINAPI image_presenter_Release(IVMRImagePresenter *iface)
     {
         if (presenter->frontbuffer)
             IDirectDrawSurface7_Release(presenter->frontbuffer);
-        IDirectDrawSurface7_Release(presenter->primary);
         IDirectDraw7_Release(presenter->ddraw);
         free(presenter);
     }
@@ -106,31 +103,8 @@ static HRESULT WINAPI image_presenter_StopPresenting(IVMRImagePresenter *iface, 
 static HRESULT WINAPI image_presenter_PresentImage(IVMRImagePresenter *iface,
         DWORD_PTR cookie, VMRPRESENTATIONINFO *info)
 {
-    struct vmr7_presenter *presenter = impl_from_IVMRImagePresenter(iface);
-    POINT point;
-    HRESULT hr;
-    RECT rect;
-
-    TRACE("iface %p, cookie %#Ix, info %p.\n", iface, cookie, info);
-
-    TRACE("flags %#lx, surface %p, start %s, end %s, aspect ratio %ldx%ld,\n",
-            info->dwFlags, info->lpSurf, debugstr_time(info->rtStart),
-            debugstr_time(info->rtEnd), info->szAspectRatio.cx, info->szAspectRatio.cy);
-    TRACE("src %s, dst %s, type-specific flags %#lx, interlace flags %#lx.\n",
-            wine_dbgstr_rect(&info->rcSrc), wine_dbgstr_rect(&info->rcDst),
-            info->dwTypeSpecificFlags, info->dwInterlaceFlags);
-
-    if (info->dwFlags & VMRSample_SrcDstRectsValid)
-        FIXME("Ignoring src/dst rects.\n");
-
-    GetClientRect(presenter->window, &rect);
-    point.x = point.y = 0;
-    ClientToScreen(presenter->window, &point);
-    OffsetRect(&rect, point.x, point.y);
-    if (FAILED(hr = IDirectDrawSurface7_Blt(presenter->primary, &rect, info->lpSurf, NULL, DDBLT_WAIT, NULL)))
-        ERR("Failed to blit, hr %#lx.\n", hr);
-
-    return S_OK;
+    FIXME("iface %p, cookie %#Ix, info %p, stub!\n", iface, cookie, info);
+    return E_NOTIMPL;
 }
 
 static const IVMRImagePresenterVtbl image_presenter_vtbl =
@@ -235,8 +209,8 @@ static HRESULT WINAPI surface_allocator_FreeSurface(IVMRSurfaceAllocator *iface,
 static HRESULT WINAPI surface_allocator_PrepareSurface(IVMRSurfaceAllocator *iface,
         DWORD_PTR id, IDirectDrawSurface7 *surface, DWORD flags)
 {
-    TRACE("iface %p, id %#Ix, surface %p, flags %#lx.\n", iface, id, surface, flags);
-    return S_OK;
+    FIXME("iface %p, id %#Ix, surface %p, flags %#lx, stub!\n", iface, id, surface, flags);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI surface_allocator_AdviseNotify(IVMRSurfaceAllocator *iface,
@@ -336,23 +310,8 @@ static HRESULT WINAPI windowless_control_SetAspectRatioMode(
 static HRESULT WINAPI windowless_control_SetVideoClippingWindow(
         IVMRWindowlessControl *iface, HWND window)
 {
-    struct vmr7_presenter *presenter = impl_from_IVMRWindowlessControl(iface);
-    IDirectDrawClipper *clipper;
-    HRESULT hr;
-
-    TRACE("iface %p, window %p.\n", iface, window);
-
-    if (FAILED(hr = IDirectDraw7_CreateClipper(presenter->ddraw, 0, &clipper, NULL)))
-        ERR("Failed to create clipper, hr %#lx.\n", hr);
-    if (FAILED(hr = IDirectDrawClipper_SetHWnd(clipper, 0, window)))
-        ERR("Failed to set clip window, hr %#lx.\n", hr);
-    if (FAILED(hr = IDirectDrawSurface7_SetClipper(presenter->primary, clipper)))
-        ERR("Failed to set clipper, hr %#lx.\n", hr);
-    IDirectDrawClipper_Release(clipper);
-
-    presenter->window = window;
-
-    return S_OK;
+    FIXME("iface %p, window %p, stub!.\n", iface, window);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI windowless_control_RepaintVideo(
@@ -425,13 +384,6 @@ HRESULT vmr7_presenter_create(IUnknown *outer, IUnknown **out)
     struct vmr7_presenter *object;
     HRESULT hr;
 
-    DDSURFACEDESC2 primary_desc =
-    {
-        .dwSize = sizeof(DDSURFACEDESC2),
-        .dwFlags = DDSD_CAPS,
-        .ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE,
-    };
-
     TRACE("outer %p, out %p.\n", outer, out);
 
     if (outer)
@@ -453,9 +405,6 @@ HRESULT vmr7_presenter_create(IUnknown *outer, IUnknown **out)
 
     if (FAILED(hr = IDirectDraw7_SetCooperativeLevel(object->ddraw, NULL, DDSCL_NORMAL)))
         ERR("Failed to set cooperative level, hr %#lx.\n", hr);
-
-    if (FAILED(hr = IDirectDraw7_CreateSurface(object->ddraw, &primary_desc, &object->primary, NULL)))
-        ERR("Failed to create primary surface, hr %#lx.\n", hr);
 
     TRACE("Created VMR7 default presenter %p.\n", object);
     *out = (IUnknown *)&object->IVMRSurfaceAllocator_iface;

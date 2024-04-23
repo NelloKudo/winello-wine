@@ -5038,7 +5038,6 @@ static void test_unsupported_formats(void)
 
 static void test_rt_caps(const GUID *device_guid)
 {
-    DWORD fourcc_codes[64], fourcc_code_count;
     PALETTEENTRY palette_entries[256];
     IDirectDrawPalette *palette;
     IDirect3DDevice2 *device;
@@ -5056,12 +5055,6 @@ static void test_rt_caps(const GUID *device_guid)
     {
         sizeof(DDPIXELFORMAT), DDPF_PALETTEINDEXED8 | DDPF_RGB, 0,
         {8}, {0x00000000}, {0x00000000}, {0x00000000}, {0x00000000},
-    };
-    static const DDPIXELFORMAT fourcc_fmt =
-    {
-        .dwSize = sizeof(DDPIXELFORMAT),
-        .dwFlags = DDPF_FOURCC,
-        .dwFourCC = MAKEFOURCC('Y','U','Y','2'),
     };
 
     static const struct
@@ -5235,13 +5228,6 @@ static void test_rt_caps(const GUID *device_guid)
             DDERR_INVALIDCAPS,
             TRUE /* Nvidia Kepler */,
         },
-        {
-            &fourcc_fmt,
-            DDSCAPS_FLIP | DDSCAPS_COMPLEX | DDSCAPS_OFFSCREENPLAIN,
-            DDERR_INVALIDCAPS,
-            DDERR_INVALIDCAPS,
-            DDERR_INVALIDCAPS,
-        },
     };
 
     software_device = is_software_device_type(device_guid);
@@ -5275,10 +5261,6 @@ static void test_rt_caps(const GUID *device_guid)
     hr = IDirectDraw2_GetCaps(ddraw, &hal_caps, NULL);
     ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
 
-    fourcc_code_count = ARRAY_SIZE(fourcc_codes);
-    hr = IDirectDraw4_GetFourCCCodes(ddraw, &fourcc_code_count, fourcc_codes);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-
     for (i = 0; i < ARRAY_SIZE(test_data); ++i)
     {
         IDirectDrawSurface *surface, *rt, *expected_rt, *tmp;
@@ -5295,21 +5277,6 @@ static void test_rt_caps(const GUID *device_guid)
         surface_desc.ddsCaps.dwCaps = caps_in;
         if (test_data[i].pf)
         {
-            if (test_data[i].pf->dwFlags & DDPF_FOURCC)
-            {
-                unsigned int j;
-
-                for (j = 0; j < fourcc_code_count; ++j)
-                {
-                    if (test_data[i].pf->dwFourCC == fourcc_codes[j])
-                        break;
-                }
-                if (j == fourcc_code_count)
-                {
-                    skip("Fourcc format %#lx is not supported, skipping test.\n", test_data[i].pf->dwFourCC);
-                    continue;
-                }
-            }
             surface_desc.dwFlags |= DDSD_PIXELFORMAT;
             surface_desc.ddpfPixelFormat = *test_data[i].pf;
         }
@@ -5317,11 +5284,6 @@ static void test_rt_caps(const GUID *device_guid)
         {
             surface_desc.dwFlags |= DDSD_ZBUFFERBITDEPTH;
             surface_desc.dwZBufferBitDepth = z_depth;
-        }
-        if (caps_in & DDSCAPS_FLIP)
-        {
-            surface_desc.dwFlags |= DDSD_BACKBUFFERCOUNT;
-            surface_desc.dwBackBufferCount = 1;
         }
         surface_desc.dwWidth = 640;
         surface_desc.dwHeight = 480;
@@ -5344,9 +5306,6 @@ static void test_rt_caps(const GUID *device_guid)
             expected_caps = caps_in | DDSCAPS_SYSTEMMEMORY;
         else
             expected_caps = caps_in | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM;
-
-        if (caps_in & DDSCAPS_FLIP)
-            expected_caps |= DDSCAPS_FRONTBUFFER;
 
         ok(surface_desc.ddsCaps.dwCaps == expected_caps || (test_data[i].pf == &p8_fmt
                 && surface_desc.ddsCaps.dwCaps == (caps_in | DDSCAPS_SYSTEMMEMORY))
@@ -5414,11 +5373,6 @@ static void test_rt_caps(const GUID *device_guid)
         {
             surface_desc.dwFlags |= DDSD_ZBUFFERBITDEPTH;
             surface_desc.dwZBufferBitDepth = z_depth;
-        }
-        if (caps_in & DDSCAPS_FLIP)
-        {
-            surface_desc.dwFlags |= DDSD_BACKBUFFERCOUNT;
-            surface_desc.dwBackBufferCount = 1;
         }
         surface_desc.dwWidth = 640;
         surface_desc.dwHeight = 480;
@@ -16522,17 +16476,16 @@ static void run_for_each_device_type(void (*test_func)(const GUID *))
 static void test_multiple_devices(void)
 {
     D3DTEXTUREHANDLE texture_handle, texture_handle2;
-    IDirect3DDevice2 *device, *device2, *device3;
     IDirectDrawSurface *surface, *texture_surf;
     D3DMATERIALHANDLE mat_handle, mat_handle2;
     IDirect3DViewport2 *viewport, *viewport2;
-    IDirectDraw2 *ddraw, *ddraw2;
+    IDirect3DDevice2 *device, *device2;
     IDirect3DMaterial2 *material;
     DDSURFACEDESC surface_desc;
     IDirect3DTexture2 *texture;
+    IDirectDraw2 *ddraw;
     IDirect3D2 *d3d;
     ULONG refcount;
-    DWORD value;
     HWND window;
     HRESULT hr;
 
@@ -16549,13 +16502,9 @@ static void test_multiple_devices(void)
 
     hr = IDirect3DDevice2_GetDirect3D(device, &d3d);
     ok(hr == D3D_OK, "got %#lx.\n", hr);
+
     hr = IDirect3D2_CreateDevice(d3d, &IID_IDirect3DHALDevice, surface, &device2);
     ok(hr == D3D_OK, "got %#lx.\n", hr);
-
-    ddraw2 = create_ddraw();
-    ok(!!ddraw2, "Failed to create a ddraw object.\n");
-    device3 = create_device(ddraw2, window, DDSCL_NORMAL);
-    ok(!!device3, "got NULL.\n");
 
     viewport = create_viewport(device, 0, 0, 640, 480);
     viewport2 = create_viewport(device2, 0, 0, 640, 480);
@@ -16581,8 +16530,6 @@ static void test_multiple_devices(void)
     ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
     hr = IDirect3DDevice2_SetLightState(device2, D3DLIGHTSTATE_MATERIAL, mat_handle);
     ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
-    hr = IDirect3DDevice2_SetLightState(device3, D3DLIGHTSTATE_MATERIAL, mat_handle);
-    ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
     hr = IDirect3DDevice2_SetLightState(device, D3DLIGHTSTATE_MATERIAL, mat_handle2);
     ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
 
@@ -16590,26 +16537,6 @@ static void test_multiple_devices(void)
     ok(hr == D3D_OK, "got %#lx.\n", hr);
     hr = IDirect3DViewport2_SetBackground(viewport2, mat_handle);
     ok(hr == D3D_OK, "got %#lx.\n", hr);
-
-    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_ALPHABLENDENABLE, FALSE);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-    hr = IDirect3DDevice2_SetRenderState(device2, D3DRENDERSTATE_ALPHABLENDENABLE, FALSE);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-    hr = IDirect3DDevice2_SetRenderState(device3, D3DRENDERSTATE_ALPHABLENDENABLE, FALSE);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-
-    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_ALPHABLENDENABLE, TRUE);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-    value = 0xdeadbeef;
-    hr = IDirect3DDevice2_GetRenderState(device, D3DRENDERSTATE_ALPHABLENDENABLE, &value);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-    ok(value == TRUE, "got %#lx.\n", value);
-    hr = IDirect3DDevice2_GetRenderState(device2, D3DRENDERSTATE_ALPHABLENDENABLE, &value);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-    ok(!value, "got %#lx.\n", value);
-    hr = IDirect3DDevice2_GetRenderState(device3, D3DRENDERSTATE_ALPHABLENDENABLE, &value);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-    ok(!value, "got %#lx.\n", value);
 
     memset(&surface_desc, 0, sizeof(surface_desc));
     surface_desc.dwSize = sizeof(surface_desc);
@@ -16626,15 +16553,6 @@ static void test_multiple_devices(void)
     hr = IDirect3DTexture2_GetHandle(texture, device2, &texture_handle2);
     ok(hr == D3D_OK, "got %#lx.\n", hr);
     ok(texture_handle == texture_handle2, "got different handles.\n");
-    hr = IDirect3DTexture2_GetHandle(texture, device3, &texture_handle2);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
-    ok(texture_handle == texture_handle2, "got different handles.\n");
-    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_TEXTUREHANDLE, texture_handle);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
-    hr = IDirect3DDevice2_SetRenderState(device2, D3DRENDERSTATE_TEXTUREHANDLE, texture_handle);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
-    hr = IDirect3DDevice2_SetRenderState(device3, D3DRENDERSTATE_TEXTUREHANDLE, texture_handle);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
 
     IDirect3DTexture2_Release(texture);
     IDirectDrawSurface_Release(texture_surf);
@@ -16646,13 +16564,10 @@ static void test_multiple_devices(void)
     ok(!refcount, "Device has %lu references left.\n", refcount);
     refcount = IDirect3DDevice2_Release(device2);
     ok(!refcount, "Device has %lu references left.\n", refcount);
-    refcount = IDirect3DDevice2_Release(device3);
-    ok(!refcount, "Device has %lu references left.\n", refcount);
     refcount = IDirectDrawSurface_Release(surface);
     ok(!refcount, "Surface has %lu references left.\n", refcount);
 
     IDirectDraw2_Release(ddraw);
-    IDirectDraw_Release(ddraw2);
     IDirect3D2_Release(d3d);
     DestroyWindow(window);
 }

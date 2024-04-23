@@ -135,7 +135,6 @@
 @ stdcall ExAcquireSharedWaitForExclusive(ptr long)
 @ stub ExAllocateFromPagedLookasideList
 @ stdcall ExAllocatePool(long long)
-@ stdcall ExAllocatePool2(int64 long long)
 @ stdcall ExAllocatePoolWithQuota(long long)
 @ stdcall ExAllocatePoolWithQuotaTag(long long long)
 @ stdcall ExAllocatePoolWithTag(long long long)
@@ -799,6 +798,7 @@
 @ stdcall NtFsControlFile(long long ptr ptr ptr long ptr long ptr long)
 @ stub NtGlobalFlag
 @ stdcall NtLockFile(long long ptr ptr ptr ptr ptr ptr long long)
+@ stub NtMakePermanentObject
 @ stdcall NtMapViewOfSection(long long ptr long long ptr ptr long long long)
 @ stdcall NtNotifyChangeDirectoryFile(long long ptr ptr ptr ptr long long long)
 @ stdcall NtOpenFile(ptr long ptr ptr long long)
@@ -1445,7 +1445,6 @@
 @ stdcall -private ZwLoadKey(ptr ptr) NtLoadKey
 @ stdcall -private ZwLockFile(long long ptr ptr ptr ptr ptr ptr long long) NtLockFile
 @ stdcall -private ZwLockVirtualMemory(long ptr ptr long) NtLockVirtualMemory
-@ stdcall ZwMakePermanentObject(long) NtMakePermanentObject
 @ stdcall ZwMakeTemporaryObject(long) NtMakeTemporaryObject
 @ stdcall ZwMapViewOfSection(long long ptr long long ptr ptr long long long) NtMapViewOfSection
 @ stdcall -private ZwNotifyChangeDirectoryFile(long long ptr ptr ptr ptr long long long) NtNotifyChangeDirectoryFile

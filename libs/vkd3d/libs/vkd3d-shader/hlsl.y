@@ -77,10 +77,6 @@ struct parse_variable_def
     struct hlsl_type *basic_type;
     uint32_t modifiers;
     struct vkd3d_shader_location modifiers_loc;
-
-    struct hlsl_state_block **state_blocks;
-    unsigned int state_block_count;
-    size_t state_block_capacity;
 };
 
 struct parse_function
@@ -116,12 +112,6 @@ struct parse_attribute_list
 {
     unsigned int count;
     const struct hlsl_attribute **attrs;
-};
-
-struct state_block_index
-{
-    bool has_index;
-    unsigned int index;
 };
 
 }
@@ -302,21 +292,6 @@ static bool implicit_compatible_data_types(struct hlsl_ctx *ctx, struct hlsl_typ
     return hlsl_types_are_componentwise_equal(ctx, src, dst);
 }
 
-static void check_condition_type(struct hlsl_ctx *ctx, const struct hlsl_ir_node *cond)
-{
-    const struct hlsl_type *type = cond->data_type;
-
-    if (type->class > HLSL_CLASS_LAST_NUMERIC || type->dimx > 1 || type->dimy > 1)
-    {
-        struct vkd3d_string_buffer *string;
-
-        if ((string = hlsl_type_to_string(ctx, type)))
-            hlsl_error(ctx, &cond->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                    "Condition type '%s' is not a scalar numeric type.", string->buffer);
-        hlsl_release_string_buffer(ctx, string);
-    }
-}
-
 static struct hlsl_ir_node *add_cast(struct hlsl_ctx *ctx, struct hlsl_block *block,
         struct hlsl_ir_node *node, struct hlsl_type *dst_type, const struct vkd3d_shader_location *loc)
 {
@@ -423,7 +398,7 @@ static struct hlsl_ir_node *add_implicit_conversion(struct hlsl_ctx *ctx, struct
         return NULL;
     }
 
-    if (dst_type->dimx * dst_type->dimy < src_type->dimx * src_type->dimy && ctx->warn_implicit_truncation)
+    if (dst_type->dimx * dst_type->dimy < src_type->dimx * src_type->dimy)
         hlsl_warning(ctx, loc, VKD3D_SHADER_WARNING_HLSL_IMPLICIT_TRUNCATION, "Implicit truncation of %s type.",
                 src_type->class == HLSL_CLASS_VECTOR ? "vector" : "matrix");
 
@@ -448,24 +423,15 @@ static uint32_t add_modifiers(struct hlsl_ctx *ctx, uint32_t modifiers, uint32_t
 
 static bool append_conditional_break(struct hlsl_ctx *ctx, struct hlsl_block *cond_block)
 {
-    struct hlsl_ir_node *condition, *cast, *not, *iff, *jump;
+    struct hlsl_ir_node *condition, *not, *iff, *jump;
     struct hlsl_block then_block;
-    struct hlsl_type *bool_type;
 
     /* E.g. "for (i = 0; ; ++i)". */
     if (list_empty(&cond_block->instrs))
         return true;
 
     condition = node_from_block(cond_block);
-
-    check_condition_type(ctx, condition);
-
-    bool_type = hlsl_get_scalar_type(ctx, HLSL_TYPE_BOOL);
-    if (!(cast = hlsl_new_cast(ctx, condition, bool_type, &condition->loc)))
-        return false;
-    hlsl_block_add_instr(cond_block, cast);
-
-    if (!(not = hlsl_new_unary_expr(ctx, HLSL_OP1_LOGIC_NOT, cast, &condition->loc)))
+    if (!(not = hlsl_new_unary_expr(ctx, HLSL_OP1_LOGIC_NOT, condition, &condition->loc)))
         return false;
     hlsl_block_add_instr(cond_block, not);
 
@@ -941,8 +907,22 @@ static void free_parse_variable_def(struct parse_variable_def *v)
     vkd3d_free(v->arrays.sizes);
     vkd3d_free(v->name);
     hlsl_cleanup_semantic(&v->semantic);
-    assert(!v->state_blocks);
     vkd3d_free(v);
+}
+
+static bool shader_is_sm_5_1(const struct hlsl_ctx *ctx)
+{
+    return ctx->profile->major_version == 5 && ctx->profile->minor_version >= 1;
+}
+
+static bool shader_profile_version_ge(const struct hlsl_ctx *ctx, unsigned int major, unsigned int minor)
+{
+    return ctx->profile->major_version > major || (ctx->profile->major_version == major && ctx->profile->minor_version >= minor);
+}
+
+static bool shader_profile_version_lt(const struct hlsl_ctx *ctx, unsigned int major, unsigned int minor)
+{
+    return !shader_profile_version_ge(ctx, major, minor);
 }
 
 static bool gen_struct_fields(struct hlsl_ctx *ctx, struct parse_fields *fields,
@@ -967,7 +947,7 @@ static bool gen_struct_fields(struct hlsl_ctx *ctx, struct parse_fields *fields,
 
         field->type = type;
 
-        if (hlsl_version_ge(ctx, 5, 1) && hlsl_type_is_resource(type))
+        if (shader_is_sm_5_1(ctx) && type->class == HLSL_CLASS_OBJECT)
         {
             for (k = 0; k < v->arrays.count; ++k)
                 unbounded_res_array |= (v->arrays.sizes[k] == HLSL_ARRAY_ELEMENTS_COUNT_IMPLICIT);
@@ -1116,38 +1096,8 @@ static bool add_func_parameter(struct hlsl_ctx *ctx, struct hlsl_func_parameters
     return true;
 }
 
-static bool add_pass(struct hlsl_ctx *ctx, const char *name, struct hlsl_scope *annotations,
-        struct hlsl_state_block *state_block, const struct vkd3d_shader_location *loc)
-{
-    struct hlsl_ir_var *var;
-    struct hlsl_type *type;
-
-    type = hlsl_get_type(ctx->globals, "pass", false, false);
-    if (!(var = hlsl_new_var(ctx, name, type, loc, NULL, 0, NULL)))
-        return false;
-    var->annotations = annotations;
-
-    var->state_blocks = hlsl_alloc(ctx, sizeof(*var->state_blocks));
-    var->state_blocks[0] = state_block;
-    var->state_block_count = 1;
-    var->state_block_capacity = 1;
-
-    if (!hlsl_add_var(ctx, var, false))
-    {
-        struct hlsl_ir_var *old = hlsl_get_var(ctx->cur_scope, var->name);
-
-        hlsl_error(ctx, &var->loc, VKD3D_SHADER_ERROR_HLSL_REDEFINED,
-                "Identifier \"%s\" was already declared in this scope.", var->name);
-        hlsl_note(ctx, &old->loc, VKD3D_SHADER_LOG_ERROR, "\"%s\" was previously declared here.", old->name);
-        hlsl_free_var(var);
-        return false;
-    }
-
-    return true;
-}
-
 static bool add_technique(struct hlsl_ctx *ctx, const char *name, struct hlsl_scope *scope,
-        struct hlsl_scope *annotations, const char *typename, const struct vkd3d_shader_location *loc)
+        const char *typename, const struct vkd3d_shader_location *loc)
 {
     struct hlsl_ir_var *var;
     struct hlsl_type *type;
@@ -1156,7 +1106,6 @@ static bool add_technique(struct hlsl_ctx *ctx, const char *name, struct hlsl_sc
     if (!(var = hlsl_new_var(ctx, name, type, loc, NULL, 0, NULL)))
         return false;
     var->scope = scope;
-    var->annotations = annotations;
 
     if (!hlsl_add_var(ctx, var, false))
     {
@@ -1173,7 +1122,7 @@ static bool add_technique(struct hlsl_ctx *ctx, const char *name, struct hlsl_sc
 }
 
 static bool add_effect_group(struct hlsl_ctx *ctx, const char *name, struct hlsl_scope *scope,
-        struct hlsl_scope *annotations, const struct vkd3d_shader_location *loc)
+        const struct vkd3d_shader_location *loc)
 {
     struct hlsl_ir_var *var;
     struct hlsl_type *type;
@@ -1182,7 +1131,6 @@ static bool add_effect_group(struct hlsl_ctx *ctx, const char *name, struct hlsl
     if (!(var = hlsl_new_var(ctx, name, type, loc, NULL, 0, NULL)))
         return false;
     var->scope = scope;
-    var->annotations = annotations;
 
     if (!hlsl_add_var(ctx, var, false))
     {
@@ -1217,7 +1165,7 @@ static struct hlsl_reg_reservation parse_packoffset(struct hlsl_ctx *ctx, const 
     struct hlsl_reg_reservation reservation = {0};
     char *endptr;
 
-    if (hlsl_version_lt(ctx, 4, 0))
+    if (shader_profile_version_lt(ctx, 4, 0))
         return reservation;
 
     reservation.offset_index = strtoul(reg_string + 1, &endptr, 10);
@@ -1300,7 +1248,6 @@ static unsigned int evaluate_static_expression_as_uint(struct hlsl_ctx *ctx, str
             case HLSL_IR_RESOURCE_STORE:
             case HLSL_IR_STORE:
             case HLSL_IR_SWITCH:
-            case HLSL_IR_STATEBLOCK_CONSTANT:
                 hlsl_error(ctx, &node->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_SYNTAX,
                         "Expected literal expression.");
         }
@@ -1923,19 +1870,13 @@ static struct hlsl_ir_node *add_assignment(struct hlsl_ctx *ctx, struct hlsl_blo
         }
     }
 
-    if (lhs->type == HLSL_IR_INDEX && hlsl_index_chain_has_resource_access(hlsl_ir_index(lhs)))
+    if (lhs->type == HLSL_IR_INDEX && hlsl_index_is_resource_access(hlsl_ir_index(lhs)))
     {
         struct hlsl_ir_node *coords = hlsl_ir_index(lhs)->idx.node;
         struct hlsl_deref resource_deref;
         struct hlsl_type *resource_type;
         struct hlsl_ir_node *store;
         unsigned int dim_count;
-
-        if (!hlsl_index_is_resource_access(hlsl_ir_index(lhs)))
-        {
-            hlsl_fixme(ctx, &lhs->loc, "Non-direct structured resource store.");
-            return NULL;
-        }
 
         if (!hlsl_init_deref_from_index_chain(ctx, &resource_deref, hlsl_ir_index(lhs)->val.node))
             return NULL;
@@ -1950,7 +1891,7 @@ static struct hlsl_ir_node *add_assignment(struct hlsl_ctx *ctx, struct hlsl_blo
 
         dim_count = hlsl_sampler_dim_count(resource_type->sampler_dim);
 
-        if (writemask != ((1u << resource_type->e.resource.format->dimx) - 1))
+        if (writemask != ((1u << resource_type->e.resource_format->dimx) - 1))
             hlsl_error(ctx, &lhs->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_WRITEMASK,
                     "Resource store expressions must write to all components.");
 
@@ -2093,23 +2034,24 @@ static void initialize_var_components(struct hlsl_ctx *ctx, struct hlsl_block *i
     }
 }
 
-static bool type_has_object_components(const struct hlsl_type *type)
+static bool type_has_object_components(struct hlsl_type *type, bool must_be_in_struct)
 {
+    if (type->class == HLSL_CLASS_OBJECT)
+        return !must_be_in_struct;
     if (type->class == HLSL_CLASS_ARRAY)
-        return type_has_object_components(type->e.array.type);
+        return type_has_object_components(type->e.array.type, must_be_in_struct);
 
     if (type->class == HLSL_CLASS_STRUCT)
     {
-        for (unsigned int i = 0; i < type->e.record.field_count; ++i)
+        unsigned int i;
+
+        for (i = 0; i < type->e.record.field_count; ++i)
         {
-            if (type_has_object_components(type->e.record.fields[i].type))
+            if (type_has_object_components(type->e.record.fields[i].type, false))
                 return true;
         }
-
-        return false;
     }
-
-    return !hlsl_is_numeric_type(type);
+    return false;
 }
 
 static bool type_has_numeric_components(struct hlsl_type *type)
@@ -2147,18 +2089,6 @@ static void check_invalid_in_out_modifiers(struct hlsl_ctx *ctx, unsigned int mo
     }
 }
 
-static void check_invalid_object_fields(struct hlsl_ctx *ctx, const struct hlsl_ir_var *var)
-{
-    const struct hlsl_type *type = var->data_type;
-
-    while (type->class == HLSL_CLASS_ARRAY)
-        type = type->e.array.type;
-
-    if (type->class == HLSL_CLASS_STRUCT && type_has_object_components(type))
-        hlsl_error(ctx, &var->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                "Target profile doesn't support objects as struct members in uniform variables.");
-}
-
 static void declare_var(struct hlsl_ctx *ctx, struct parse_variable_def *v)
 {
     struct hlsl_type *basic_type = v->basic_type;
@@ -2179,7 +2109,7 @@ static void declare_var(struct hlsl_ctx *ctx, struct parse_variable_def *v)
 
     type = basic_type;
 
-    if (hlsl_version_ge(ctx, 5, 1) && hlsl_type_is_resource(type))
+    if (shader_is_sm_5_1(ctx) && type->class == HLSL_CLASS_OBJECT)
     {
         for (i = 0; i < v->arrays.count; ++i)
             unbounded_res_array |= (v->arrays.sizes[i] == HLSL_ARRAY_ELEMENTS_COUNT_IMPLICIT);
@@ -2284,8 +2214,12 @@ static void declare_var(struct hlsl_ctx *ctx, struct parse_variable_def *v)
         if (!(modifiers & HLSL_STORAGE_STATIC))
             var->storage_modifiers |= HLSL_STORAGE_UNIFORM;
 
-        if (ctx->profile->major_version < 5 && (var->storage_modifiers & HLSL_STORAGE_UNIFORM))
-            check_invalid_object_fields(ctx, var);
+        if (ctx->profile->major_version < 5 && (var->storage_modifiers & HLSL_STORAGE_UNIFORM) &&
+                type_has_object_components(var->data_type, true))
+        {
+            hlsl_error(ctx, &var->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
+                    "Target profile doesn't support objects as struct members in uniform variables.");
+        }
 
         if ((func = hlsl_get_first_func_decl(ctx, var->name)))
         {
@@ -2321,7 +2255,7 @@ static void declare_var(struct hlsl_ctx *ctx, struct parse_variable_def *v)
     }
 
     if ((var->storage_modifiers & HLSL_STORAGE_STATIC) && type_has_numeric_components(var->data_type)
-            && type_has_object_components(var->data_type))
+            && type_has_object_components(var->data_type, false))
     {
         hlsl_error(ctx, &var->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
                 "Static variables cannot have both numeric and resource components.");
@@ -2364,24 +2298,7 @@ static struct hlsl_block *initialize_vars(struct hlsl_ctx *ctx, struct list *var
             free_parse_variable_def(v);
             continue;
         }
-
         type = var->data_type;
-
-        var->state_blocks = v->state_blocks;
-        var->state_block_count = v->state_block_count;
-        var->state_block_capacity = v->state_block_capacity;
-        v->state_block_count = 0;
-        v->state_block_capacity = 0;
-        v->state_blocks = NULL;
-
-        if (var->state_blocks && hlsl_type_component_count(type) != var->state_block_count)
-        {
-            hlsl_error(ctx, &v->loc, VKD3D_SHADER_ERROR_HLSL_WRONG_PARAMETER_COUNT,
-                    "Expected %u state blocks, but got %u.",
-                    hlsl_type_component_count(type), var->state_block_count);
-            free_parse_variable_def(v);
-            continue;
-        }
 
         if (v->initializer.args_count)
         {
@@ -2426,7 +2343,7 @@ static struct hlsl_block *initialize_vars(struct hlsl_ctx *ctx, struct list *var
 
             /* Initialize statics to zero by default. */
 
-            if (type_has_object_components(var->data_type))
+            if (type_has_object_components(var->data_type, false))
             {
                 free_parse_variable_def(v);
                 continue;
@@ -2682,14 +2599,12 @@ static bool elementwise_intrinsic_convert_args(struct hlsl_ctx *ctx,
 static bool elementwise_intrinsic_float_convert_args(struct hlsl_ctx *ctx,
         const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
-    enum hlsl_base_type base_type;
     struct hlsl_type *type;
 
     if (!(type = elementwise_intrinsic_get_common_type(ctx, params, loc)))
         return false;
 
-    base_type = type->base_type == HLSL_TYPE_HALF ? HLSL_TYPE_HALF : HLSL_TYPE_FLOAT;
-    type = hlsl_get_numeric_type(ctx, type->class, base_type, type->dimx, type->dimy);
+    type = hlsl_get_numeric_type(ctx, type->class, HLSL_TYPE_FLOAT, type->dimx, type->dimy);
 
     return convert_args(ctx, params, type, loc);
 }
@@ -2700,53 +2615,81 @@ static bool intrinsic_abs(struct hlsl_ctx *ctx,
     return !!add_unary_arithmetic_expr(ctx, params->instrs, HLSL_OP1_ABS, params->args[0], loc);
 }
 
-static bool write_acos_or_asin(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc, bool asin_mode)
-{
-    struct hlsl_ir_function_decl *func;
-    struct hlsl_type *type;
-    char *body;
-
-    static const char template[] =
-            "%s %s(%s x)\n"
-            "{\n"
-            "    %s abs_arg = abs(x);\n"
-            "    %s poly_approx = (((-0.018729\n"
-            "        * abs_arg + 0.074261)\n"
-            "        * abs_arg - 0.212114)\n"
-            "        * abs_arg + 1.570729);\n"
-            "    %s correction = sqrt(1.0 - abs_arg);\n"
-            "    %s zero_flip = (x < 0.0) * (-2.0 * correction * poly_approx + 3.141593);\n"
-            "    %s result = poly_approx * correction + zero_flip;\n"
-            "    return %s;\n"
-            "}";
-    static const char fn_name_acos[] = "acos";
-    static const char fn_name_asin[] = "asin";
-    static const char return_stmt_acos[] = "result";
-    static const char return_stmt_asin[] = "-result + 1.570796";
-
-    const char *fn_name = asin_mode ? fn_name_asin : fn_name_acos;
-
-    type = params->args[0]->data_type;
-    type = hlsl_get_numeric_type(ctx, type->class, HLSL_TYPE_FLOAT, type->dimx, type->dimy);
-
-    if (!(body = hlsl_sprintf_alloc(ctx, template,
-            type->name, fn_name, type->name,
-            type->name, type->name, type->name, type->name, type->name,
-            (asin_mode ? return_stmt_asin : return_stmt_acos))))
-        return false;
-    func = hlsl_compile_internal_function(ctx, fn_name, body);
-    vkd3d_free(body);
-    if (!func)
-        return false;
-
-    return add_user_call(ctx, func, params, loc);
-}
-
-static bool intrinsic_acos(struct hlsl_ctx *ctx,
+static bool intrinsic_all(struct hlsl_ctx *ctx,
         const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
-    return write_acos_or_asin(ctx, params, loc, false);
+    struct hlsl_ir_node *arg = params->args[0], *mul, *one, *zero, *load;
+    unsigned int i, count;
+
+    if (!(one = hlsl_new_float_constant(ctx, 1.0f, loc)))
+        return false;
+    hlsl_block_add_instr(params->instrs, one);
+
+    if (!(zero = hlsl_new_float_constant(ctx, 0.0f, loc)))
+        return false;
+    hlsl_block_add_instr(params->instrs, zero);
+
+    mul = one;
+
+    count = hlsl_type_component_count(arg->data_type);
+    for (i = 0; i < count; ++i)
+    {
+        if (!(load = hlsl_add_load_component(ctx, params->instrs, arg, i, loc)))
+            return false;
+
+        if (!(mul = add_binary_arithmetic_expr(ctx, params->instrs, HLSL_OP2_MUL, load, mul, loc)))
+            return false;
+    }
+
+    return !!add_binary_comparison_expr(ctx, params->instrs, HLSL_OP2_NEQUAL, mul, zero, loc);
+}
+
+static bool intrinsic_any(struct hlsl_ctx *ctx,
+        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
+{
+    struct hlsl_ir_node *arg = params->args[0], *dot, *or, *zero, *bfalse, *load;
+    unsigned int i, count;
+
+    if (arg->data_type->class != HLSL_CLASS_VECTOR && arg->data_type->class != HLSL_CLASS_SCALAR)
+    {
+        hlsl_fixme(ctx, loc, "any() implementation for non-vector, non-scalar");
+        return false;
+    }
+
+    if (arg->data_type->base_type == HLSL_TYPE_FLOAT)
+    {
+        if (!(zero = hlsl_new_float_constant(ctx, 0.0f, loc)))
+            return false;
+        hlsl_block_add_instr(params->instrs, zero);
+
+        if (!(dot = add_binary_dot_expr(ctx, params->instrs, arg, arg, loc)))
+            return false;
+
+        return !!add_binary_comparison_expr(ctx, params->instrs, HLSL_OP2_NEQUAL, dot, zero, loc);
+    }
+    else if (arg->data_type->base_type == HLSL_TYPE_BOOL)
+    {
+        if (!(bfalse = hlsl_new_bool_constant(ctx, false, loc)))
+            return false;
+        hlsl_block_add_instr(params->instrs, bfalse);
+
+        or = bfalse;
+
+        count = hlsl_type_component_count(arg->data_type);
+        for (i = 0; i < count; ++i)
+        {
+            if (!(load = hlsl_add_load_component(ctx, params->instrs, arg, i, loc)))
+                return false;
+
+            if (!(or = add_binary_bitwise_expr(ctx, params->instrs, HLSL_OP2_BIT_OR, or, load, loc)))
+                return false;
+        }
+
+        return true;
+    }
+
+    hlsl_fixme(ctx, loc, "any() implementation for non-float, non-bool");
+    return false;
 }
 
 /* Find the type corresponding to the given source type, with the same
@@ -2755,154 +2698,6 @@ static struct hlsl_type *convert_numeric_type(const struct hlsl_ctx *ctx,
         const struct hlsl_type *type, enum hlsl_base_type base_type)
 {
     return hlsl_get_numeric_type(ctx, type->class, base_type, type->dimx, type->dimy);
-}
-
-static bool add_combine_components(struct hlsl_ctx *ctx, const struct parse_initializer *params,
-        struct hlsl_ir_node *arg, enum hlsl_ir_expr_op op, const struct vkd3d_shader_location *loc)
-{
-    struct hlsl_ir_node *res, *load;
-    unsigned int i, count;
-
-    count = hlsl_type_component_count(arg->data_type);
-
-    if (!(res = hlsl_add_load_component(ctx, params->instrs, arg, 0, loc)))
-        return false;
-
-    for (i = 1; i < count; ++i)
-    {
-        if (!(load = hlsl_add_load_component(ctx, params->instrs, arg, i, loc)))
-            return false;
-
-        if (!(res = hlsl_new_binary_expr(ctx, op, res, load)))
-                return NULL;
-        hlsl_block_add_instr(params->instrs, res);
-    }
-
-    return true;
-}
-
-static bool intrinsic_all(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    struct hlsl_ir_node *arg = params->args[0], *cast;
-    struct hlsl_type *bool_type;
-
-    bool_type = convert_numeric_type(ctx, arg->data_type, HLSL_TYPE_BOOL);
-    if (!(cast = add_cast(ctx, params->instrs, arg, bool_type, loc)))
-        return false;
-
-    return add_combine_components(ctx, params, cast, HLSL_OP2_LOGIC_AND, loc);
-}
-
-static bool intrinsic_any(struct hlsl_ctx *ctx, const struct parse_initializer *params,
-        const struct vkd3d_shader_location *loc)
-{
-    struct hlsl_ir_node *arg = params->args[0], *cast;
-    struct hlsl_type *bool_type;
-
-    bool_type = convert_numeric_type(ctx, arg->data_type, HLSL_TYPE_BOOL);
-    if (!(cast = add_cast(ctx, params->instrs, arg, bool_type, loc)))
-        return false;
-
-    return add_combine_components(ctx, params, cast, HLSL_OP2_LOGIC_OR, loc);
-}
-
-static bool intrinsic_asin(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    return write_acos_or_asin(ctx, params, loc, true);
-}
-
-static bool write_atan_or_atan2(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params,
-        const struct vkd3d_shader_location *loc, bool atan2_mode)
-{
-    struct hlsl_ir_function_decl *func;
-    struct hlsl_type *type;
-    struct vkd3d_string_buffer *buf;
-    int ret;
-
-    static const char atan2_name[] = "atan2";
-    static const char atan_name[] = "atan";
-
-    static const char atan2_header_template[] =
-            "%s atan2(%s y, %s x)\n"
-            "{\n"
-            "    %s in_y, in_x;\n"
-            "    in_y = y;\n"
-            "    in_x = x;\n";
-    static const char atan_header_template[] =
-            "%s atan(%s y)\n"
-            "{\n"
-            "    %s in_y, in_x;\n"
-            "    in_y = y;\n"
-            "    in_x = 1.0;\n";
-
-    static const char body_template[] =
-            "    %s recip, input, x2, poly_approx, flipped;"
-            "    recip = 1.0 / max(abs(in_y), abs(in_x));\n"
-            "    input = recip * min(abs(in_y), abs(in_x));\n"
-            "    x2 = input * input;\n"
-            "    poly_approx = ((((0.020835\n"
-            "        * x2 - 0.085133)\n"
-            "        * x2 + 0.180141)\n"
-            "        * x2 - 0.330299)\n"
-            "        * x2 + 0.999866)\n"
-            "        * input;\n"
-            "    flipped = poly_approx * -2.0 + 1.570796;\n"
-            "    poly_approx += abs(in_x) < abs(in_y) ? flipped : 0.0;\n"
-            "    poly_approx += in_x < 0.0 ? -3.1415927 : 0.0;\n"
-            "    return (min(in_x, in_y) < 0.0 && max(in_x, in_y) >= 0.0)\n"
-            "        ? -poly_approx\n"
-            "        : poly_approx;\n"
-            "}";
-
-    if (!(type = elementwise_intrinsic_get_common_type(ctx, params, loc)))
-        return false;
-    type = hlsl_get_numeric_type(ctx, type->class, HLSL_TYPE_FLOAT, type->dimx, type->dimy);
-
-    if (!(buf = hlsl_get_string_buffer(ctx)))
-        return false;
-
-    if (atan2_mode)
-        ret = vkd3d_string_buffer_printf(buf, atan2_header_template,
-                type->name, type->name, type->name, type->name);
-    else
-        ret = vkd3d_string_buffer_printf(buf, atan_header_template,
-                type->name, type->name, type->name);
-    if (ret < 0)
-    {
-        hlsl_release_string_buffer(ctx, buf);
-        return false;
-    }
-
-    ret = vkd3d_string_buffer_printf(buf, body_template, type->name);
-    if (ret < 0)
-    {
-        hlsl_release_string_buffer(ctx, buf);
-        return false;
-    }
-
-    func = hlsl_compile_internal_function(ctx,
-            atan2_mode ? atan2_name : atan_name, buf->buffer);
-    hlsl_release_string_buffer(ctx, buf);
-    if (!func)
-        return false;
-
-    return add_user_call(ctx, func, params, loc);
-}
-
-static bool intrinsic_atan(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    return write_atan_or_atan2(ctx, params, loc, false);
-}
-
-
-static bool intrinsic_atan2(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    return write_atan_or_atan2(ctx, params, loc, true);
 }
 
 static bool intrinsic_asfloat(struct hlsl_ctx *ctx,
@@ -3026,46 +2821,6 @@ static bool intrinsic_cos(struct hlsl_ctx *ctx,
         return false;
 
     return !!add_unary_arithmetic_expr(ctx, params->instrs, HLSL_OP1_COS, arg, loc);
-}
-
-static bool write_cosh_or_sinh(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc, bool sinh_mode)
-{
-    struct hlsl_ir_function_decl *func;
-    struct hlsl_ir_node *arg;
-    const char *fn_name, *type_name;
-    char *body;
-
-    static const char template[] =
-            "%s %s(%s x)\n"
-            "{\n"
-            "    return (exp(x) %s exp(-x)) / 2;\n"
-            "}\n";
-    static const char fn_name_sinh[] = "sinh";
-    static const char fn_name_cosh[] = "cosh";
-
-    if (!(arg = intrinsic_float_convert_arg(ctx, params, params->args[0], loc)))
-        return false;
-
-    type_name = arg->data_type->name;
-    fn_name = sinh_mode ? fn_name_sinh : fn_name_cosh;
-
-    if (!(body = hlsl_sprintf_alloc(ctx, template,
-            type_name, fn_name, type_name, sinh_mode ? "-" : "+")))
-        return false;
-
-    func = hlsl_compile_internal_function(ctx, fn_name, body);
-    vkd3d_free(body);
-    if (!func)
-        return false;
-
-    return add_user_call(ctx, func, params, loc);
-}
-
-static bool intrinsic_cosh(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    return write_cosh_or_sinh(ctx, params, loc, false);
 }
 
 static bool intrinsic_cross(struct hlsl_ctx *ctx,
@@ -3199,94 +2954,6 @@ static bool intrinsic_ddy_fine(struct hlsl_ctx *ctx,
         return false;
 
     return !!add_unary_arithmetic_expr(ctx, params->instrs, HLSL_OP1_DSY_FINE, arg, loc);
-}
-
-static bool intrinsic_determinant(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    static const char determinant2x2[] =
-            "%s determinant(%s2x2 m)\n"
-            "{\n"
-            "    return m._11 * m._22 - m._12 * m._21;\n"
-            "}";
-    static const char determinant3x3[] =
-            "%s determinant(%s3x3 m)\n"
-            "{\n"
-            "    %s2x2 m1 = { m._22, m._23, m._32, m._33 };\n"
-            "    %s2x2 m2 = { m._21, m._23, m._31, m._33 };\n"
-            "    %s2x2 m3 = { m._21, m._22, m._31, m._32 };\n"
-            "    %s3 v1 = { m._11, -m._12, m._13 };\n"
-            "    %s3 v2 = { determinant(m1), determinant(m2), determinant(m3) };\n"
-            "    return dot(v1, v2);\n"
-            "}";
-    static const char determinant4x4[] =
-            "%s determinant(%s4x4 m)\n"
-            "{\n"
-            "    %s3x3 m1 = { m._22, m._23, m._24, m._32, m._33, m._34, m._42, m._43, m._44 };\n"
-            "    %s3x3 m2 = { m._21, m._23, m._24, m._31, m._33, m._34, m._41, m._43, m._44 };\n"
-            "    %s3x3 m3 = { m._21, m._22, m._24, m._31, m._32, m._34, m._41, m._42, m._44 };\n"
-            "    %s3x3 m4 = { m._21, m._22, m._23, m._31, m._32, m._33, m._41, m._42, m._43 };\n"
-            "    %s4 v1 = { m._11, -m._12, m._13, -m._14 };\n"
-            "    %s4 v2 = { determinant(m1), determinant(m2), determinant(m3), determinant(m4) };\n"
-            "    return dot(v1, v2);\n"
-            "}";
-    static const char *templates[] =
-    {
-        [2] = determinant2x2,
-        [3] = determinant3x3,
-        [4] = determinant4x4,
-    };
-
-    struct hlsl_ir_node *arg = params->args[0];
-    const struct hlsl_type *type = arg->data_type;
-    struct hlsl_ir_function_decl *func;
-    const char *typename, *template;
-    unsigned int dim;
-    char *body;
-
-    if (type->class != HLSL_CLASS_SCALAR && type->class != HLSL_CLASS_MATRIX)
-    {
-        hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE, "Invalid argument type.");
-        return false;
-    }
-
-    dim = min(type->dimx, type->dimy);
-    if (dim == 1)
-    {
-        if (!(arg = intrinsic_float_convert_arg(ctx, params, arg, loc)))
-            return false;
-        return hlsl_add_load_component(ctx, params->instrs, arg, 0, loc);
-    }
-
-    typename = type->base_type == HLSL_TYPE_HALF ? "half" : "float";
-    template = templates[dim];
-
-    switch (dim)
-    {
-        case 2:
-            body = hlsl_sprintf_alloc(ctx, template, typename, typename);
-            break;
-        case 3:
-            body = hlsl_sprintf_alloc(ctx, template, typename, typename, typename,
-                    typename, typename, typename, typename);
-            break;
-        case 4:
-            body = hlsl_sprintf_alloc(ctx, template, typename, typename, typename,
-                    typename, typename, typename, typename, typename);
-            break;
-        default:
-            vkd3d_unreachable();
-    }
-
-    if (!body)
-        return false;
-
-    func = hlsl_compile_internal_function(ctx, "determinant", body);
-    vkd3d_free(body);
-    if (!func)
-        return false;
-
-    return add_user_call(ctx, func, params, loc);
 }
 
 static bool intrinsic_distance(struct hlsl_ctx *ctx,
@@ -3780,59 +3447,6 @@ static bool intrinsic_reflect(struct hlsl_ctx *ctx,
     return !!add_binary_arithmetic_expr(ctx, params->instrs, HLSL_OP2_ADD, i, neg, loc);
 }
 
-static bool intrinsic_refract(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    struct hlsl_type *r_type = params->args[0]->data_type;
-    struct hlsl_type *n_type = params->args[1]->data_type;
-    struct hlsl_type *i_type = params->args[2]->data_type;
-    struct hlsl_type *res_type, *idx_type, *scal_type;
-    struct parse_initializer mut_params;
-    struct hlsl_ir_function_decl *func;
-    enum hlsl_base_type base;
-    char *body;
-
-    static const char template[] =
-            "%s refract(%s r, %s n, %s i)\n"
-            "{\n"
-            "    %s d, t;\n"
-            "    d = dot(r, n);\n"
-            "    t = 1 - i.x * i.x * (1 - d * d);\n"
-            "    return t >= 0.0 ? i.x * r - (i.x * d + sqrt(t)) * n : 0;\n"
-            "}";
-
-    if (r_type->class == HLSL_CLASS_MATRIX
-            || n_type->class == HLSL_CLASS_MATRIX
-            || i_type->class == HLSL_CLASS_MATRIX)
-    {
-        hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE, "Matrix arguments are not supported.");
-        return false;
-    }
-
-    assert(params->args_count == 3);
-    mut_params = *params;
-    mut_params.args_count = 2;
-    if (!(res_type = elementwise_intrinsic_get_common_type(ctx, &mut_params, loc)))
-        return false;
-
-    base = expr_common_base_type(res_type->base_type, i_type->base_type);
-    base = base == HLSL_TYPE_HALF ? HLSL_TYPE_HALF : HLSL_TYPE_FLOAT;
-    res_type = convert_numeric_type(ctx, res_type, base);
-    idx_type = convert_numeric_type(ctx, i_type, base);
-    scal_type = hlsl_get_scalar_type(ctx, base);
-
-    if (!(body = hlsl_sprintf_alloc(ctx, template, res_type->name, res_type->name,
-            res_type->name, idx_type->name, scal_type->name)))
-        return false;
-
-    func = hlsl_compile_internal_function(ctx, "refract", body);
-    vkd3d_free(body);
-    if (!func)
-        return false;
-
-    return add_user_call(ctx, func, params, loc);
-}
-
 static bool intrinsic_round(struct hlsl_ctx *ctx,
         const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
@@ -3913,12 +3527,6 @@ static bool intrinsic_sin(struct hlsl_ctx *ctx,
     return !!add_unary_arithmetic_expr(ctx, params->instrs, HLSL_OP1_SIN, arg, loc);
 }
 
-static bool intrinsic_sinh(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    return write_cosh_or_sinh(ctx, params, loc, true);
-}
-
 /* smoothstep(a, b, x) = p^2 (3 - 2p), where p = saturate((x - a)/(b - a)) */
 static bool intrinsic_smoothstep(struct hlsl_ctx *ctx,
         const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
@@ -3991,39 +3599,6 @@ static bool intrinsic_tan(struct hlsl_ctx *ctx,
     return !!add_binary_arithmetic_expr(ctx, params->instrs, HLSL_OP2_DIV, sin, cos, loc);
 }
 
-static bool intrinsic_tanh(struct hlsl_ctx *ctx,
-        const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
-{
-    struct hlsl_ir_function_decl *func;
-    struct hlsl_ir_node *arg;
-    struct hlsl_type *type;
-    char *body;
-
-    static const char template[] =
-            "%s tanh(%s x)\n"
-            "{\n"
-            "    %s exp_pos, exp_neg;\n"
-            "    exp_pos = exp(x);\n"
-            "    exp_neg = exp(-x);\n"
-            "    return (exp_pos - exp_neg) / (exp_pos + exp_neg);\n"
-            "}\n";
-
-    if (!(arg = intrinsic_float_convert_arg(ctx, params, params->args[0], loc)))
-        return false;
-    type = arg->data_type;
-
-    if (!(body = hlsl_sprintf_alloc(ctx, template,
-            type->name, type->name, type->name)))
-        return false;
-
-    func = hlsl_compile_internal_function(ctx, "tanh", body);
-    vkd3d_free(body);
-    if (!func)
-        return false;
-
-    return add_user_call(ctx, func, params, loc);
-}
-
 static bool intrinsic_tex(struct hlsl_ctx *ctx, const struct parse_initializer *params,
         const struct vkd3d_shader_location *loc, const char *name, enum hlsl_sampler_dim dim)
 {
@@ -4092,7 +3667,7 @@ static bool intrinsic_tex(struct hlsl_ctx *ctx, const struct parse_initializer *
             return false;
         }
 
-        if (hlsl_version_ge(ctx, 4, 0))
+        if (shader_profile_version_ge(ctx, 4, 0))
         {
             unsigned int count = hlsl_sampler_dim_count(dim);
             struct hlsl_ir_node *divisor;
@@ -4139,7 +3714,7 @@ static bool intrinsic_tex(struct hlsl_ctx *ctx, const struct parse_initializer *
             return false;
 
         initialize_var_components(ctx, params->instrs, var, &idx, coords);
-        if (hlsl_version_ge(ctx, 4, 0))
+        if (shader_profile_version_ge(ctx, 4, 0))
         {
             if (!(half = hlsl_new_float_constant(ctx, 0.5f, loc)))
                 return false;
@@ -4325,7 +3900,7 @@ static bool intrinsic_d3dcolor_to_ubyte4(struct hlsl_ctx *ctx,
     if (!(ret = add_binary_arithmetic_expr(ctx, params->instrs, HLSL_OP2_MUL, arg, c, loc)))
         return false;
 
-    if (hlsl_version_ge(ctx, 4, 0))
+    if (shader_profile_version_ge(ctx, 4, 0))
         return !!add_unary_arithmetic_expr(ctx, params->instrs, HLSL_OP1_TRUNC, ret, loc);
 
     return true;
@@ -4344,19 +3919,14 @@ intrinsic_functions[] =
     /* Note: these entries should be kept in alphabetical order. */
     {"D3DCOLORtoUBYTE4",                    1, true,  intrinsic_d3dcolor_to_ubyte4},
     {"abs",                                 1, true,  intrinsic_abs},
-    {"acos",                                1, true,  intrinsic_acos},
     {"all",                                 1, true,  intrinsic_all},
     {"any",                                 1, true,  intrinsic_any},
     {"asfloat",                             1, true,  intrinsic_asfloat},
-    {"asin",                                1, true,  intrinsic_asin},
     {"asuint",                             -1, true,  intrinsic_asuint},
-    {"atan",                                1, true,  intrinsic_atan},
-    {"atan2",                               2, true,  intrinsic_atan2},
     {"ceil",                                1, true,  intrinsic_ceil},
     {"clamp",                               3, true,  intrinsic_clamp},
     {"clip",                                1, true,  intrinsic_clip},
     {"cos",                                 1, true,  intrinsic_cos},
-    {"cosh",                                1, true,  intrinsic_cosh},
     {"cross",                               2, true,  intrinsic_cross},
     {"ddx",                                 1, true,  intrinsic_ddx},
     {"ddx_coarse",                          1, true,  intrinsic_ddx_coarse},
@@ -4365,7 +3935,6 @@ intrinsic_functions[] =
     {"ddy_coarse",                          1, true,  intrinsic_ddy_coarse},
     {"ddy_fine",                            1, true,  intrinsic_ddy_fine},
     {"degrees",                             1, true,  intrinsic_degrees},
-    {"determinant",                         1, true,  intrinsic_determinant},
     {"distance",                            2, true,  intrinsic_distance},
     {"dot",                                 2, true,  intrinsic_dot},
     {"exp",                                 1, true,  intrinsic_exp},
@@ -4388,18 +3957,15 @@ intrinsic_functions[] =
     {"pow",                                 2, true,  intrinsic_pow},
     {"radians",                             1, true,  intrinsic_radians},
     {"reflect",                             2, true,  intrinsic_reflect},
-    {"refract",                             3, true,  intrinsic_refract},
     {"round",                               1, true,  intrinsic_round},
     {"rsqrt",                               1, true,  intrinsic_rsqrt},
     {"saturate",                            1, true,  intrinsic_saturate},
     {"sign",                                1, true,  intrinsic_sign},
     {"sin",                                 1, true,  intrinsic_sin},
-    {"sinh",                                1, true,  intrinsic_sinh},
     {"smoothstep",                          3, true,  intrinsic_smoothstep},
     {"sqrt",                                1, true,  intrinsic_sqrt},
     {"step",                                2, true,  intrinsic_step},
     {"tan",                                 1, true,  intrinsic_tan},
-    {"tanh",                                1, true,  intrinsic_tanh},
     {"tex1D",                              -1, false, intrinsic_tex1D},
     {"tex2D",                              -1, false, intrinsic_tex2D},
     {"tex2Dlod",                            2, false, intrinsic_tex2Dlod},
@@ -4494,7 +4060,22 @@ static struct hlsl_block *add_constructor(struct hlsl_ctx *ctx, struct hlsl_type
         return NULL;
 
     for (i = 0; i < params->args_count; ++i)
-        initialize_var_components(ctx, params->instrs, var, &idx, params->args[i]);
+    {
+        struct hlsl_ir_node *arg = params->args[i];
+
+        if (arg->data_type->class == HLSL_CLASS_OBJECT)
+        {
+            struct vkd3d_string_buffer *string;
+
+            if ((string = hlsl_type_to_string(ctx, arg->data_type)))
+                hlsl_error(ctx, &arg->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
+                        "Invalid type %s for constructor argument.", string->buffer);
+            hlsl_release_string_buffer(ctx, string);
+            continue;
+        }
+
+        initialize_var_components(ctx, params->instrs, var, &idx, arg);
+    }
 
     if (!(load = hlsl_new_var_load(ctx, var, loc)))
         return NULL;
@@ -4502,104 +4083,6 @@ static struct hlsl_block *add_constructor(struct hlsl_ctx *ctx, struct hlsl_type
 
     vkd3d_free(params->args);
     return params->instrs;
-}
-
-static bool add_ternary(struct hlsl_ctx *ctx, struct hlsl_block *block,
-        struct hlsl_ir_node *cond, struct hlsl_ir_node *first, struct hlsl_ir_node *second)
-{
-    struct hlsl_ir_node *args[HLSL_MAX_OPERANDS] = {0};
-    struct hlsl_type *cond_type = cond->data_type;
-    struct hlsl_type *common_type;
-
-    if (cond_type->class > HLSL_CLASS_LAST_NUMERIC)
-    {
-        struct vkd3d_string_buffer *string;
-
-        if ((string = hlsl_type_to_string(ctx, cond_type)))
-            hlsl_error(ctx, &cond->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                    "Ternary condition type '%s' is not numeric.", string->buffer);
-        hlsl_release_string_buffer(ctx, string);
-    }
-
-    if (first->data_type->class <= HLSL_CLASS_LAST_NUMERIC
-            && second->data_type->class <= HLSL_CLASS_LAST_NUMERIC)
-    {
-        if (!(common_type = get_common_numeric_type(ctx, first, second, &first->loc)))
-            return false;
-
-        if (cond_type->dimx == 1 && cond_type->dimy == 1)
-        {
-            cond_type = hlsl_get_numeric_type(ctx, common_type->class,
-                    HLSL_TYPE_BOOL, common_type->dimx, common_type->dimy);
-            if (!(cond = add_implicit_conversion(ctx, block, cond, cond_type, &cond->loc)))
-                return false;
-        }
-        else
-        {
-            cond_type = hlsl_get_numeric_type(ctx, cond_type->class, HLSL_TYPE_BOOL,
-                    cond_type->dimx, cond_type->dimy);
-            if (!(cond = add_implicit_conversion(ctx, block, cond, cond_type, &cond->loc)))
-                return false;
-
-            if (common_type->dimx == 1 && common_type->dimy == 1)
-            {
-                common_type = hlsl_get_numeric_type(ctx, cond_type->class,
-                        common_type->base_type, cond_type->dimx, cond_type->dimy);
-            }
-            else if (cond_type->dimx != common_type->dimx || cond_type->dimy != common_type->dimy)
-            {
-                /* This condition looks wrong but is correct.
-                * floatN is compatible with float1xN, but not with floatNx1. */
-
-                struct vkd3d_string_buffer *cond_string, *value_string;
-
-                cond_string = hlsl_type_to_string(ctx, cond_type);
-                value_string = hlsl_type_to_string(ctx, common_type);
-                if (cond_string && value_string)
-                    hlsl_error(ctx, &first->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                            "Ternary condition type '%s' is not compatible with value type '%s'.",
-                            cond_string->buffer, value_string->buffer);
-                hlsl_release_string_buffer(ctx, cond_string);
-                hlsl_release_string_buffer(ctx, value_string);
-            }
-        }
-
-        if (!(first = add_implicit_conversion(ctx, block, first, common_type, &first->loc)))
-            return false;
-
-        if (!(second = add_implicit_conversion(ctx, block, second, common_type, &second->loc)))
-            return false;
-    }
-    else
-    {
-        struct vkd3d_string_buffer *first_string, *second_string;
-
-        if (!hlsl_types_are_equal(first->data_type, second->data_type))
-        {
-            first_string = hlsl_type_to_string(ctx, first->data_type);
-            second_string = hlsl_type_to_string(ctx, second->data_type);
-            if (first_string && second_string)
-                hlsl_error(ctx, &first->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                        "Ternary argument types '%s' and '%s' do not match.",
-                        first_string->buffer, second_string->buffer);
-            hlsl_release_string_buffer(ctx, first_string);
-            hlsl_release_string_buffer(ctx, second_string);
-        }
-
-        cond_type = hlsl_get_numeric_type(ctx, cond_type->class, HLSL_TYPE_BOOL,
-                cond_type->dimx, cond_type->dimy);
-        if (!(cond = add_implicit_conversion(ctx, block, cond, cond_type, &cond->loc)))
-            return false;
-
-        common_type = first->data_type;
-    }
-
-    assert(cond->data_type->base_type == HLSL_TYPE_BOOL);
-
-    args[0] = cond;
-    args[1] = first;
-    args[2] = second;
-    return add_expr(ctx, block, HLSL_OP3_TERNARY, args, common_type, &first->loc);
 }
 
 static unsigned int hlsl_offset_dim_count(enum hlsl_sampler_dim dim)
@@ -4618,7 +4101,6 @@ static unsigned int hlsl_offset_dim_count(enum hlsl_sampler_dim dim)
             return 3;
         case HLSL_SAMPLER_DIM_CUBE:
         case HLSL_SAMPLER_DIM_CUBEARRAY:
-        case HLSL_SAMPLER_DIM_BUFFER:
             /* Offset parameters not supported for these types. */
             return 0;
         default:
@@ -4642,31 +4124,28 @@ static bool add_load_method_call(struct hlsl_ctx *ctx, struct hlsl_block *block,
         const char *name, const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
     const struct hlsl_type *object_type = object->data_type;
+    const unsigned int sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
+    const unsigned int offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
     struct hlsl_resource_load_params load_params = {.type = HLSL_RESOURCE_LOAD};
-    unsigned int sampler_dim, offset_dim;
     struct hlsl_ir_node *load;
     bool multisampled;
 
-    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_STRUCTURED_BUFFER)
+    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_CUBE
+            || object_type->sampler_dim == HLSL_SAMPLER_DIM_CUBEARRAY)
     {
-        hlsl_fixme(ctx, loc, "Method '%s' for structured buffers.", name);
-        return false;
+        return raise_invalid_method_object_type(ctx, object_type, name, loc);
     }
-
-    sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
-    offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
 
     multisampled = object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMS
             || object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMSARRAY;
 
-    if (params->args_count < 1 + multisampled || params->args_count > 2 + multisampled + !!offset_dim)
+    if (params->args_count < 1 + multisampled || params->args_count > 3 + multisampled)
     {
         hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_WRONG_PARAMETER_COUNT,
                 "Wrong number of arguments to method 'Load': expected between %u and %u, but got %u.",
-                1 + multisampled, 2 + multisampled + !!offset_dim, params->args_count);
+                1 + multisampled, 3 + multisampled, params->args_count);
         return false;
     }
-
     if (multisampled)
     {
         if (!(load_params.sample_index = add_implicit_conversion(ctx, block, params->args[1],
@@ -4674,14 +4153,14 @@ static bool add_load_method_call(struct hlsl_ctx *ctx, struct hlsl_block *block,
             return false;
     }
 
-    if (!!offset_dim && params->args_count > 1 + multisampled)
+    assert(offset_dim);
+    if (params->args_count > 1 + multisampled)
     {
         if (!(load_params.texel_offset = add_implicit_conversion(ctx, block, params->args[1 + multisampled],
                 hlsl_get_vector_type(ctx, HLSL_TYPE_INT, offset_dim), loc)))
             return false;
     }
-
-    if (params->args_count > 1 + multisampled + !!offset_dim)
+    if (params->args_count > 2 + multisampled)
     {
         hlsl_fixme(ctx, loc, "Tiled resource status argument.");
     }
@@ -4691,7 +4170,7 @@ static bool add_load_method_call(struct hlsl_ctx *ctx, struct hlsl_block *block,
             hlsl_get_vector_type(ctx, HLSL_TYPE_INT, sampler_dim + !multisampled), loc)))
         return false;
 
-    load_params.format = object_type->e.resource.format;
+    load_params.format = object_type->e.resource_format;
     load_params.resource = object;
 
     if (!(load = hlsl_new_resource_load(ctx, &load_params, loc)))
@@ -4704,13 +4183,17 @@ static bool add_sample_method_call(struct hlsl_ctx *ctx, struct hlsl_block *bloc
         const char *name, const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
     const struct hlsl_type *object_type = object->data_type;
+    const unsigned int sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
+    const unsigned int offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
     struct hlsl_resource_load_params load_params = {.type = HLSL_RESOURCE_SAMPLE};
-    unsigned int sampler_dim, offset_dim;
     const struct hlsl_type *sampler_type;
     struct hlsl_ir_node *load;
 
-    sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
-    offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
+    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMS
+            || object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMSARRAY)
+    {
+        return raise_invalid_method_object_type(ctx, object_type, name, loc);
+    }
 
     if (params->args_count < 2 || params->args_count > 4 + !!offset_dim)
     {
@@ -4749,7 +4232,7 @@ static bool add_sample_method_call(struct hlsl_ctx *ctx, struct hlsl_block *bloc
     if (params->args_count > 3 + !!offset_dim)
         hlsl_fixme(ctx, loc, "Tiled resource status argument.");
 
-    load_params.format = object_type->e.resource.format;
+    load_params.format = object_type->e.resource_format;
     load_params.resource = object;
     load_params.sampler = params->args[0];
 
@@ -4764,13 +4247,17 @@ static bool add_sample_cmp_method_call(struct hlsl_ctx *ctx, struct hlsl_block *
         const char *name, const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
     const struct hlsl_type *object_type = object->data_type;
+    const unsigned int sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
+    const unsigned int offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
     struct hlsl_resource_load_params load_params = { 0 };
-    unsigned int sampler_dim, offset_dim;
     const struct hlsl_type *sampler_type;
     struct hlsl_ir_node *load;
 
-    sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
-    offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
+    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMS
+            || object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMSARRAY)
+    {
+        return raise_invalid_method_object_type(ctx, object_type, name, loc);
+    }
 
     if (!strcmp(name, "SampleCmpLevelZero"))
         load_params.type = HLSL_RESOURCE_SAMPLE_CMP_LZ;
@@ -4819,7 +4306,7 @@ static bool add_sample_cmp_method_call(struct hlsl_ctx *ctx, struct hlsl_block *
     if (params->args_count > 4 + !!offset_dim)
         hlsl_fixme(ctx, loc, "Tiled resource status argument.");
 
-    load_params.format = object_type->e.resource.format;
+    load_params.format = object_type->e.resource_format;
     load_params.resource = object;
     load_params.sampler = params->args[0];
 
@@ -4834,14 +4321,20 @@ static bool add_gather_method_call(struct hlsl_ctx *ctx, struct hlsl_block *bloc
         const char *name, const struct parse_initializer *params, const struct vkd3d_shader_location *loc)
 {
     const struct hlsl_type *object_type = object->data_type;
+    const unsigned int sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
+    const unsigned int offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
     struct hlsl_resource_load_params load_params = {0};
-    unsigned int sampler_dim, offset_dim;
     const struct hlsl_type *sampler_type;
     struct hlsl_ir_node *load;
     unsigned int read_channel;
 
-    sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
-    offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
+    if (object_type->sampler_dim != HLSL_SAMPLER_DIM_2D
+            && object_type->sampler_dim != HLSL_SAMPLER_DIM_2DARRAY
+            && object_type->sampler_dim != HLSL_SAMPLER_DIM_CUBE
+            && object_type->sampler_dim != HLSL_SAMPLER_DIM_CUBEARRAY)
+    {
+        return raise_invalid_method_object_type(ctx, object_type, name, loc);
+    }
 
     if (!strcmp(name, "GatherGreen"))
     {
@@ -4909,7 +4402,7 @@ static bool add_gather_method_call(struct hlsl_ctx *ctx, struct hlsl_block *bloc
         return false;
     }
 
-    if (read_channel >= object_type->e.resource.format->dimx)
+    if (read_channel >= object_type->e.resource_format->dimx)
     {
         hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
                 "Method %s() requires at least %u channels.", name, read_channel + 1);
@@ -4920,7 +4413,7 @@ static bool add_gather_method_call(struct hlsl_ctx *ctx, struct hlsl_block *bloc
             hlsl_get_vector_type(ctx, HLSL_TYPE_FLOAT, sampler_dim), loc)))
         return false;
 
-    load_params.format = hlsl_get_vector_type(ctx, object_type->e.resource.format->base_type, 4);
+    load_params.format = hlsl_get_vector_type(ctx, object_type->e.resource_format->base_type, 4);
     load_params.resource = object;
     load_params.sampler = params->args[0];
 
@@ -4992,14 +4485,12 @@ static bool add_getdimensions_method_call(struct hlsl_ctx *ctx, struct hlsl_bloc
         { HLSL_SAMPLER_DIM_CUBEARRAY, 5, { ARG_MIP_LEVEL, ARG_WIDTH, ARG_HEIGHT, ARG_ELEMENT_COUNT, ARG_LEVEL_COUNT } },
         { HLSL_SAMPLER_DIM_2DMS, 3, { ARG_WIDTH, ARG_HEIGHT, ARG_SAMPLE_COUNT } },
         { HLSL_SAMPLER_DIM_2DMSARRAY, 4, { ARG_WIDTH, ARG_HEIGHT, ARG_ELEMENT_COUNT, ARG_SAMPLE_COUNT } },
-        { HLSL_SAMPLER_DIM_BUFFER, 1, { ARG_WIDTH} },
     };
     const struct overload *o = NULL;
 
-    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_STRUCTURED_BUFFER)
+    if (object_type->sampler_dim > HLSL_SAMPLER_DIM_LAST_TEXTURE)
     {
-        hlsl_fixme(ctx, loc, "Method '%s' for structured buffers.", name);
-        return false;
+        hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE, "GetDimensions() is not defined for this type.");
     }
 
     uint_type = hlsl_get_scalar_type(ctx, HLSL_TYPE_UINT);
@@ -5113,12 +4604,16 @@ static bool add_sample_lod_method_call(struct hlsl_ctx *ctx, struct hlsl_block *
 {
     const struct hlsl_type *object_type = object->data_type;
     struct hlsl_resource_load_params load_params = { 0 };
-    unsigned int sampler_dim, offset_dim;
+    const unsigned int sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
+    const unsigned int offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
     const struct hlsl_type *sampler_type;
     struct hlsl_ir_node *load;
 
-    sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
-    offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
+    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMS
+            || object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMSARRAY)
+    {
+        return raise_invalid_method_object_type(ctx, object_type, name, loc);
+    }
 
     if (!strcmp(name, "SampleLevel"))
         load_params.type = HLSL_RESOURCE_SAMPLE_LOD;
@@ -5164,7 +4659,7 @@ static bool add_sample_lod_method_call(struct hlsl_ctx *ctx, struct hlsl_block *
     if (params->args_count > 3 + !!offset_dim)
         hlsl_fixme(ctx, loc, "Tiled resource status argument.");
 
-    load_params.format = object_type->e.resource.format;
+    load_params.format = object_type->e.resource_format;
     load_params.resource = object;
     load_params.sampler = params->args[0];
 
@@ -5179,12 +4674,16 @@ static bool add_sample_grad_method_call(struct hlsl_ctx *ctx, struct hlsl_block 
 {
     const struct hlsl_type *object_type = object->data_type;
     struct hlsl_resource_load_params load_params = { 0 };
-    unsigned int sampler_dim, offset_dim;
+    const unsigned int sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
+    const unsigned int offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
     const struct hlsl_type *sampler_type;
     struct hlsl_ir_node *load;
 
-    sampler_dim = hlsl_sampler_dim_count(object_type->sampler_dim);
-    offset_dim = hlsl_offset_dim_count(object_type->sampler_dim);
+    if (object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMS
+            || object_type->sampler_dim == HLSL_SAMPLER_DIM_2DMSARRAY)
+    {
+        return raise_invalid_method_object_type(ctx, object_type, name, loc);
+    }
 
     load_params.type = HLSL_RESOURCE_SAMPLE_GRAD;
 
@@ -5231,7 +4730,7 @@ static bool add_sample_grad_method_call(struct hlsl_ctx *ctx, struct hlsl_block 
     if (params->args_count > 4 + !!offset_dim)
         hlsl_fixme(ctx, loc, "Tiled resource status argument.");
 
-    load_params.format = object_type->e.resource.format;
+    load_params.format = object_type->e.resource_format;
     load_params.resource = object;
     load_params.sampler = params->args[0];
 
@@ -5246,27 +4745,25 @@ static const struct method_function
     const char *name;
     bool (*handler)(struct hlsl_ctx *ctx, struct hlsl_block *block, struct hlsl_ir_node *object,
             const char *name, const struct parse_initializer *params, const struct vkd3d_shader_location *loc);
-    bool valid_dims[HLSL_SAMPLER_DIM_MAX + 1];
 }
 object_methods[] =
 {
-                                                        /*  g c   1d  2d  3d  cube  1darr  2darr  2dms  2dmsarr  cubearr  buff  sbuff*/
-    { "Gather",             add_gather_method_call,        {0,0,  0,  1,  0,  1,    0,     1,     0,    0,       1,       0,    0}},
-    { "GatherAlpha",        add_gather_method_call,        {0,0,  0,  1,  0,  1,    0,     1,     0,    0,       1,       0,    0}},
-    { "GatherBlue",         add_gather_method_call,        {0,0,  0,  1,  0,  1,    0,     1,     0,    0,       1,       0,    0}},
-    { "GatherGreen",        add_gather_method_call,        {0,0,  0,  1,  0,  1,    0,     1,     0,    0,       1,       0,    0}},
-    { "GatherRed",          add_gather_method_call,        {0,0,  0,  1,  0,  1,    0,     1,     0,    0,       1,       0,    0}},
+    { "Gather",             add_gather_method_call },
+    { "GatherAlpha",        add_gather_method_call },
+    { "GatherBlue",         add_gather_method_call },
+    { "GatherGreen",        add_gather_method_call },
+    { "GatherRed",          add_gather_method_call },
 
-    { "GetDimensions",      add_getdimensions_method_call, {0,0,  1,  1,  1,  1,    1,     1,     1,    1,       1,       1,    1}},
+    { "GetDimensions",      add_getdimensions_method_call },
 
-    { "Load",               add_load_method_call,          {0,0,  1,  1,  1,  0,    1,     1,     1,    1,       0,       1,    1}},
+    { "Load",               add_load_method_call },
 
-    { "Sample",             add_sample_method_call,        {0,0,  1,  1,  1,  1,    1,     1,     0,    0,       1,       0,    0}},
-    { "SampleBias",         add_sample_lod_method_call,    {0,0,  1,  1,  1,  1,    1,     1,     0,    0,       1,       0,    0}},
-    { "SampleCmp",          add_sample_cmp_method_call,    {0,0,  1,  1,  1,  1,    1,     1,     0,    0,       1,       0,    0}},
-    { "SampleCmpLevelZero", add_sample_cmp_method_call,    {0,0,  1,  1,  1,  1,    1,     1,     0,    0,       1,       0,    0}},
-    { "SampleGrad",         add_sample_grad_method_call,   {0,0,  1,  1,  1,  1,    1,     1,     0,    0,       1,       0,    0}},
-    { "SampleLevel",        add_sample_lod_method_call,    {0,0,  1,  1,  1,  1,    1,     1,     0,    0,       1,       0,    0}},
+    { "Sample",             add_sample_method_call },
+    { "SampleBias",         add_sample_lod_method_call },
+    { "SampleCmp",          add_sample_cmp_method_call },
+    { "SampleCmpLevelZero", add_sample_cmp_method_call },
+    { "SampleGrad",         add_sample_grad_method_call },
+    { "SampleLevel",        add_sample_lod_method_call },
 };
 
 static int object_method_function_name_compare(const void *a, const void *b)
@@ -5294,10 +4791,8 @@ static bool add_method_call(struct hlsl_ctx *ctx, struct hlsl_block *block, stru
         return false;
     }
 
-    method = bsearch(name, object_methods, ARRAY_SIZE(object_methods), sizeof(*method),
-            object_method_function_name_compare);
-
-    if (method && method->valid_dims[object_type->sampler_dim])
+    if ((method = bsearch(name, object_methods, ARRAY_SIZE(object_methods),
+            sizeof(*method), object_method_function_name_compare)))
     {
         return method->handler(ctx, block, object, name, params, loc);
     }
@@ -5382,58 +4877,6 @@ static void check_duplicated_switch_cases(struct hlsl_ctx *ctx, const struct hls
     }
 }
 
-static void validate_uav_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim dim,
-        struct hlsl_type *format, const struct vkd3d_shader_location* loc)
-{
-    struct vkd3d_string_buffer *string = hlsl_type_to_string(ctx, format);
-
-    if (!type_contains_only_numerics(format))
-    {
-        if (string)
-            hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                    "UAV type %s is not numeric.", string->buffer);
-    }
-
-    switch (dim)
-    {
-        case HLSL_SAMPLER_DIM_BUFFER:
-        case HLSL_SAMPLER_DIM_1D:
-        case HLSL_SAMPLER_DIM_1DARRAY:
-        case HLSL_SAMPLER_DIM_2D:
-        case HLSL_SAMPLER_DIM_2DARRAY:
-        case HLSL_SAMPLER_DIM_3D:
-            if (format->class == HLSL_CLASS_ARRAY)
-            {
-                if (string)
-                    hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                            "This type of UAV does not support array type.");
-            }
-            else if (hlsl_type_component_count(format) > 4)
-            {
-                if (string)
-                    hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
-                            "UAV data type %s size exceeds maximum size.", string->buffer);
-            }
-            break;
-        case HLSL_SAMPLER_DIM_STRUCTURED_BUFFER:
-            break;
-        default:
-            vkd3d_unreachable();
-    }
-
-    hlsl_release_string_buffer(ctx, string);
-}
-
-static bool state_block_add_entry(struct hlsl_state_block *state_block, struct hlsl_state_block_entry *entry)
-{
-    if (!vkd3d_array_reserve((void **)&state_block->entries, &state_block->capacity, state_block->count + 1,
-            sizeof(*state_block->entries)))
-        return false;
-
-    state_block->entries[state_block->count++] = entry;
-    return true;
-}
-
 }
 
 %locations
@@ -5473,9 +4916,6 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
     struct hlsl_attribute *attr;
     struct parse_attribute_list attr_list;
     struct hlsl_ir_switch_case *switch_case;
-    struct hlsl_scope *scope;
-    struct hlsl_state_block *state_block;
-    struct state_block_index state_block_index;
 }
 
 %token KW_BLENDSTATE
@@ -5486,7 +4926,6 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 %token KW_CENTROID
 %token KW_COLUMN_MAJOR
 %token KW_COMPILE
-%token KW_COMPUTESHADER
 %token KW_CONST
 %token KW_CONTINUE
 %token KW_DEFAULT
@@ -5494,17 +4933,14 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 %token KW_DEPTHSTENCILVIEW
 %token KW_DISCARD
 %token KW_DO
-%token KW_DOMAINSHADER
 %token KW_DOUBLE
 %token KW_ELSE
-%token KW_EXPORT
 %token KW_EXTERN
 %token KW_FALSE
 %token KW_FOR
 %token KW_FXGROUP
 %token KW_GEOMETRYSHADER
 %token KW_GROUPSHARED
-%token KW_HULLSHADER
 %token KW_IF
 %token KW_IN
 %token KW_INLINE
@@ -5518,13 +4954,7 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 %token KW_PACKOFFSET
 %token KW_PASS
 %token KW_PIXELSHADER
-%token KW_RASTERIZERORDEREDBUFFER
-%token KW_RASTERIZERORDEREDSTRUCTUREDBUFFER
-%token KW_RASTERIZERORDEREDTEXTURE1D
-%token KW_RASTERIZERORDEREDTEXTURE1DARRAY
-%token KW_RASTERIZERORDEREDTEXTURE2D
-%token KW_RASTERIZERORDEREDTEXTURE2DARRAY
-%token KW_RASTERIZERORDEREDTEXTURE3D
+%token KW_PRECISE
 %token KW_RASTERIZERSTATE
 %token KW_RENDERTARGETVIEW
 %token KW_RETURN
@@ -5611,8 +5041,6 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 %token <name> STRING
 %token <name> TYPE_IDENTIFIER
 
-%type <scope> annotations_opt
-
 %type <arrays> arrays
 
 %type <assign_op> assign_op
@@ -5675,7 +5103,6 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 
 %type <name> any_identifier
 %type <name> var_identifier
-%type <name> stateblock_lhs_identifier
 %type <name> name_opt
 
 %type <parameter> parameter
@@ -5686,13 +5113,9 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 %type <reg_reservation> register_opt
 %type <reg_reservation> packoffset_opt
 
-%type <sampler_dim> texture_type texture_ms_type uav_type rov_type
+%type <sampler_dim> texture_type texture_ms_type uav_type
 
 %type <semantic> semantic
-
-%type <state_block> state_block
-
-%type <state_block_index> state_block_index_opt
 
 %type <switch_case> switch_case
 
@@ -5704,7 +5127,6 @@ static bool state_block_add_entry(struct hlsl_state_block *state_block, struct h
 %type <type> type_no_void
 %type <type> typedef_type
 
-%type <variable_def> state_block_list
 %type <variable_def> type_spec
 %type <variable_def> variable_decl
 %type <variable_def> variable_def
@@ -5735,33 +5157,7 @@ name_opt:
     | any_identifier
 
 pass:
-      KW_PASS name_opt annotations_opt '{' state_block_start state_block '}'
-        {
-            if (!add_pass(ctx, $2, $3, $6, &@1))
-                YYABORT;
-        }
-
-annotations_list:
-      variables_def_typed ';'
-    | annotations_list variables_def_typed ';'
-
-annotations_opt:
-      %empty
-        {
-            $$ = NULL;
-        }
-    | '<' scope_start '>'
-        {
-            hlsl_pop_scope(ctx);
-            $$ = NULL;
-        }
-    | '<' scope_start annotations_list '>'
-        {
-            struct hlsl_scope *scope = ctx->cur_scope;
-
-            hlsl_pop_scope(ctx);
-            $$ = scope;
-        }
+      KW_PASS name_opt '{' '}'
 
 pass_list:
       pass
@@ -5772,27 +5168,31 @@ passes:
     | scope_start pass_list
 
 technique9:
-      KW_TECHNIQUE name_opt annotations_opt '{' passes '}'
+      KW_TECHNIQUE name_opt '{' passes '}'
         {
             struct hlsl_scope *scope = ctx->cur_scope;
             hlsl_pop_scope(ctx);
 
-            if (!add_technique(ctx, $2, scope, $3, "technique", &@1))
+            if (!add_technique(ctx, $2, scope, "technique", &@1))
                 YYABORT;
         }
 
 technique10:
-      KW_TECHNIQUE10 name_opt annotations_opt '{' passes '}'
+      KW_TECHNIQUE10 name_opt '{' passes '}'
         {
             struct hlsl_scope *scope = ctx->cur_scope;
             hlsl_pop_scope(ctx);
 
-            if (!add_technique(ctx, $2, scope, $3, "technique10", &@1))
+            if (ctx->profile->type == VKD3D_SHADER_TYPE_EFFECT && ctx->profile->major_version == 2)
+                hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_INVALID_SYNTAX,
+                        "The 'technique10' keyword is invalid for this profile.");
+
+            if (!add_technique(ctx, $2, scope, "technique10", &@1))
                 YYABORT;
         }
 
 technique11:
-      KW_TECHNIQUE11 name_opt annotations_opt '{' passes '}'
+      KW_TECHNIQUE11 name_opt '{' passes '}'
         {
             struct hlsl_scope *scope = ctx->cur_scope;
             hlsl_pop_scope(ctx);
@@ -5801,7 +5201,7 @@ technique11:
                 hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_INVALID_SYNTAX,
                         "The 'technique11' keyword is invalid for this profile.");
 
-            if (!add_technique(ctx, $2, scope, $3, "technique11", &@1))
+            if (!add_technique(ctx, $2, scope, "technique11", &@1))
                 YYABORT;
         }
 
@@ -5819,21 +5219,21 @@ group_techniques:
     | group_techniques group_technique
 
 effect_group:
-      KW_FXGROUP any_identifier annotations_opt '{' scope_start group_techniques '}'
+      KW_FXGROUP any_identifier '{' scope_start group_techniques '}'
         {
             struct hlsl_scope *scope = ctx->cur_scope;
             hlsl_pop_scope(ctx);
-            if (!(add_effect_group(ctx, $2, scope, $3, &@2)))
+            if (!(add_effect_group(ctx, $2, scope, &@2)))
                 YYABORT;
         }
 
 buffer_declaration:
-      var_modifiers buffer_type any_identifier colon_attribute annotations_opt
+      buffer_type any_identifier colon_attribute
         {
-            if ($4.semantic.name)
-                hlsl_error(ctx, &@4, VKD3D_SHADER_ERROR_HLSL_INVALID_SEMANTIC, "Semantics are not allowed on buffers.");
+            if ($3.semantic.name)
+                hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_INVALID_SEMANTIC, "Semantics are not allowed on buffers.");
 
-            if (!(ctx->cur_buffer = hlsl_new_buffer(ctx, $2, $3, $1, &$4.reg_reservation, $5, &@3)))
+            if (!(ctx->cur_buffer = hlsl_new_buffer(ctx, $1, $2, &$3.reg_reservation, &@2)))
                 YYABORT;
         }
 
@@ -6015,11 +5415,11 @@ attribute:
             $$->name = $2;
             hlsl_block_init(&$$->instrs);
             hlsl_block_add_block(&$$->instrs, $4.instrs);
+            vkd3d_free($4.instrs);
             $$->loc = @$;
             $$->args_count = $4.args_count;
             for (i = 0; i < $4.args_count; ++i)
                 hlsl_src_from_node(&$$->args[i], $4.args[i]);
-            free_parse_initializer(&$4);
         }
 
 attribute_list:
@@ -6132,9 +5532,9 @@ func_prototype_no_attrs:
             /* Functions are unconditionally inlined. */
             modifiers &= ~HLSL_MODIFIER_INLINE;
 
-            if (modifiers & ~(HLSL_MODIFIERS_MAJORITY_MASK | HLSL_MODIFIER_EXPORT))
+            if (modifiers & ~HLSL_MODIFIERS_MAJORITY_MASK)
                 hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_INVALID_MODIFIER,
-                        "Unexpected modifier used on a function.");
+                        "Only majority modifiers are allowed on functions.");
             if (!(type = apply_type_modifiers(ctx, $2, &modifiers, true, &@1)))
                 YYABORT;
             if ((var = hlsl_get_var(ctx->globals, $3)))
@@ -6250,11 +5650,7 @@ func_prototype:
             }
             else
             {
-                unsigned int i;
-
-                for (i = 0; i < $1.count; ++i)
-                    hlsl_free_attribute((void *)$1.attrs[i]);
-                vkd3d_free($1.attrs);
+                free($1.attrs);
             }
             $$ = $2;
         }
@@ -6431,11 +5827,7 @@ parameter:
         }
 
 texture_type:
-      KW_BUFFER
-        {
-            $$ = HLSL_SAMPLER_DIM_BUFFER;
-        }
-    | KW_TEXTURE1D
+      KW_TEXTURE1D
         {
             $$ = HLSL_SAMPLER_DIM_1D;
         }
@@ -6500,36 +5892,6 @@ uav_type:
             $$ = HLSL_SAMPLER_DIM_2DARRAY;
         }
     | KW_RWTEXTURE3D
-        {
-            $$ = HLSL_SAMPLER_DIM_3D;
-        }
-
-rov_type:
-      KW_RASTERIZERORDEREDBUFFER
-        {
-            $$ = HLSL_SAMPLER_DIM_BUFFER;
-        }
-    | KW_RASTERIZERORDEREDSTRUCTUREDBUFFER
-        {
-            $$ = HLSL_SAMPLER_DIM_STRUCTURED_BUFFER;
-        }
-    | KW_RASTERIZERORDEREDTEXTURE1D
-        {
-            $$ = HLSL_SAMPLER_DIM_1D;
-        }
-    | KW_RASTERIZERORDEREDTEXTURE1DARRAY
-        {
-            $$ = HLSL_SAMPLER_DIM_1DARRAY;
-        }
-    | KW_RASTERIZERORDEREDTEXTURE2D
-        {
-            $$ = HLSL_SAMPLER_DIM_2D;
-        }
-    | KW_RASTERIZERORDEREDTEXTURE2DARRAY
-        {
-            $$ = HLSL_SAMPLER_DIM_2DARRAY;
-        }
-    | KW_RASTERIZERORDEREDTEXTURE3D
         {
             $$ = HLSL_SAMPLER_DIM_3D;
         }
@@ -6636,7 +5998,7 @@ type_no_void:
         {
             validate_texture_format_type(ctx, $3, &@3);
 
-            if (hlsl_version_lt(ctx, 4, 1))
+            if (shader_profile_version_lt(ctx, 4, 1))
             {
                 hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
                         "Multisampled texture object declaration needs sample count for profile %s.", ctx->profile->name);
@@ -6662,20 +6024,52 @@ type_no_void:
         }
     | uav_type '<' type '>'
         {
-            validate_uav_type(ctx, $1, $3, &@3);
-            $$ = hlsl_new_uav_type(ctx, $1, $3, false);
-        }
-    | rov_type '<' type '>'
-        {
-            validate_uav_type(ctx, $1, $3, &@3);
-            $$ = hlsl_new_uav_type(ctx, $1, $3, true);
+            struct vkd3d_string_buffer *string = hlsl_type_to_string(ctx, $3);
+
+            if (!type_contains_only_numerics($3))
+            {
+                if (string)
+                    hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
+                            "UAV type %s is not numeric.", string->buffer);
+            }
+
+            switch ($1)
+            {
+                case HLSL_SAMPLER_DIM_BUFFER:
+                case HLSL_SAMPLER_DIM_1D:
+                case HLSL_SAMPLER_DIM_1DARRAY:
+                case HLSL_SAMPLER_DIM_2D:
+                case HLSL_SAMPLER_DIM_2DARRAY:
+                case HLSL_SAMPLER_DIM_3D:
+                    if ($3->class == HLSL_CLASS_ARRAY)
+                    {
+                        if (string)
+                            hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
+                                    "This type of UAV does not support array type.");
+                    }
+                    else if (hlsl_type_component_count($3) > 4)
+                    {
+                        if (string)
+                            hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
+                                    "UAV data type %s size exceeds maximum size.", string->buffer);
+                    }
+                    break;
+                case HLSL_SAMPLER_DIM_STRUCTURED_BUFFER:
+                    break;
+                default:
+                    vkd3d_unreachable();
+            }
+
+            hlsl_release_string_buffer(ctx, string);
+
+            $$ = hlsl_new_uav_type(ctx, $1, $3);
         }
     | TYPE_IDENTIFIER
         {
             $$ = hlsl_get_type(ctx->cur_scope, $1, true, true);
             if ($$->is_minimum_precision)
             {
-                if (hlsl_version_lt(ctx, 4, 0))
+                if (shader_profile_version_lt(ctx, 4, 0))
                 {
                     hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
                             "Target profile doesn't support minimum-precision types.");
@@ -6693,22 +6087,6 @@ type_no_void:
             if ($$->class != HLSL_CLASS_STRUCT)
                 hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_REDEFINED, "\"%s\" redefined as a structure.", $2);
             vkd3d_free($2);
-        }
-    | KW_RENDERTARGETVIEW
-        {
-            $$ = hlsl_get_type(ctx->cur_scope, "RenderTargetView", true, true);
-        }
-    | KW_DEPTHSTENCILVIEW
-        {
-            $$ = hlsl_get_type(ctx->cur_scope, "DepthStencilView", true, true);
-        }
-    | KW_VERTEXSHADER
-        {
-            $$ = hlsl_get_type(ctx->cur_scope, "VertexShader", true, true);
-        }
-    | KW_PIXELSHADER
-        {
-            $$ = hlsl_get_type(ctx->cur_scope, "PixelShader", true, true);
         }
 
 type:
@@ -6839,91 +6217,22 @@ variable_decl:
             $$->reg_reservation = $3.reg_reservation;
         }
 
+state:
+      any_identifier '=' expr ';'
+        {
+            vkd3d_free($1);
+            destroy_block($3);
+        }
+
 state_block_start:
       %empty
         {
             ctx->in_state_block = 1;
         }
 
-stateblock_lhs_identifier:
-      any_identifier
-        {
-            $$ = $1;
-        }
-    | KW_PIXELSHADER
-        {
-            if (!($$ = hlsl_strdup(ctx, "pixelshader")))
-                YYABORT;
-        }
-    | KW_VERTEXSHADER
-        {
-            if (!($$ = hlsl_strdup(ctx, "vertexshader")))
-                YYABORT;
-        }
-
-state_block_index_opt:
-      %empty
-        {
-            $$.has_index = false;
-            $$.index = 0;
-        }
-    | '[' C_INTEGER ']'
-       {
-            if ($2 < 0)
-            {
-                hlsl_error(ctx, &@2, VKD3D_SHADER_ERROR_HLSL_INVALID_INDEX,
-                        "State block array index is not a positive integer constant.");
-                YYABORT;
-            }
-            $$.has_index = true;
-            $$.index = $2;
-       }
-
 state_block:
       %empty
-        {
-            if (!($$ = hlsl_alloc(ctx, sizeof(*$$))))
-                YYABORT;
-        }
-    | state_block stateblock_lhs_identifier state_block_index_opt '=' complex_initializer ';'
-        {
-            struct hlsl_state_block_entry *entry;
-
-            if (!(entry = hlsl_alloc(ctx, sizeof(*entry))))
-                YYABORT;
-
-            entry->name = $2;
-            entry->lhs_has_index = $3.has_index;
-            entry->lhs_index = $3.index;
-
-            entry->instrs = $5.instrs;
-            entry->args = $5.args;
-            entry->args_count = $5.args_count;
-
-            $$ = $1;
-            state_block_add_entry($$, entry);
-        }
-
-state_block_list:
-      '{' state_block '}'
-        {
-            if (!($$ = hlsl_alloc(ctx, sizeof(*$$))))
-                YYABORT;
-
-            if(!(vkd3d_array_reserve((void **)&$$->state_blocks, &$$->state_block_capacity,
-                    $$->state_block_count + 1, sizeof(*$$->state_blocks))))
-                YYABORT;
-            $$->state_blocks[$$->state_block_count++] = $2;
-        }
-    | state_block_list ',' '{' state_block '}'
-        {
-            $$ = $1;
-
-            if(!(vkd3d_array_reserve((void **)&$$->state_blocks, &$$->state_block_capacity,
-                    $$->state_block_count + 1, sizeof(*$$->state_blocks))))
-                YYABORT;
-            $$->state_blocks[$$->state_block_count++] = $4;
-        }
+    | state_block state
 
 variable_def:
       variable_decl
@@ -6936,24 +6245,6 @@ variable_def:
         {
             $$ = $1;
             ctx->in_state_block = 0;
-
-            if(!(vkd3d_array_reserve((void **)&$$->state_blocks, &$$->state_block_capacity,
-                    $$->state_block_count + 1, sizeof(*$$->state_blocks))))
-                YYABORT;
-            $$->state_blocks[$$->state_block_count++] = $4;
-        }
-    | variable_decl '{' state_block_start state_block_list '}'
-        {
-            $$ = $1;
-            ctx->in_state_block = 0;
-
-            $$->state_blocks = $4->state_blocks;
-            $$->state_block_count = $4->state_block_count;
-            $$->state_block_capacity = $4->state_block_capacity;
-            $4->state_blocks = NULL;
-            $4->state_block_count = 0;
-            $4->state_block_capacity = 0;
-            free_parse_variable_def($4);
         }
 
 variable_def_typed:
@@ -7070,6 +6361,10 @@ var_modifiers:
         {
             $$ = add_modifiers(ctx, $2, HLSL_STORAGE_NOPERSPECTIVE, &@1);
         }
+    | KW_PRECISE var_modifiers
+        {
+            $$ = add_modifiers(ctx, $2, HLSL_MODIFIER_PRECISE, &@1);
+        }
     | KW_SHARED var_modifiers
         {
             $$ = add_modifiers(ctx, $2, HLSL_STORAGE_SHARED, &@1);
@@ -7118,20 +6413,7 @@ var_modifiers:
         {
             $$ = add_modifiers(ctx, $2, HLSL_MODIFIER_INLINE, &@1);
         }
-    | KW_EXPORT var_modifiers
-        {
-            $$ = add_modifiers(ctx, $2, HLSL_MODIFIER_EXPORT, &@1);
-        }
-    | var_identifier var_modifiers
-        {
-            if (!strcmp($1, "precise"))
-                $$ = add_modifiers(ctx, $2, HLSL_MODIFIER_PRECISE, &@1);
-            else if (!strcmp($1, "single"))
-                $$ = add_modifiers(ctx, $2, HLSL_MODIFIER_SINGLE, &@1);
-            else
-                hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_UNKNOWN_MODIFIER,
-                        "Unknown modifier %s.", debugstr_a($1));
-        }
+
 
 complex_initializer:
       initializer_expr
@@ -7324,15 +6606,6 @@ selection_statement:
                 }
             }
 
-            check_condition_type(ctx, condition);
-
-            if (!(condition = add_cast(ctx, $4, condition, hlsl_get_scalar_type(ctx, HLSL_TYPE_BOOL), &@4)))
-            {
-                destroy_block($6.then_block);
-                destroy_block($6.else_block);
-                YYABORT;
-            }
-
             if (!(instr = hlsl_new_if(ctx, condition, $6.then_block, $6.else_block, &@2)))
             {
                 destroy_block($6.then_block);
@@ -7341,7 +6614,15 @@ selection_statement:
             }
             destroy_block($6.then_block);
             destroy_block($6.else_block);
+            if (condition->data_type->dimx > 1 || condition->data_type->dimy > 1)
+            {
+                struct vkd3d_string_buffer *string;
 
+                if ((string = hlsl_type_to_string(ctx, condition->data_type)))
+                    hlsl_error(ctx, &instr->loc, VKD3D_SHADER_ERROR_HLSL_INVALID_TYPE,
+                            "if condition type %s is not scalar.", string->buffer);
+                hlsl_release_string_buffer(ctx, string);
+            }
             $$ = $4;
             hlsl_block_add_instr($$, instr);
         }
@@ -7553,10 +6834,8 @@ primary_expr:
             if (!(var = hlsl_get_var(ctx->cur_scope, $1)))
             {
                 hlsl_error(ctx, &@1, VKD3D_SHADER_ERROR_HLSL_NOT_DEFINED, "Variable \"%s\" is not defined.", $1);
-                vkd3d_free($1);
                 YYABORT;
             }
-            vkd3d_free($1);
             if (!(load = hlsl_new_var_load(ctx, var, &@1)))
                 YYABORT;
             if (!($$ = make_block(ctx, &load->node)))
@@ -7579,13 +6858,15 @@ primary_expr:
         {
             if (ctx->in_state_block)
             {
-                struct hlsl_ir_node *constant;
+                struct hlsl_ir_load *load;
+                struct hlsl_ir_var *var;
 
-                if (!(constant = hlsl_new_stateblock_constant(ctx, $1, &@1)))
+                if (!(var = hlsl_new_synthetic_var(ctx, "state_block_expr",
+                        hlsl_get_scalar_type(ctx, HLSL_TYPE_INT), &@1)))
                     YYABORT;
-                vkd3d_free($1);
-
-                if (!($$ = make_block(ctx, constant)))
+                if (!(load = hlsl_new_var_load(ctx, var, &@1)))
+                    YYABORT;
+                if (!($$ = make_block(ctx, &load->node)))
                     YYABORT;
             }
             else
@@ -7628,17 +6909,12 @@ postfix_expr:
                 if (!(field = get_struct_field(type->e.record.fields, type->e.record.field_count, $3)))
                 {
                     hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_NOT_DEFINED, "Field \"%s\" is not defined.", $3);
-                    vkd3d_free($3);
                     YYABORT;
                 }
 
                 field_idx = field - type->e.record.fields;
                 if (!add_record_access(ctx, $1, node, field_idx, &@2))
-                {
-                    vkd3d_free($3);
                     YYABORT;
-                }
-                vkd3d_free($3);
                 $$ = $1;
             }
             else if (hlsl_is_numeric_type(node->data_type))
@@ -7648,17 +6924,14 @@ postfix_expr:
                 if (!(swizzle = get_swizzle(ctx, node, $3, &@3)))
                 {
                     hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_INVALID_SYNTAX, "Invalid swizzle \"%s\".", $3);
-                    vkd3d_free($3);
                     YYABORT;
                 }
                 hlsl_block_add_instr($1, swizzle);
-                vkd3d_free($3);
                 $$ = $1;
             }
             else
             {
                 hlsl_error(ctx, &@3, VKD3D_SHADER_ERROR_HLSL_INVALID_SYNTAX, "Invalid subscript \"%s\".", $3);
-                vkd3d_free($3);
                 YYABORT;
             }
         }
@@ -7929,13 +7202,27 @@ conditional_expr:
             struct hlsl_ir_node *cond = node_from_block($1);
             struct hlsl_ir_node *first = node_from_block($3);
             struct hlsl_ir_node *second = node_from_block($5);
+            struct hlsl_ir_node *args[HLSL_MAX_OPERANDS] = { 0 };
+            struct hlsl_type *common_type;
 
             hlsl_block_add_block($1, $3);
             hlsl_block_add_block($1, $5);
             destroy_block($3);
             destroy_block($5);
 
-            if (!add_ternary(ctx, $1, cond, first, second))
+            if (!(common_type = get_common_numeric_type(ctx, first, second, &@3)))
+                YYABORT;
+
+            if (!(first = add_implicit_conversion(ctx, $1, first, common_type, &@3)))
+                YYABORT;
+
+            if (!(second = add_implicit_conversion(ctx, $1, second, common_type, &@5)))
+                YYABORT;
+
+            args[0] = cond;
+            args[1] = first;
+            args[2] = second;
+            if (!add_expr(ctx, $1, HLSL_OP3_TERNARY, args, common_type, &@1))
                 YYABORT;
             $$ = $1;
         }

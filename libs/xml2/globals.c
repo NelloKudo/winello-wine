@@ -1083,7 +1083,7 @@ int xmlThrDefSubstituteEntitiesDefaultValue(int v) {
 }
 
 #undef	xmlRegisterNodeDefaultValue
-xmlRegisterNodeFunc *
+xmlRegisterNodeFunc * XMLCALL
 __xmlRegisterNodeDefaultValue(void) {
     if (IS_MAIN_THREAD)
 	return (&xmlRegisterNodeDefaultValue);
@@ -1092,7 +1092,7 @@ __xmlRegisterNodeDefaultValue(void) {
 }
 
 #undef	xmlDeregisterNodeDefaultValue
-xmlDeregisterNodeFunc *
+xmlDeregisterNodeFunc * XMLCALL
 __xmlDeregisterNodeDefaultValue(void) {
     if (IS_MAIN_THREAD)
 	return (&xmlDeregisterNodeDefaultValue);
@@ -1101,7 +1101,7 @@ __xmlDeregisterNodeDefaultValue(void) {
 }
 
 #undef	xmlParserInputBufferCreateFilenameValue
-xmlParserInputBufferCreateFilenameFunc *
+xmlParserInputBufferCreateFilenameFunc * XMLCALL
 __xmlParserInputBufferCreateFilenameValue(void) {
     if (IS_MAIN_THREAD)
 	return (&xmlParserInputBufferCreateFilenameValue);
@@ -1110,10 +1110,11 @@ __xmlParserInputBufferCreateFilenameValue(void) {
 }
 
 #undef	xmlOutputBufferCreateFilenameValue
-xmlOutputBufferCreateFilenameFunc *
+xmlOutputBufferCreateFilenameFunc * XMLCALL
 __xmlOutputBufferCreateFilenameValue(void) {
     if (IS_MAIN_THREAD)
 	return (&xmlOutputBufferCreateFilenameValue);
     else
 	return (&xmlGetGlobalState()->xmlOutputBufferCreateFilenameValue);
 }
+

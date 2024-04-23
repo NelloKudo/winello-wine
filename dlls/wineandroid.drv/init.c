@@ -273,27 +273,27 @@ BOOL ANDROID_UpdateDisplayDevices( const struct gdi_device_manager *device_manag
 {
     if (force || force_display_devices_refresh)
     {
-        static const DWORD source_flags = DISPLAY_DEVICE_ATTACHED_TO_DESKTOP | DISPLAY_DEVICE_PRIMARY_DEVICE | DISPLAY_DEVICE_VGA_COMPATIBLE;
         static const struct gdi_gpu gpu;
+        static const struct gdi_adapter adapter =
+        {
+            .state_flags = DISPLAY_DEVICE_ATTACHED_TO_DESKTOP | DISPLAY_DEVICE_PRIMARY_DEVICE | DISPLAY_DEVICE_VGA_COMPATIBLE,
+        };
         struct gdi_monitor gdi_monitor =
         {
             .rc_monitor = virtual_screen_rect,
             .rc_work = monitor_rc_work,
+            .state_flags = DISPLAY_DEVICE_ACTIVE | DISPLAY_DEVICE_ATTACHED,
         };
         const DEVMODEW mode =
         {
             .dmFields = DM_DISPLAYORIENTATION | DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL |
-                        DM_DISPLAYFLAGS | DM_DISPLAYFREQUENCY,
+                        DM_DISPLAYFLAGS | DM_DISPLAYFREQUENCY | DM_POSITION,
             .dmBitsPerPel = screen_bpp, .dmPelsWidth = screen_width, .dmPelsHeight = screen_height, .dmDisplayFrequency = 60,
         };
-        DEVMODEW current = mode;
-
         device_manager->add_gpu( &gpu, param );
-        device_manager->add_source( "Default", source_flags, param );
+        device_manager->add_adapter( &adapter, param );
         device_manager->add_monitor( &gdi_monitor, param );
-
-        current.dmFields |= DM_POSITION;
-        device_manager->add_modes( &current, 1, &mode, param );
+        device_manager->add_mode( &mode, TRUE, param );
         force_display_devices_refresh = FALSE;
     }
 

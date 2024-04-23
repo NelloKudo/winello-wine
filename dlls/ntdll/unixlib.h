@@ -66,19 +66,40 @@ struct unwind_builtin_dll_params
     CONTEXT                    *context;
 };
 
+struct steamclient_setup_trampolines_params
+{
+    HMODULE src_mod;
+    HMODULE tgt_mod;
+};
+
+struct debugstr_pc_args
+{
+    void *pc;
+    char *buffer;
+    unsigned int size;
+};
+
 enum ntdll_unix_funcs
 {
     unix_load_so_dll,
     unix_unwind_builtin_dll,
     unix_wine_dbg_write,
-    unix_wine_needs_override_large_address_aware,
     unix_wine_server_call,
     unix_wine_server_fd_to_handle,
     unix_wine_server_handle_to_fd,
     unix_wine_spawnvp,
     unix_system_time_precise,
+    unix_steamclient_setup_trampolines,
+    unix_is_pc_in_native_so,
+    unix_debugstr_pc,
 };
 
 extern unixlib_handle_t __wine_unixlib_handle;
+
+#define WINE_BACKTRACE_LOG_ON() WARN_ON(seh)
+
+#define WINE_BACKTRACE_LOG(args...) do { \
+        WARN_(seh)("backtrace: " args); \
+    } while (0)
 
 #endif /* __NTDLL_UNIXLIB_H */

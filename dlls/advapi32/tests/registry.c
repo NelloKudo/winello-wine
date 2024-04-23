@@ -64,17 +64,6 @@ static DWORD (WINAPI *pEnumDynamicTimeZoneInformation)(const DWORD,
 static BOOL limited_user;
 static const BOOL is_64bit = sizeof(void *) > sizeof(int);
 
-static BOOL has_wow64(void)
-{
-    if (!is_64bit)
-    {
-        BOOL is_wow64;
-        if (!pIsWow64Process || !pIsWow64Process( GetCurrentProcess(), &is_wow64 ) || !is_wow64)
-            return FALSE;
-    }
-    return TRUE;
-}
-
 static const char *dbgstr_SYSTEMTIME(const SYSTEMTIME *st)
 {
     return wine_dbg_sprintf("%02d-%02d-%04d %02d:%02d:%02d.%03d",
@@ -195,7 +184,7 @@ static void _test_hkey_main_Value_A(int line, LPCSTR name, LPCSTR string,
     lok(type == REG_SZ, "RegQueryValueExA/1 returned type %ld\n", type);
     lok(cbData == full_byte_len, "cbData=%ld instead of %ld or %ld\n", cbData, full_byte_len, str_byte_len);
 
-    value = malloc(cbData+1);
+    value = HeapAlloc(GetProcessHeap(), 0, cbData+1);
     memset(value, 0xbd, cbData+1);
     type=0xdeadbeef;
     ret = RegQueryValueExA(hkey_main, name, NULL, &type, value, &cbData);
@@ -213,7 +202,7 @@ static void _test_hkey_main_Value_A(int line, LPCSTR name, LPCSTR string,
            debugstr_an(string, full_byte_len), full_byte_len);
         lok(*(value+cbData) == 0xbd, "RegQueryValueExA/2 overflowed at offset %lu: %02x != bd\n", cbData, *(value+cbData));
     }
-    free(value);
+    HeapFree(GetProcessHeap(), 0, value);
 }
 
 #define test_hkey_main_Value_W(name, string, full_byte_len) _test_hkey_main_Value_W(__LINE__, name, string, full_byte_len)
@@ -243,7 +232,7 @@ static void _test_hkey_main_Value_W(int line, LPCWSTR name, LPCWSTR string,
         "cbData=%ld instead of %ld\n", cbData, full_byte_len);
 
     /* Give enough space to overflow by one WCHAR */
-    value = malloc(cbData+2);
+    value = HeapAlloc(GetProcessHeap(), 0, cbData+2);
     memset(value, 0xbd, cbData+2);
     type=0xdeadbeef;
     ret = RegQueryValueExW(hkey_main, name, NULL, &type, value, &cbData);
@@ -258,7 +247,7 @@ static void _test_hkey_main_Value_W(int line, LPCWSTR name, LPCWSTR string,
     /* This implies that when cbData == 0, RegQueryValueExW() should not modify the buffer */
     lok(*(value+cbData) == 0xbd, "RegQueryValueExW/2 overflowed at %lu: %02x != bd\n", cbData, *(value+cbData));
     lok(*(value+cbData+1) == 0xbd, "RegQueryValueExW/2 overflowed at %lu+1: %02x != bd\n", cbData, *(value+cbData+1));
-    free(value);
+    HeapFree(GetProcessHeap(), 0, value);
 }
 
 static void test_set_value(void)
@@ -1218,7 +1207,7 @@ static void test_reg_open_key(void)
     ok(ret == ERROR_SUCCESS,
        "Expected SetEntriesInAclA to return ERROR_SUCCESS, got %lu, last error %lu\n", ret, GetLastError());
 
-    sd = malloc(SECURITY_DESCRIPTOR_MIN_LENGTH);
+    sd = HeapAlloc(GetProcessHeap(), 0, SECURITY_DESCRIPTOR_MIN_LENGTH);
     bRet = InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
     ok(bRet == TRUE,
        "Expected InitializeSecurityDescriptor to return TRUE, got %d, last error %lu\n", bRet, GetLastError());
@@ -1256,7 +1245,7 @@ static void test_reg_open_key(void)
         RegCloseKey(hkResult);
     }
 
-    free(sd);
+    HeapFree(GetProcessHeap(), 0, sd);
     LocalFree(key_acl);
     FreeSid(world_sid);
     RegDeleteKeyA(hkRoot64, "");
@@ -1358,9 +1347,9 @@ static void test_reg_create_key(void)
      * the registry access check is performed correctly. Redirection isn't
      * being tested, so the tests don't care about whether the process is
      * running under WOW64. */
-    if (!has_wow64())
+    if (!pIsWow64Process)
     {
-        skip("WOW64 flags are not recognized\n");
+        win_skip("WOW64 flags are not recognized\n");
         return;
     }
 
@@ -1400,7 +1389,7 @@ static void test_reg_create_key(void)
     ok(dwRet == ERROR_SUCCESS,
        "Expected SetEntriesInAclA to return ERROR_SUCCESS, got %lu, last error %lu\n", dwRet, GetLastError());
 
-    sd = malloc(SECURITY_DESCRIPTOR_MIN_LENGTH);
+    sd = HeapAlloc(GetProcessHeap(), 0, SECURITY_DESCRIPTOR_MIN_LENGTH);
     bRet = InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
     ok(bRet == TRUE,
        "Expected InitializeSecurityDescriptor to return TRUE, got %d, last error %lu\n", bRet, GetLastError());
@@ -1438,7 +1427,7 @@ static void test_reg_create_key(void)
         RegCloseKey(hkey1);
     }
 
-    free(sd);
+    HeapFree(GetProcessHeap(), 0, sd);
     LocalFree(key_acl);
     FreeSid(world_sid);
     RegDeleteKeyA(hkRoot64, "");
@@ -1549,68 +1538,62 @@ static BOOL set_privileges(LPCSTR privilege, BOOL set)
     return TRUE;
 }
 
-static void delete_dir(const char *path)
+static void test_reg_save_key(void)
 {
-    char file[2 * MAX_PATH], *p;
-    WIN32_FIND_DATAA fd;
-    HANDLE hfind;
-    BOOL r;
+    DWORD ret;
 
-    strcpy(file, path);
-    p = file + strlen(file);
-    p[0] = '\\';
-    p[1] = '*';
-    p[2] = 0;
-    hfind = FindFirstFileA(file, &fd);
-    if (hfind != INVALID_HANDLE_VALUE)
+    if (!set_privileges(SE_BACKUP_NAME, TRUE) ||
+        !set_privileges(SE_RESTORE_NAME, FALSE))
     {
-        do
-        {
-            if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, ".."))
-                continue;
-
-            strcpy(p + 1, fd.cFileName);
-            r = DeleteFileA(file);
-            ok(r, "DeleteFile failed on %s: %ld\n", debugstr_a(file), GetLastError());
-        } while(FindNextFileA(hfind, &fd));
-        FindClose(hfind);
+        win_skip("Failed to set SE_BACKUP_NAME privileges, skipping tests\n");
+        return;
     }
 
-    r = RemoveDirectoryA(path);
-    ok(r, "RemoveDirectory failed: %ld\n", GetLastError());
+    ret = RegSaveKeyA(hkey_main, "saved_key", NULL);
+    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
+
+    set_privileges(SE_BACKUP_NAME, FALSE);
 }
 
 static void test_reg_load_key(void)
 {
-    char saved_key[2 * MAX_PATH], buf[16], *p;
-    UNICODE_STRING key_name;
-    OBJECT_ATTRIBUTES attr;
-    NTSTATUS status;
-    DWORD ret, size;
-    HKEY key;
+    DWORD ret;
+    HKEY hkHandle;
 
     if (!set_privileges(SE_RESTORE_NAME, TRUE) ||
-        !set_privileges(SE_BACKUP_NAME, TRUE))
+        !set_privileges(SE_BACKUP_NAME, FALSE))
     {
         win_skip("Failed to set SE_RESTORE_NAME privileges, skipping tests\n");
         return;
     }
 
-    GetTempPathA(MAX_PATH, saved_key);
-    strcat(saved_key, "\\wine_reg_test");
-    CreateDirectoryA(saved_key, NULL);
-    strcat(saved_key, "\\saved_key");
-
-    ret = RegSaveKeyA(hkey_main, saved_key, NULL);
+    ret = RegLoadKeyA(HKEY_LOCAL_MACHINE, "Test", "saved_key");
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
 
-    ret = RegLoadKeyA(HKEY_LOCAL_MACHINE, "Test", saved_key);
+    set_privileges(SE_RESTORE_NAME, FALSE);
+
+    ret = RegOpenKeyA(HKEY_LOCAL_MACHINE, "Test", &hkHandle);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
 
-    ret = RegOpenKeyA(HKEY_LOCAL_MACHINE, "Test", &key);
-    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
+    RegCloseKey(hkHandle);
+}
 
-    ret = RegSetValueExA(key, "test", 0, REG_SZ, (BYTE *)"value", 6);
+static void test_reg_unload_key(void)
+{
+    UNICODE_STRING key_name;
+    OBJECT_ATTRIBUTES attr;
+    NTSTATUS status;
+    DWORD ret;
+    HKEY key;
+
+    if (!set_privileges(SE_RESTORE_NAME, TRUE) ||
+        !set_privileges(SE_BACKUP_NAME, FALSE))
+    {
+        win_skip("Failed to set SE_RESTORE_NAME privileges, skipping tests\n");
+        return;
+    }
+
+    ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Test", 0, KEY_READ, &key);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
 
     /* try to unload though the key handle is live */
@@ -1624,41 +1607,10 @@ static void test_reg_load_key(void)
     ret = RegUnLoadKeyA(HKEY_LOCAL_MACHINE, "Test");
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
 
-    /* check if modifications are saved */
-    ret = RegLoadKeyA(HKEY_LOCAL_MACHINE, "Test", saved_key);
-    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
-
-    ret = RegOpenKeyA(HKEY_LOCAL_MACHINE, "Test", &key);
-    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
-
-    size = sizeof(buf);
-    ret = RegGetValueA(key, NULL, "test", RRF_RT_REG_SZ, NULL, buf, &size);
-    todo_wine ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
-    if (ret == ERROR_SUCCESS)
-    {
-        ok(size == 6, "size = %ld\n", size);
-        ok(!strcmp(buf, "value"), "buf = %s\n", buf);
-    }
-
-    RegCloseKey(key);
-
-    ret = RegUnLoadKeyA(HKEY_LOCAL_MACHINE, "Test");
-    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
-
-    pRtlInitUnicodeString(&key_name, L"\\REGISTRY\\User\\.Default");
-    InitializeObjectAttributes(&attr, &key_name, OBJ_CASE_INSENSITIVE, NULL, NULL);
-    status = pNtUnloadKey(&attr);
-    ok(status == STATUS_ACCESS_DENIED, "expected STATUS_ACCESS_DENIED, got %08lx\n", status);
-
-    ret = RegUnLoadKeyA(HKEY_USERS, ".Default");
-    ok(ret == ERROR_ACCESS_DENIED, "expected ERROR_ACCESS_DENIED, got %ld\n", ret);
-
     set_privileges(SE_RESTORE_NAME, FALSE);
-    set_privileges(SE_BACKUP_NAME, FALSE);
 
-    p = strrchr(saved_key, '\\');
-    *p = 0;
-    delete_dir(saved_key);
+    DeleteFileA("saved_key");
+    DeleteFileA("saved_key.LOG");
 }
 
 /* Helper function to wait for a file blocked by the registry to be available */
@@ -1680,26 +1632,31 @@ static void wait_file_available(char *path)
 static void test_reg_load_app_key(void)
 {
     DWORD ret, size;
-    char hivefilepath[2 * MAX_PATH], *p;
+    char temppath[MAX_PATH], hivefilepath[MAX_PATH];
     const BYTE test_data[] = "Hello World";
     BYTE output[sizeof(test_data)];
     HKEY appkey = NULL;
 
-    if (!set_privileges(SE_BACKUP_NAME, TRUE))
+    GetTempPathA(sizeof(temppath), temppath);
+    GetTempFileNameA(temppath, "key", 0, hivefilepath);
+    DeleteFileA(hivefilepath);
+
+    if (!set_privileges(SE_BACKUP_NAME, TRUE) ||
+        !set_privileges(SE_RESTORE_NAME, FALSE))
     {
         win_skip("Failed to set SE_BACKUP_NAME privileges, skipping tests\n");
         return;
     }
 
-    GetTempPathA(MAX_PATH, hivefilepath);
-    strcat(hivefilepath, "\\wine_reg_test");
-    CreateDirectoryA(hivefilepath, NULL);
-    strcat(hivefilepath, "\\saved_key");
-
     ret = RegSaveKeyA(hkey_main, hivefilepath, NULL);
-    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
+    if (ret != ERROR_SUCCESS)
+    {
+        win_skip("Failed to save test key 0x%lx\n", ret);
+        return;
+    }
 
     set_privileges(SE_BACKUP_NAME, FALSE);
+    set_privileges(SE_RESTORE_NAME, FALSE);
 
     /* Test simple key load */
     /* Check if the changes are saved */
@@ -1728,10 +1685,8 @@ static void test_reg_load_app_key(void)
     RegCloseKey(appkey);
 
     wait_file_available(hivefilepath);
-
-    p = strrchr(hivefilepath, '\\');
-    *p = 0;
-    delete_dir(hivefilepath);
+    ret = DeleteFileA(hivefilepath);
+    ok(ret, "couldn't delete hive file %ld\n", GetLastError());
 }
 
 /* tests that show that RegConnectRegistry and
@@ -2471,7 +2426,7 @@ static void test_symlinks(void)
     pRtlFormatCurrentUserKeyPath( &target_str );
 
     target_len = target_str.Length + sizeof(targetW);
-    target = malloc( target_len );
+    target = HeapAlloc( GetProcessHeap(), 0, target_len );
     memcpy( target, target_str.Buffer, target_str.Length );
     memcpy( target + target_str.Length/sizeof(WCHAR), targetW, sizeof(targetW) );
 
@@ -2576,7 +2531,7 @@ static void test_symlinks(void)
     ok( !status, "NtDeleteKey failed: 0x%08lx\n", status );
     RegCloseKey( link );
 
-    free( target );
+    HeapFree( GetProcessHeap(), 0, target );
     pRtlFreeUnicodeString( &target_str );
 }
 
@@ -2640,10 +2595,14 @@ static void test_redirection(void)
     HKEY key, key32, key64, root, root32, root64;
     DWORD subkeys, subkeys32, subkeys64;
 
-    if (!has_wow64())
+    if (ptr_size != 64)
     {
-        skip( "Not on Wow64, no redirection\n" );
-        return;
+        BOOL is_wow64;
+        if (!pIsWow64Process || !pIsWow64Process( GetCurrentProcess(), &is_wow64 ) || !is_wow64)
+        {
+            skip( "Not on Wow64, no redirection\n" );
+            return;
+        }
     }
 
     if (limited_user)
@@ -5019,7 +4978,9 @@ START_TEST(registry)
     test_classesroot();
     test_classesroot_enum();
     test_classesroot_mask();
+    test_reg_save_key();
     test_reg_load_key();
+    test_reg_unload_key();
     test_reg_load_app_key();
     test_reg_copy_tree();
     test_reg_delete_tree();

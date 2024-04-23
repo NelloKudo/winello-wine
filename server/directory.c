@@ -37,6 +37,7 @@
 #include "process.h"
 #include "file.h"
 #include "unicode.h"
+#include "user.h"
 
 #define HASH_SIZE 7  /* default hash size */
 
@@ -281,6 +282,37 @@ struct object *get_directory_obj( struct process *process, obj_handle_t handle )
     return get_handle_obj( process, handle, 0, &directory_ops );
 }
 
+struct object *create_desktop_map_directory( struct winstation *winstation )
+{
+    static const WCHAR dir_desktop_mapsW[] = {'_','_','w','i','n','e','_','d','e','s','k','t','o','p','_','m','a','p','p','i','n','g','s'};
+    static const struct unicode_str dir_desktop_maps_str = {dir_desktop_mapsW, sizeof(dir_desktop_mapsW)};
+    struct object *root;
+    struct directory *mapping_root, *ret;
+    const struct unicode_str winsta_name = {winstation->obj.name->name, winstation->obj.name->len};
+
+    root = winstation->obj.name->parent;
+    mapping_root = create_directory( root, &dir_desktop_maps_str, OBJ_OPENIF, HASH_SIZE, NULL );
+    ret = create_directory( &mapping_root->obj, &winsta_name, OBJ_OPENIF, HASH_SIZE, NULL );
+    release_object( &mapping_root->obj );
+
+    return &ret->obj;
+}
+
+struct object *create_thread_map_directory( void )
+{
+    static const WCHAR dir_kernelW[] = {'K','e','r','n','e','l','O','b','j','e','c','t','s'};
+    static const WCHAR dir_thread_mapsW[] = {'_','_','w','i','n','e','_','t','h','r','e','a','d','_','m','a','p','p','i','n','g','s'};
+    static const struct unicode_str dir_kernel_str = {dir_kernelW, sizeof(dir_kernelW)};
+    static const struct unicode_str dir_thread_maps_str = {dir_thread_mapsW, sizeof(dir_thread_mapsW)};
+    struct directory *mapping_root, *ret;
+
+    mapping_root = create_directory( &root_directory->obj, &dir_kernel_str, OBJ_OPENIF, HASH_SIZE, NULL );
+    ret = create_directory( &mapping_root->obj, &dir_thread_maps_str, OBJ_OPENIF, HASH_SIZE, NULL );
+    release_object( &mapping_root->obj );
+
+    return &ret->obj;
+}
+
 /* Global initialization */
 
 static void create_session( unsigned int id )
@@ -324,7 +356,7 @@ static void create_session( unsigned int id )
         release_object( dir_sessions );
     }
 
-    snprintf( id_strA, sizeof(id_strA), "%u", id );
+    sprintf( id_strA, "%u", id );
     id_strW = ascii_to_unicode_str( id_strA, &id_str );
     dir_id = create_directory( &dir_sessions->obj, &id_str, 0, HASH_SIZE, NULL );
     dir_dosdevices = create_directory( &dir_id->obj, &dir_dosdevices_str, OBJ_PERMANENT, HASH_SIZE, NULL );

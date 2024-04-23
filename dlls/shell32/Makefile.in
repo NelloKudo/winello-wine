@@ -1,7 +1,7 @@
 EXTRADEFS = -D_SHELL32_
 MODULE    = shell32.dll
 IMPORTLIB = shell32
-IMPORTS   = uuid shlwapi user32 gdi32 advapi32 aclui
+IMPORTS   = uuid shlwapi user32 gdi32 advapi32
 DELAYIMPORTS = ole32 oleaut32 shdocvw version comctl32 comdlg32 gdiplus
 
 SOURCES = \
@@ -23,7 +23,6 @@ SOURCES = \
 	enumidlist.c \
 	folders.c \
 	iconcache.c \
-	new_menu.c \
 	pidl.c \
 	recyclebin.c \
 	resources/audio.svg \
@@ -78,6 +77,7 @@ SOURCES = \
 	shelldispatch.c \
 	shellitem.c \
 	shelllink.c \
+	shellnew.c \
 	shellole.c \
 	shellord.c \
 	shellpath.c \

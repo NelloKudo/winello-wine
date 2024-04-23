@@ -532,8 +532,7 @@ typedef struct tagMSICOMPONENT
     INSTALLSTATE Action;
     BOOL ForceLocalState;
     BOOL Enabled;
-    /* Cost is in 512-byte units, as returned from MsiEnumComponentCosts() et al. */
-    int cost;
+    INT  Cost;
     INT  RefCount;
     LPWSTR FullKeypath;
     LPWSTR AdvertiseString;
@@ -1193,13 +1192,6 @@ static inline LPWSTR strdupUtoW( LPCSTR str )
     if (ret)
         MultiByteToWideChar( CP_UTF8, 0, str, -1, ret, len );
     return ret;
-}
-
-static inline int cost_from_size( int size )
-{
-    /* Cost is size rounded up to the nearest 4096 bytes,
-     * expressed in units of 512 bytes. */
-    return ((size + 4095) & ~4095) / 512;
 }
 
 #endif /* __WINE_MSI_PRIVATE__ */

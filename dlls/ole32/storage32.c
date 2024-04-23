@@ -5036,7 +5036,7 @@ static HRESULT StorageImpl_GrabLocks(StorageImpl *This, DWORD openFlags)
     ULARGE_INTEGER offset;
     ULARGE_INTEGER cb;
     DWORD share_mode = STGM_SHARE_MODE(openFlags);
-    BOOL supported, ro_denyw;
+    BOOL supported;
 
     if (openFlags & STGM_NOSNAPSHOT)
     {
@@ -5044,8 +5044,6 @@ static HRESULT StorageImpl_GrabLocks(StorageImpl *This, DWORD openFlags)
         if (share_mode == STGM_SHARE_DENY_READ) share_mode = STGM_SHARE_EXCLUSIVE;
         else if (share_mode != STGM_SHARE_EXCLUSIVE) share_mode = STGM_SHARE_DENY_WRITE;
     }
-
-    ro_denyw = (STGM_ACCESS_MODE(openFlags) == STGM_READ) && (share_mode == STGM_SHARE_DENY_WRITE);
 
     /* Wrap all other locking inside a single lock so we can check ranges safely */
     offset.QuadPart = RANGELOCK_CHECKLOCKS;
@@ -5090,7 +5088,7 @@ static HRESULT StorageImpl_GrabLocks(StorageImpl *This, DWORD openFlags)
             hr = StorageImpl_LockOne(This, RANGELOCK_PRIORITY2_FIRST, RANGELOCK_PRIORITY2_LAST);
     }
 
-    if (SUCCEEDED(hr) && (STGM_ACCESS_MODE(openFlags) != STGM_WRITE) && !ro_denyw)
+    if (SUCCEEDED(hr) && (STGM_ACCESS_MODE(openFlags) != STGM_WRITE))
         hr = StorageImpl_LockOne(This, RANGELOCK_READ_FIRST, RANGELOCK_READ_LAST);
 
     if (SUCCEEDED(hr) && (STGM_ACCESS_MODE(openFlags) != STGM_READ))
@@ -5099,7 +5097,7 @@ static HRESULT StorageImpl_GrabLocks(StorageImpl *This, DWORD openFlags)
     if (SUCCEEDED(hr) && (share_mode == STGM_SHARE_DENY_READ || share_mode == STGM_SHARE_EXCLUSIVE))
         hr = StorageImpl_LockOne(This, RANGELOCK_DENY_READ_FIRST, RANGELOCK_DENY_READ_LAST);
 
-    if (SUCCEEDED(hr) && (share_mode == STGM_SHARE_DENY_WRITE || share_mode == STGM_SHARE_EXCLUSIVE) && !ro_denyw)
+    if (SUCCEEDED(hr) && (share_mode == STGM_SHARE_DENY_WRITE || share_mode == STGM_SHARE_EXCLUSIVE))
         hr = StorageImpl_LockOne(This, RANGELOCK_DENY_WRITE_FIRST, RANGELOCK_DENY_WRITE_LAST);
 
     if (SUCCEEDED(hr) && (openFlags & STGM_NOSNAPSHOT) == STGM_NOSNAPSHOT)

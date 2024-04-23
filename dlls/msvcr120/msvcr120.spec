@@ -35,9 +35,9 @@
 @ cdecl -arch=arm ??0_NonReentrantPPLLock@details@Concurrency@@QAA@XZ(ptr) _NonReentrantPPLLock_ctor
 @ thiscall -arch=i386 ??0_NonReentrantPPLLock@details@Concurrency@@QAE@XZ(ptr) _NonReentrantPPLLock_ctor
 @ cdecl -arch=win64 ??0_NonReentrantPPLLock@details@Concurrency@@QEAA@XZ(ptr) _NonReentrantPPLLock_ctor
-@ cdecl -arch=arm ??0_ReaderWriterLock@details@Concurrency@@QAA@XZ(ptr) _ReaderWriterLock_ctor
-@ thiscall -arch=i386 ??0_ReaderWriterLock@details@Concurrency@@QAE@XZ(ptr) _ReaderWriterLock_ctor
-@ cdecl -arch=win64 ??0_ReaderWriterLock@details@Concurrency@@QEAA@XZ(ptr) _ReaderWriterLock_ctor
+@ stub -arch=arm ??0_ReaderWriterLock@details@Concurrency@@QAA@XZ
+@ stub -arch=i386 ??0_ReaderWriterLock@details@Concurrency@@QAE@XZ
+@ stub -arch=win64 ??0_ReaderWriterLock@details@Concurrency@@QEAA@XZ
 @ cdecl -arch=arm ??0_ReentrantBlockingLock@details@Concurrency@@QAA@XZ(ptr) _ReentrantBlockingLock_ctor
 @ thiscall -arch=i386 ??0_ReentrantBlockingLock@details@Concurrency@@QAE@XZ(ptr) _ReentrantBlockingLock_ctor
 @ cdecl -arch=win64 ??0_ReentrantBlockingLock@details@Concurrency@@QEAA@XZ(ptr) _ReentrantBlockingLock_ctor
@@ -504,9 +504,9 @@
 @ stub -arch=win64 ?_ConcRT_DumpMessage@details@Concurrency@@YAXPEB_WZZ
 @ stub -arch=win32 ?_ConcRT_Trace@details@Concurrency@@YAXHPB_WZZ
 @ stub -arch=win64 ?_ConcRT_Trace@details@Concurrency@@YAXHPEB_WZZ
-@ cdecl -arch=arm ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QAA_NXZ(ptr) _Cancellation_beacon__Confirm_cancel
-@ thiscall -arch=i386 ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QAE_NXZ(ptr) _Cancellation_beacon__Confirm_cancel
-@ cdecl -arch=win64 ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QEAA_NXZ(ptr) _Cancellation_beacon__Confirm_cancel
+@ stub -arch=arm ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QAA_NXZ
+@ stub -arch=i386 ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QAE_NXZ
+@ stub -arch=win64 ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QEAA_NXZ
 @ stub -arch=arm ?_Copy_str@exception@std@@AAAXPBD@Z
 @ stub -arch=i386 ?_Copy_str@exception@std@@AAEXPBD@Z
 @ stub -arch=win64 ?_Copy_str@exception@std@@AEAAXPEBD@Z
@@ -1422,7 +1422,7 @@
 @ cdecl _locking(long long long)
 @ cdecl _logb(double) logb
 @ cdecl -arch=!i386 _logbf(float) logbf
-@ cdecl -arch=i386 _longjmpex(ptr long) longjmp
+@ cdecl -arch=i386 _longjmpex(ptr long) MSVCRT_longjmp
 @ cdecl _lrotl(long long) MSVCRT__lrotl
 @ cdecl _lrotr(long long) MSVCRT__lrotr
 @ cdecl _lsearch(ptr ptr ptr long ptr)
@@ -1653,9 +1653,9 @@
 @ cdecl _set_printf_count_output(long)
 @ cdecl _set_purecall_handler(ptr)
 @ cdecl _seterrormode(long)
-@ cdecl -norelay _setjmp(ptr)
-@ cdecl -arch=i386 -norelay _setjmp3(ptr long)
-@ cdecl -arch=!i386 -norelay _setjmpex(ptr ptr)
+@ cdecl -norelay _setjmp(ptr) MSVCRT__setjmp
+@ cdecl -arch=i386 -norelay _setjmp3(ptr long) MSVCRT__setjmp3
+@ cdecl -arch=!i386 -norelay _setjmpex(ptr ptr) __wine_setjmpex
 @ cdecl _setmaxstdio(long)
 @ cdecl _setmbcp(long)
 @ cdecl _setmode(long long)
@@ -2269,7 +2269,7 @@
 @ cdecl logb(double)
 @ cdecl logbf(float)
 @ cdecl logbl(double) logb
-@ cdecl longjmp(ptr long)
+@ cdecl longjmp(ptr long) MSVCRT_longjmp
 @ cdecl lrint(double)
 @ cdecl lrintf(float)
 @ cdecl lrintl(double) lrint
@@ -2349,7 +2349,7 @@
 @ varargs scanf(str)
 @ varargs scanf_s(str)
 @ cdecl setbuf(ptr ptr)
-@ cdecl -arch=arm,x86_64 -norelay -private setjmp(ptr ptr) _setjmp
+@ cdecl -arch=arm,x86_64 -norelay -private setjmp(ptr) MSVCRT__setjmp
 @ cdecl setlocale(long str)
 @ cdecl setvbuf(ptr str long long)
 @ cdecl signal(long long)

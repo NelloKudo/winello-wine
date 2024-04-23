@@ -26,7 +26,7 @@
 #include <locale.h>
 #endif
 
-#include "../common/debug.h"
+#include "debug.h"
 
 /* A safe realloc also for very old systems where realloc(NULL, size) returns NULL. */
 void *INT123_safe_realloc(void *ptr, size_t size)

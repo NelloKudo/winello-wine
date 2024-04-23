@@ -16,6 +16,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize "O2,no-strict-aliasing,excess-precision=standard"
+#endif
+
 #include "d2d1_private.h"
 #include <float.h>
 
@@ -1535,7 +1539,7 @@ static BOOL d2d_cdt_triangulate(struct d2d_cdt *cdt, size_t start_vertex, size_t
         return TRUE;
     }
 
-    /* More than three vertices, divide. */
+    /* More than tree vertices, divide. */
     cut = vertex_count / 2;
     if (!d2d_cdt_triangulate(cdt, start_vertex, cut, &left_outer, &left_inner))
         return FALSE;
@@ -2285,9 +2289,6 @@ static HRESULT d2d_path_geometry_triangulate(struct d2d_geometry *geometry)
     size_t vertex_count, i, j;
     struct d2d_cdt cdt = {0};
     D2D1_POINT_2F *vertices;
-#ifdef __i386__
-    unsigned int control_word_x87, mask = 0;
-#endif
 
     for (i = 0, vertex_count = 0; i < geometry->u.path.figure_count; ++i)
     {
@@ -2338,20 +2339,10 @@ static HRESULT d2d_path_geometry_triangulate(struct d2d_geometry *geometry)
 
     cdt.free_edge = ~0u;
     cdt.vertices = vertices;
-
-#ifdef __i386__
-    control_word_x87 = _controlfp(0, 0);
-    _controlfp(_PC_24, mask = _MCW_PC);
-#endif
     if (!d2d_cdt_triangulate(&cdt, 0, vertex_count, &left_edge, &right_edge))
         goto fail;
     if (!d2d_cdt_insert_segments(&cdt, geometry))
         goto fail;
-#ifdef __i386__
-    _controlfp(control_word_x87, _MCW_PC);
-    mask = 0;
-#endif
-
     if (!d2d_cdt_generate_faces(&cdt, geometry))
         goto fail;
 
@@ -2363,9 +2354,6 @@ fail:
     geometry->fill.vertex_count = 0;
     free(vertices);
     free(cdt.edges);
-#ifdef __i386__
-    if (mask) _controlfp(control_word_x87, mask);
-#endif
     return E_FAIL;
 }
 
@@ -3247,7 +3235,6 @@ done:
     if (FAILED(hr))
     {
         free(geometry->fill.bezier_vertices);
-        geometry->fill.bezier_vertices = NULL;
         geometry->fill.bezier_vertex_count = 0;
         d2d_path_geometry_free_figures(geometry);
         geometry->u.path.state = D2D_GEOMETRY_STATE_ERROR;
@@ -3373,7 +3360,7 @@ static const struct ID2D1GeometrySinkVtbl d2d_geometry_sink_vtbl =
 
 static inline struct d2d_geometry *impl_from_ID2D1PathGeometry1(ID2D1PathGeometry1 *iface)
 {
-    return CONTAINING_RECORD((ID2D1Geometry *)iface, struct d2d_geometry, ID2D1Geometry_iface);
+    return CONTAINING_RECORD(iface, struct d2d_geometry, ID2D1Geometry_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_path_geometry_QueryInterface(ID2D1PathGeometry1 *iface, REFIID iid, void **out)
@@ -3974,7 +3961,7 @@ void d2d_path_geometry_init(struct d2d_geometry *geometry, ID2D1Factory *factory
 
 static inline struct d2d_geometry *impl_from_ID2D1EllipseGeometry(ID2D1EllipseGeometry *iface)
 {
-    return CONTAINING_RECORD((ID2D1Geometry*)iface, struct d2d_geometry, ID2D1Geometry_iface);
+    return CONTAINING_RECORD(iface, struct d2d_geometry, ID2D1Geometry_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_ellipse_geometry_QueryInterface(ID2D1EllipseGeometry *iface,
@@ -4246,7 +4233,7 @@ fail:
 
 static inline struct d2d_geometry *impl_from_ID2D1RectangleGeometry(ID2D1RectangleGeometry *iface)
 {
-    return CONTAINING_RECORD((ID2D1Geometry *)iface, struct d2d_geometry, ID2D1Geometry_iface);
+    return CONTAINING_RECORD(iface, struct d2d_geometry, ID2D1Geometry_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_rectangle_geometry_QueryInterface(ID2D1RectangleGeometry *iface,
@@ -4662,7 +4649,7 @@ fail:
 
 static inline struct d2d_geometry *impl_from_ID2D1RoundedRectangleGeometry(ID2D1RoundedRectangleGeometry *iface)
 {
-    return CONTAINING_RECORD((ID2D1Geometry*)iface, struct d2d_geometry, ID2D1Geometry_iface);
+    return CONTAINING_RECORD(iface, struct d2d_geometry, ID2D1Geometry_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_rounded_rectangle_geometry_QueryInterface(ID2D1RoundedRectangleGeometry *iface,
@@ -4958,7 +4945,7 @@ fail:
 
 static inline struct d2d_geometry *impl_from_ID2D1TransformedGeometry(ID2D1TransformedGeometry *iface)
 {
-    return CONTAINING_RECORD((ID2D1Geometry *)iface, struct d2d_geometry, ID2D1Geometry_iface);
+    return CONTAINING_RECORD(iface, struct d2d_geometry, ID2D1Geometry_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_transformed_geometry_QueryInterface(ID2D1TransformedGeometry *iface,
@@ -5242,7 +5229,7 @@ void d2d_transformed_geometry_init(struct d2d_geometry *geometry, ID2D1Factory *
 
 static inline struct d2d_geometry *impl_from_ID2D1GeometryGroup(ID2D1GeometryGroup *iface)
 {
-    return CONTAINING_RECORD( (ID2D1Geometry*)iface, struct d2d_geometry, ID2D1Geometry_iface);
+    return CONTAINING_RECORD(iface, struct d2d_geometry, ID2D1Geometry_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_geometry_group_QueryInterface(ID2D1GeometryGroup *iface,

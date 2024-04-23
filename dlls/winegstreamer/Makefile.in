@@ -7,12 +7,13 @@ UNIX_CFLAGS  = $(GSTREAMER_CFLAGS)
 UNIX_LIBS    = $(GSTREAMER_LIBS) $(PTHREAD_LIBS)
 
 SOURCES = \
-	aac_decoder.c \
+	audio_decoder.c \
 	color_convert.c \
 	main.c \
 	media_sink.c \
 	media_source.c \
 	mfplat.c \
+	new_media_source.c \
 	quartz_parser.c \
 	quartz_transform.c \
 	resampler.c \
@@ -25,8 +26,17 @@ SOURCES = \
 	wg_muxer.c \
 	wg_parser.c \
 	wg_sample.c \
+	wg_source.c \
+	wg_task_pool.c \
 	wg_transform.c \
 	winegstreamer_classes.idl \
 	wm_reader.c \
 	wma_decoder.c \
-	wmv_decoder.c
+	wmv_decoder.c \
+	media-converter/audioconv.c \
+	media-converter/audioconvbin.c \
+	media-converter/fossilize.c \
+	media-converter/lib.c \
+	media-converter/murmur3.c \
+	media-converter/protondemuxer.c \
+	media-converter/videoconv.c

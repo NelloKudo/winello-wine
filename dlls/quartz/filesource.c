@@ -381,8 +381,6 @@ static DWORD CALLBACK io_thread(void *arg)
     DWORD size;
     BOOL ret;
 
-    SetThreadDescription(GetCurrentThread(), L"wine_qz_async_reader_io");
-
     for (;;)
     {
         ret = GetQueuedCompletionStatus(filter->port, &size, &key, &ovl, INFINITE);
@@ -422,7 +420,7 @@ HRESULT async_reader_create(IUnknown *outer, IUnknown **out)
     object->IFileSourceFilter_iface.lpVtbl = &FileSource_Vtbl;
     object->IAsyncReader_iface.lpVtbl = &FileAsyncReader_Vtbl;
 
-    InitializeCriticalSectionEx(&object->sample_cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&object->sample_cs);
     object->sample_cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": FileAsyncReader.sample_cs");
     InitializeConditionVariable(&object->sample_cv);
     object->port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);

@@ -1,6 +1,6 @@
 /* FAudio - XAudio Reimplementation for FNA
  *
- * Copyright (c) 2011-2024 Ethan Lee, Luigi Auriemma, and the MonoGame Team
+ * Copyright (c) 2011-2023 Ethan Lee, Luigi Auriemma, and the MonoGame Team
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * In no event will the authors be held liable for any damages arising from
@@ -212,9 +212,9 @@ void LinkedList_RemoveEntry(
 	FAudioFreeFunc pFree
 ) {
 	LinkedList *latest, *prev;
+	FAudio_PlatformLockMutex(lock);
 	latest = *start;
 	prev = latest;
-	FAudio_PlatformLockMutex(lock);
 	while (latest != NULL)
 	{
 		if (latest->entry == toRemove)

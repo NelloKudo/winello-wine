@@ -499,7 +499,7 @@ NTSTATUS WINAPI macdrv_dnd_query_drop(void *arg, ULONG size)
     if (active_data_object) IDataObject_Release(active_data_object);
     active_data_object = NULL;
     last_droptarget_hwnd = NULL;
-    return NtCallbackReturn( &ret, sizeof(ret), STATUS_SUCCESS );
+    return ret;
 }
 
 
@@ -511,7 +511,6 @@ NTSTATUS WINAPI macdrv_dnd_query_exited(void *arg, ULONG size)
     struct dnd_query_exited_params *params = arg;
     HWND hwnd = UlongToHandle(params->hwnd);
     IDropTarget *droptarget;
-    BOOL ret = TRUE;
 
     TRACE("win %p\n", hwnd);
 
@@ -530,7 +529,8 @@ NTSTATUS WINAPI macdrv_dnd_query_exited(void *arg, ULONG size)
     if (active_data_object) IDataObject_Release(active_data_object);
     active_data_object = NULL;
     last_droptarget_hwnd = NULL;
-    return NtCallbackReturn( &ret, sizeof(ret), STATUS_SUCCESS );
+
+    return TRUE;
 }
 
 
@@ -643,6 +643,5 @@ NTSTATUS WINAPI macdrv_dnd_query_drag(void *arg, ULONG size)
     }
 
     TRACE(" -> %s\n", ret ? "TRUE" : "FALSE");
-    if (!ret) effect = 0;
-    return NtCallbackReturn( &effect, sizeof(effect), STATUS_SUCCESS );
+    return ret ? effect : 0;
 }

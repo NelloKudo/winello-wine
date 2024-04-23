@@ -4494,8 +4494,6 @@ get_more:
                 line = ctxt->input->line;
                 col = ctxt->input->col;
             }
-            if (ctxt->instate == XML_PARSER_EOF)
-                return;
         }
         ctxt->input->cur = in;
         if (*in == 0xD) {
@@ -14324,9 +14322,7 @@ xmlInitParser(void) {
     __xmlGlobalInitMutexLock();
     if (xmlParserInitialized == 0) {
 #endif
-#if defined(_WIN32) && \
-    !defined(LIBXML_THREAD_ALLOC_ENABLED) && \
-    (!defined(LIBXML_STATIC) || defined(LIBXML_STATIC_FOR_DLL))
+#if defined(_WIN32) && (!defined(LIBXML_STATIC) || defined(LIBXML_STATIC_FOR_DLL))
         if (xmlFree == free)
             atexit(xmlCleanupParser);
 #endif
@@ -14396,9 +14392,7 @@ xmlCleanupParser(void) {
     xmlParserInitialized = 0;
 }
 
-#if defined(HAVE_ATTRIBUTE_DESTRUCTOR) && \
-    !defined(LIBXML_THREAD_ALLOC_ENABLED) && \
-    !defined(LIBXML_STATIC) && \
+#if defined(HAVE_ATTRIBUTE_DESTRUCTOR) && !defined(LIBXML_STATIC) && \
     !defined(_WIN32)
 static void
 ATTRIBUTE_DESTRUCTOR
@@ -15190,3 +15184,4 @@ xmlCtxtReadIO(xmlParserCtxtPtr ctxt, xmlInputReadCallback ioread,
     inputPush(ctxt, stream);
     return (xmlDoRead(ctxt, URL, encoding, options, 1));
 }
+

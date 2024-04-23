@@ -158,7 +158,6 @@ extern CFDictionaryRef localized_strings;
 extern int retina_enabled;  /* Whether Retina mode is enabled via registry setting. */
 extern int retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
 extern int enable_app_nap;
-extern int eager_dock_icon_hiding;
 
 static inline CGRect cgrect_mac_from_win(CGRect rect)
 {
@@ -252,6 +251,9 @@ extern int macdrv_clip_cursor(CGRect rect);
 /* Used DISPLAY_DEVICE.StateFlags for adapters */
 #define DISPLAY_DEVICE_ATTACHED_TO_DESKTOP      0x00000001
 #define DISPLAY_DEVICE_PRIMARY_DEVICE           0x00000004
+/* Used DISPLAY_DEVICE.StateFlags for monitors */
+#define DISPLAY_DEVICE_ACTIVE                   0x00000001
+#define DISPLAY_DEVICE_ATTACHED                 0x00000002
 
 /* Represent a physical GPU in the PCI slots */
 struct macdrv_gpu
@@ -283,6 +285,8 @@ struct macdrv_monitor
     CGRect rc_monitor;
     /* as RcWork in MONITORINFO struct after conversion by rect_from_cgrect */
     CGRect rc_work;
+    /* StateFlags in DISPLAY_DEVICE struct */
+    uint32_t state_flags;
 };
 
 extern int macdrv_get_displays(struct macdrv_display** displays, int* count);
@@ -522,7 +526,6 @@ struct macdrv_window_features {
     unsigned int    utility:1;
     unsigned int    shadow:1;
     unsigned int    prevents_app_activation:1;
-    unsigned int    dock_icon:1;
 };
 
 struct macdrv_window_state {

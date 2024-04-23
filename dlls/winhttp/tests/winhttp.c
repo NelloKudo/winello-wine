@@ -2287,12 +2287,6 @@ static const char redirectmsg[] =
 "Location: /temporary\r\n"
 "Connection: close\r\n\r\n";
 
-static const char proxy_pac[] =
-"function FindProxyForURL(url, host) {\r\n"
-"    url = url.replace(/[:/]/g, '_');\r\n"
-"    return 'PROXY ' + url + '_' + host + ':8080';\r\n"
-"}\r\n\r\n";
-
 static const char unauthorized[] = "Unauthorized";
 static const char hello_world[] = "Hello World";
 static const char auth_unseen[] = "Auth Unseen";
@@ -2559,11 +2553,6 @@ static DWORD CALLBACK server_thread(LPVOID param)
             ok(!!strstr(buffer, "Test6: Value6\r\n"), "Header missing from request %s.\n", debugstr_a(buffer));
             ok(!!strstr(buffer, "Cookie: 111\r\n"), "Header missing from request %s.\n", debugstr_a(buffer));
             send(c, okmsg, sizeof(okmsg) - 1, 0);
-        }
-        if (strstr(buffer, "GET /proxy.pac"))
-        {
-            send(c, okmsg, sizeof(okmsg) - 1, 0);
-            send(c, proxy_pac, sizeof(proxy_pac) - 1, 0);
         }
 
         if (strstr(buffer, "PUT /test") || strstr(buffer, "POST /test"))
@@ -5309,10 +5298,9 @@ static void test_WinHttpGetIEProxyConfigForCurrentUser(void)
     GlobalFree( cfg.lpszProxyBypass );
 }
 
-static void test_WinHttpGetProxyForUrl(int port)
+static void test_WinHttpGetProxyForUrl(void)
 {
-    WCHAR pac_url[64];
-    BOOL ret, old_winhttp = FALSE;
+    BOOL ret;
     DWORD error;
     HINTERNET session;
     WINHTTP_AUTOPROXY_OPTIONS options;
@@ -5420,56 +5408,6 @@ static void test_WinHttpGetProxyForUrl(int port)
 
     ret = WinHttpGetProxyForUrl( session, L"http:", &options, &info );
     ok( !ret, "expected failure\n" );
-
-    swprintf(pac_url, ARRAY_SIZE(pac_url), L"http://localhost:%d/proxy.pac?ver=1", port);
-    options.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL | WINHTTP_AUTOPROXY_NO_CACHE_SVC;
-    options.dwAutoDetectFlags = 0;
-    options.lpszAutoConfigUrl = pac_url;
-
-    ret = WinHttpGetProxyForUrl( session, L"HTTP://WINEHQ.ORG/Test.html", &options, &info);
-    if (!ret)
-    {
-        old_winhttp = TRUE;
-        options.dwFlags &= ~WINHTTP_AUTOPROXY_NO_CACHE_SVC;
-        ret = WinHttpGetProxyForUrl( session, L"HTTP://WINEHQ.ORG/Test.html", &options, &info);
-    }
-    ok(ret, "expected success\n" );
-    ok(info.dwAccessType == WINHTTP_ACCESS_TYPE_NAMED_PROXY,
-            "info.dwAccessType = %lu\n", info.dwAccessType);
-    ok(!wcscmp(info.lpszProxy, L"http___WINEHQ.ORG_Test.html_WINEHQ.ORG:8080") ||
-            broken(old_winhttp && !wcscmp(info.lpszProxy, L"HTTP___WINEHQ.ORG_Test.html_WINEHQ.ORG:8080")),
-            "info.Proxy = %s\n", wine_dbgstr_w(info.lpszProxy));
-    ok(!info.lpszProxyBypass, "info.ProxyBypass = %s\n",
-            wine_dbgstr_w(info.lpszProxyBypass));
-    GlobalFree( info.lpszProxy );
-
-    options.dwFlags |= WINHTTP_AUTOPROXY_HOST_LOWERCASE;
-
-    ret = WinHttpGetProxyForUrl( session, L"HTTP://WINEHQ.ORG/Test.html", &options, &info);
-    ok(ret, "expected success\n" );
-    ok(info.dwAccessType == WINHTTP_ACCESS_TYPE_NAMED_PROXY,
-            "info.dwAccessType = %lu\n", info.dwAccessType);
-    ok(!wcscmp(info.lpszProxy, L"http___winehq.org_Test.html_winehq.org:8080") ||
-            broken(old_winhttp && !wcscmp(info.lpszProxy, L"HTTP___winehq.org_Test.html_winehq.org:8080")),
-            "info.Proxy = %s\n", wine_dbgstr_w(info.lpszProxy));
-    ok(!info.lpszProxyBypass, "info.ProxyBypass = %s\n",
-            wine_dbgstr_w(info.lpszProxyBypass));
-    GlobalFree( info.lpszProxy );
-
-    if (!old_winhttp)
-    {
-        options.dwFlags |= WINHTTP_AUTOPROXY_HOST_KEEPCASE;
-
-        ret = WinHttpGetProxyForUrl( session, L"HTTP://WINEHQ.ORG/Test.html", &options, &info);
-        ok(ret, "expected success\n" );
-        ok(info.dwAccessType == WINHTTP_ACCESS_TYPE_NAMED_PROXY,
-                "info.dwAccessType = %lu\n", info.dwAccessType);
-        ok(!wcscmp(info.lpszProxy, L"http___WINEHQ.ORG_Test.html_WINEHQ.ORG:8080"),
-                "info.Proxy = %s\n", wine_dbgstr_w(info.lpszProxy));
-        ok(!info.lpszProxyBypass, "info.ProxyBypass = %s\n",
-                wine_dbgstr_w(info.lpszProxyBypass));
-        GlobalFree( info.lpszProxy );
-    }
 
     WinHttpCloseHandle( session );
 }
@@ -5944,7 +5882,7 @@ static void test_connection_cache(int port)
 
     req = WinHttpOpenRequest(con, L"GET", L"/cached", NULL, NULL, NULL, 0);
     ok(req != NULL, "failed to open a request %lu\n", GetLastError());
-    ret = WinHttpSendRequest(req, L"Connection: close", ~0u, NULL, 0, 0, 0);
+    ret = WinHttpSendRequest(req, L"Connection: close", ~0ul, NULL, 0, 0, 0);
     ok(ret, "failed to send request %lu\n", GetLastError());
     ret = WinHttpReceiveResponse(req, NULL);
     ok(ret, "failed to receive response %lu\n", GetLastError());
@@ -5959,7 +5897,7 @@ static void test_connection_cache(int port)
 
     req = WinHttpOpenRequest(con, L"GET", L"/notcached", NULL, NULL, NULL, 0);
     ok(req != NULL, "failed to open a request %lu\n", GetLastError());
-    ret = WinHttpSendRequest(req, L"Connection: close", ~0u, NULL, 0, 0, 0);
+    ret = WinHttpSendRequest(req, L"Connection: close", ~0ul, NULL, 0, 0, 0);
     ok(ret, "failed to send request %lu\n", GetLastError());
     ret = WinHttpReceiveResponse(req, NULL);
     ok(ret, "failed to receive response %lu\n", GetLastError());
@@ -6005,6 +5943,7 @@ START_TEST (winhttp)
     test_IWinHttpRequest_Invoke();
     test_WinHttpDetectAutoProxyConfigUrl();
     test_WinHttpGetIEProxyConfigForCurrentUser();
+    test_WinHttpGetProxyForUrl();
     test_chunked_read();
     test_max_http_automatic_redirects();
     si.event = CreateEventW(NULL, 0, 0, NULL);
@@ -6039,7 +5978,6 @@ START_TEST (winhttp)
     test_passport_auth(si.port);
     test_websocket(si.port);
     test_redirect(si.port);
-    test_WinHttpGetProxyForUrl(si.port);
     test_connection_cache(si.port);
 
     /* send the basic request again to shutdown the server thread */

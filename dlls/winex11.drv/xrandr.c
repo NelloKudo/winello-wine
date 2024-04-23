@@ -32,13 +32,11 @@
 #include <X11/extensions/Xrandr.h>
 #endif
 #include <dlfcn.h>
+#include <stdlib.h>
 #include "x11drv.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(xrandr);
-#ifdef HAVE_XRRGETPROVIDERRESOURCES
-WINE_DECLARE_DEBUG_CHANNEL(winediag);
-#endif
 
 #ifdef SONAME_LIBXRANDR
 
@@ -367,7 +365,6 @@ static BOOL is_broken_driver(void)
     XRRScreenResources *screen_resources;
     XRROutputInfo *output_info;
     XRRModeInfo *first_mode;
-    INT major, event, error;
     INT output_idx, i, j;
     BOOL only_one_mode;
 
@@ -418,15 +415,6 @@ static BOOL is_broken_driver(void)
 
         if (!only_one_mode)
             continue;
-
-        /* Check if it is NVIDIA proprietary driver */
-        if (XQueryExtension( gdi_display, "NV-CONTROL", &major, &event, &error ))
-        {
-            ERR_(winediag)("Broken NVIDIA RandR detected, falling back to RandR 1.0. "
-                           "Please consider using the Nouveau driver instead.\n");
-            pXRRFreeScreenResources( screen_resources );
-            return TRUE;
-        }
     }
     pXRRFreeScreenResources( screen_resources );
     return FALSE;
@@ -457,23 +445,134 @@ static void get_screen_size( XRRScreenResources *resources, unsigned int *width,
     }
 }
 
-static unsigned int get_edid( RROutput output, unsigned char **prop )
+static unsigned int get_edid( RROutput output, unsigned char **prop,
+                              XRROutputInfo *output_info, XRRScreenResources *screen_resources )
 {
-    int result, actual_format;
+    unsigned int mwidth, mheight, i;
     unsigned long bytes_after, len;
+    unsigned char *edid, *p, c;
+    int result, actual_format;
+    XRRModeInfo *mode;
     Atom actual_type;
+    char *edid_path;
 
+    *prop = NULL;
     result = pXRRGetOutputProperty( gdi_display, output, x11drv_atom(EDID), 0, 128, FALSE, FALSE,
                                     AnyPropertyType, &actual_type, &actual_format, &len,
-                                    &bytes_after, prop );
-
-    if (result != Success)
+                                    &bytes_after, &edid );
+    if (result == Success && len)
     {
-        WARN("Could not retrieve EDID property for output %#lx.\n", output);
-        *prop = NULL;
+        if (!(*prop = malloc( len )))
+        {
+            XFree( edid );
+            return 0;
+        }
+        memcpy( *prop, edid, len );
+        return len;
+    }
+
+    edid_path = NULL;
+    if ((result = XGetWindowProperty( gdi_display, DefaultRootWindow(gdi_display), x11drv_atom(GAMESCOPE_DISPLAY_EDID_PATH), 0,
+                                      PATH_MAX, False, x11drv_atom(UTF8_STRING), &actual_type, &actual_format,
+                                      &len, &bytes_after, (unsigned char **)&edid_path )) == Success
+        && actual_type == x11drv_atom(UTF8_STRING))
+    {
+        char buffer[4096];
+        FILE *f;
+
+        f = fopen( edid_path, "rb" );
+        if (f)
+        {
+            len = fread( buffer, 1, sizeof(buffer), f );
+            fclose( f );
+            if (len)
+            {
+                XFree( edid_path );
+                if (!(*prop = malloc( len ))) return 0;
+                memcpy( *prop, buffer, len );
+                return len;
+            }
+        }
+    }
+    if (edid_path) XFree( edid_path );
+
+    WARN( "Could not retrieve EDID property for output %#lx.\n", output );
+    if (!output_info->npreferred)
+    {
+        WARN( "No preferred modes for output %#lx.\n", output );
         return 0;
     }
-    return len;
+    if (output_info->npreferred > 1)
+        WARN( "%u preferred modes for output %#lx, using first one.\n", output_info->npreferred, output );
+
+    for (i = 0; i < screen_resources->nmode; ++i)
+        if (screen_resources->modes[i].id == output_info->modes[0]) break;
+
+    if (i == screen_resources->nmode)
+    {
+        ERR("Preferred mode not found for output %#lx.\n", output);
+        return 0;
+    }
+
+    mode = &screen_resources->modes[i];
+
+    mwidth = mode->width / 60;   /* Fake ~150dpi. */
+    mheight = mode->height / 60;
+
+    edid = calloc( 1, 128 );
+    *prop = edid;
+    *(uint64_t *)edid = 0x00ffffffffffff00;
+    edid[18] = 1;
+    edid[19] = 4;
+    edid[20] = 0xa0; /* Digital input, 8 bit depth. */
+    edid[21] = mwidth;
+    edid[22] = mheight;
+    edid[24] = 0x6;
+    for (i = 0; i < 16; ++i) edid[38 + i] = 1;
+
+    p = edid + 54;
+    *(uint16_t *)&p[0] = mode->dotClock / 10000;
+    p[2] = mode->width;
+    p[3] = mode->hTotal - mode->width;
+    p[4] = (((mode->hTotal - mode->width) >> 8) & 0xf) | (((mode->width >> 8) & 0xf) << 4);
+    p[5] = mode->height;
+    p[6] = mode->vTotal - mode->height;
+    p[7] = (((mode->vTotal - mode->height) >> 8) & 0xf) | (((mode->height >> 8) & 0xf) << 4);
+    p[8] = mode->hSyncStart - mode->width;
+    p[9] = mode->hSyncEnd - mode->hSyncStart;
+    p[10] = (((mode->vSyncStart - mode->height) & 0xf) << 4) | ((mode->vSyncEnd - mode->vSyncStart) & 0xf);
+    p[11] = ((((mode->hSyncStart - mode->width) >> 8) & 3) << 6)
+            | ((((mode->hSyncEnd - mode->hSyncStart) >> 8) & 3) << 4)
+            | ((((mode->vSyncStart - mode->height) >> 4) & 3) << 2)
+            | (((mode->vSyncEnd - mode->vSyncStart) >> 4) & 3);
+    p[12] = mwidth;
+    p[13] = mheight;
+    p[14] = (((mwidth >> 8) & 0xf) << 4) | ((mheight >> 8) & 0xf);
+    if (mode->modeFlags & RR_Interlace)
+        p[17] |= 0x80;
+    p[17] |= 3 << 3;
+    if (mode->modeFlags & RR_HSyncPositive)
+        p[17] |= 2;
+    if (mode->modeFlags & RR_VSyncPositive)
+        p[17] |= 4;
+
+    if (mode->modeFlags & (RR_DoubleScan | RR_PixelMultiplex | RR_DoubleClock | RR_ClockDivideBy2))
+        FIXME( "Unsupported flags %#lx.\n", mode->modeFlags );
+
+    p += 18;
+    p[3] = 0xfc;
+    strcpy( (char *)p + 5, "Default" );
+
+    p += 18;
+    p[3] = 0x10;
+    p += 18;
+    p[3] = 0x10;
+
+    c = 0;
+    for (i = 0; i < 127; ++i)
+        c += edid[i];
+    edid[127] = 256 - c;
+    return 128;
 }
 
 static void set_screen_size( int width, int height )
@@ -631,15 +730,12 @@ static void add_remaining_gpus_via_vulkan( struct gdi_gpu **gpus, int *count )
     {
         VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
     };
-    const struct vulkan_funcs *vulkan_funcs = __wine_get_vulkan_driver( WINE_VULKAN_DRIVER_VERSION );
+    const struct vulkan_funcs *vulkan_funcs = get_vulkan_driver( WINE_VULKAN_DRIVER_VERSION );
     PFN_vkGetPhysicalDeviceProperties2KHR pvkGetPhysicalDeviceProperties2KHR;
     PFN_vkEnumeratePhysicalDevices pvkEnumeratePhysicalDevices;
     uint32_t device_count;
     VkPhysicalDevice *vk_physical_devices = NULL;
     VkPhysicalDeviceProperties2 properties2;
-
-    PFN_vkCreateInstance pvkCreateInstance;
-
     VkInstanceCreateInfo create_info;
     VkPhysicalDeviceIDProperties id;
     VkInstance vk_instance = NULL;
@@ -653,7 +749,6 @@ static void add_remaining_gpus_via_vulkan( struct gdi_gpu **gpus, int *count )
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.enabledExtensionCount = ARRAY_SIZE(extensions);
     create_info.ppEnabledExtensionNames = extensions;
-    /*
     vr = vulkan_funcs->p_vkCreateInstance( &create_info, NULL, &vk_instance );
 
     if (vr != VK_SUCCESS)
@@ -661,21 +756,12 @@ static void add_remaining_gpus_via_vulkan( struct gdi_gpu **gpus, int *count )
         WARN("Failed to create a Vulkan instance, vr %d.\n", vr);
         goto done;
     }
-*/
+
 #define LOAD_VK_FUNC(f)                                                             \
     if (!(p##f = (void *)vulkan_funcs->p_vkGetInstanceProcAddr( vk_instance, #f ))) \
     {                                                                               \
         WARN("Failed to load " #f ".\n");                                           \
         goto done;                                                                  \
-    }
-
-    LOAD_VK_FUNC( vkCreateInstance )
-
-    vr = pvkCreateInstance( &create_info, NULL, &vk_instance );
-    if (vr != VK_SUCCESS)
-    {
-        WARN( "Failed to create a Vulkan instance, vr %d.\n", vr );
-        goto done;
     }
 
     LOAD_VK_FUNC(vkEnumeratePhysicalDevices)
@@ -741,14 +827,8 @@ static void add_remaining_gpus_via_vulkan( struct gdi_gpu **gpus, int *count )
 
 done:
     free( vk_physical_devices );
-/*    if (vk_instance)
-        vulkan_funcs->p_vkDestroyInstance( vk_instance, NULL );*/
     if (vk_instance)
-    {
-        PFN_vkDestroyInstance p_vkDestroyInstance;
-        p_vkDestroyInstance = vulkan_funcs->p_vkGetInstanceProcAddr( vk_instance, "vkDestroyInstance" );
-        p_vkDestroyInstance( vk_instance, NULL );
-    }
+        vulkan_funcs->p_vkDestroyInstance( vk_instance, NULL );
 }
 
 VK_DEFINE_NON_DISPATCHABLE_HANDLE(VkDisplayKHR)
@@ -765,7 +845,7 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
         "VK_KHR_display",
         VK_KHR_SURFACE_EXTENSION_NAME,
     };
-    const struct vulkan_funcs *vulkan_funcs = __wine_get_vulkan_driver( WINE_VULKAN_DRIVER_VERSION );
+    const struct vulkan_funcs *vulkan_funcs = get_vulkan_driver( WINE_VULKAN_DRIVER_VERSION );
     VkResult (*pvkGetRandROutputDisplayEXT)( VkPhysicalDevice, Display *, RROutput, VkDisplayKHR * );
     PFN_vkGetPhysicalDeviceProperties2KHR pvkGetPhysicalDeviceProperties2KHR;
     PFN_vkEnumeratePhysicalDevices pvkEnumeratePhysicalDevices;
@@ -774,7 +854,6 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
     VkPhysicalDevice *vk_physical_devices = NULL;
     VkPhysicalDeviceProperties2 properties2;
     VkPhysicalDeviceMemoryProperties mem_properties;
-    PFN_vkCreateInstance pvkCreateInstance;
     VkInstanceCreateInfo create_info;
     VkPhysicalDeviceIDProperties id;
     VkInstance vk_instance = NULL;
@@ -791,20 +870,18 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
     create_info.enabledExtensionCount = ARRAY_SIZE(extensions);
     create_info.ppEnabledExtensionNames = extensions;
 
+    vr = vulkan_funcs->p_vkCreateInstance( &create_info, NULL, &vk_instance );
+    if (vr != VK_SUCCESS)
+    {
+        WARN("Failed to create a Vulkan instance, vr %d.\n", vr);
+        goto done;
+    }
+
 #define LOAD_VK_FUNC(f)                                                             \
     if (!(p##f = (void *)vulkan_funcs->p_vkGetInstanceProcAddr( vk_instance, #f ))) \
     {                                                                               \
         WARN("Failed to load " #f ".\n");                                           \
         goto done;                                                                  \
-    }
-
-    LOAD_VK_FUNC( vkCreateInstance )
-
-    vr = pvkCreateInstance( &create_info, NULL, &vk_instance );
-    if (vr != VK_SUCCESS)
-    {
-        WARN( "Failed to create a Vulkan instance, vr %d.\n", vr );
-        goto done;
     }
 
     LOAD_VK_FUNC(vkEnumeratePhysicalDevices)
@@ -836,9 +913,11 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
     {
         for (output_idx = 0; output_idx < provider_info->noutputs; ++output_idx)
         {
+            X11DRV_expect_error( gdi_display, XRandRErrorHandler, NULL );
             vr = pvkGetRandROutputDisplayEXT( vk_physical_devices[device_idx], gdi_display,
                                               provider_info->outputs[output_idx], &vk_display );
-            if (vr != VK_SUCCESS || vk_display == VK_NULL_HANDLE)
+            XSync( gdi_display, FALSE );
+            if (X11DRV_check_error() || vr != VK_SUCCESS || vk_display == VK_NULL_HANDLE)
                 continue;
 
             memset( &id, 0, sizeof(id) );
@@ -884,11 +963,7 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
 done:
     free( vk_physical_devices );
     if (vk_instance)
-    {
-        PFN_vkDestroyInstance p_vkDestroyInstance;
-        p_vkDestroyInstance = vulkan_funcs->p_vkGetInstanceProcAddr( vk_instance, "vkDestroyInstance" );
-        p_vkDestroyInstance( vk_instance, NULL );
-    }
+        vulkan_funcs->p_vkDestroyInstance( vk_instance, NULL );
     return ret;
 }
 
@@ -1014,9 +1089,9 @@ static void xrandr14_free_gpus( struct gdi_gpu *gpus )
     free( gpus );
 }
 
-static BOOL xrandr14_get_adapters( ULONG_PTR gpu_id, struct x11drv_adapter **new_adapters, int *count )
+static BOOL xrandr14_get_adapters( ULONG_PTR gpu_id, struct gdi_adapter **new_adapters, int *count )
 {
-    struct x11drv_adapter *adapters = NULL;
+    struct gdi_adapter *adapters = NULL;
     XRRScreenResources *screen_resources = NULL;
     XRRProviderInfo *provider_info = NULL;
     XRRCrtcInfo *enum_crtc_info, *crtc_info = NULL;
@@ -1154,7 +1229,7 @@ static BOOL xrandr14_get_adapters( ULONG_PTR gpu_id, struct x11drv_adapter **new
     /* Make primary adapter the first */
     if (primary_adapter)
     {
-        struct x11drv_adapter tmp = adapters[0];
+        struct gdi_adapter tmp = adapters[0];
         adapters[0] = adapters[primary_adapter];
         adapters[primary_adapter] = tmp;
     }
@@ -1179,7 +1254,7 @@ done:
     return ret;
 }
 
-static void xrandr14_free_adapters( struct x11drv_adapter *adapters )
+static void xrandr14_free_adapters( struct gdi_adapter *adapters )
 {
     free( adapters );
 }
@@ -1219,7 +1294,9 @@ static BOOL xrandr14_get_monitors( ULONG_PTR adapter_id, struct gdi_monitor **ne
     /* Inactive but attached monitor, no need to check for mirrored/replica monitors */
     if (!output_info->crtc || !crtc_info->mode)
     {
-        monitors[monitor_count].edid_len = get_edid( adapter_id, &monitors[monitor_count].edid );
+        monitors[monitor_count].state_flags = DISPLAY_DEVICE_ATTACHED;
+        monitors[monitor_count].edid_len = get_edid( adapter_id, &monitors[monitor_count].edid,
+                                                     output_info, screen_resources );
         monitor_count = 1;
     }
     /* Active monitors, need to find other monitors with the same coordinates as mirrored */
@@ -1266,11 +1343,16 @@ static BOOL xrandr14_get_monitors( ULONG_PTR adapter_id, struct gdi_monitor **ne
                              crtc_info->x + crtc_info->width, crtc_info->y + crtc_info->height );
                     monitors[monitor_count].rc_work = get_work_area( &monitors[monitor_count].rc_monitor );
 
+                    monitors[monitor_count].state_flags = DISPLAY_DEVICE_ATTACHED;
+                    if (!IsRectEmpty( &monitors[monitor_count].rc_monitor ))
+                        monitors[monitor_count].state_flags |= DISPLAY_DEVICE_ACTIVE;
+
                     if (is_crtc_primary( primary_rect, crtc_info ))
                         primary_index = monitor_count;
 
                     monitors[monitor_count].edid_len = get_edid( screen_resources->outputs[i],
-                                                                 &monitors[monitor_count].edid );
+                                                                 &monitors[monitor_count].edid,
+                                                                 enum_output_info, screen_resources );
                     monitor_count++;
                 }
 
@@ -1314,7 +1396,7 @@ done:
         for (i = 0; i < monitor_count; i++)
         {
             if (monitors[i].edid)
-                XFree( monitors[i].edid );
+                free( monitors[i].edid );
         }
         free( monitors );
         ERR("Failed to get monitors\n");
@@ -1329,7 +1411,7 @@ static void xrandr14_free_monitors( struct gdi_monitor *monitors, int count )
     for (i = 0; i < count; i++)
     {
         if (monitors[i].edid)
-            XFree( monitors[i].edid );
+            free( monitors[i].edid );
     }
     free( monitors );
 }
@@ -1374,7 +1456,7 @@ static BOOL xrandr14_get_id( const WCHAR *device_name, BOOL is_primary, x11drv_s
     struct current_mode *tmp_modes, *new_current_modes = NULL;
     INT gpu_count, adapter_count, new_current_mode_count = 0;
     INT gpu_idx, adapter_idx, display_idx;
-    struct x11drv_adapter *adapters;
+    struct gdi_adapter *adapters;
     struct gdi_gpu *gpus;
     WCHAR *end;
 

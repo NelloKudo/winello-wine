@@ -339,7 +339,7 @@ static BOOL wined3d_resource_allocate_sysmem(struct wined3d_resource *resource)
     static const SIZE_T align = RESOURCE_ALIGNMENT;
     void *mem;
 
-    if (!(mem = calloc(1, resource->size + align)))
+    if (!(mem = heap_alloc_zero(resource->size + align)))
     {
         ERR("Failed to allocate system memory.\n");
         return FALSE;
@@ -365,7 +365,7 @@ void wined3d_resource_free_sysmem(struct wined3d_resource *resource)
         return;
     resource->heap_memory = NULL;
 
-    free(resource->heap_pointer);
+    heap_free(resource->heap_pointer);
     resource->heap_pointer = NULL;
 }
 

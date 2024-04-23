@@ -3466,8 +3466,7 @@ static NTSTATUS build_dllredirect_section(ACTIVATION_CONTEXT* actctx, struct str
 {
     unsigned int i, j, total_len = 0, dll_count = 0;
     struct strsection_header *header;
-    ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION *data;
-    ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION_PATH_SEGMENT *path;
+    struct dllredirect_data *data;
     struct string_index *index;
     ULONG name_offset;
 
@@ -3482,12 +3481,12 @@ static NTSTATUS build_dllredirect_section(ACTIVATION_CONTEXT* actctx, struct str
             /* each entry needs index, data and string data */
             total_len += sizeof(*index);
             total_len += aligned_string_len((wcslen(dll->name)+1)*sizeof(WCHAR));
-            total_len += sizeof(*data);
             if (dll->load_from)
             {
-                total_len += sizeof(*path);
+                total_len += offsetof( struct dllredirect_data, paths[1] );
                 total_len += aligned_string_len( wcslen(dll->load_from) * sizeof(WCHAR) );
             }
+            else total_len += offsetof( struct dllredirect_data, paths[0] );
         }
 
         dll_count += assembly->num_dlls;
@@ -3525,7 +3524,7 @@ static NTSTATUS build_dllredirect_section(ACTIVATION_CONTEXT* actctx, struct str
             index->name_offset = name_offset;
             index->name_len = str.Length;
             index->data_offset = index->name_offset + aligned_string_len(str.MaximumLength);
-            index->data_len = sizeof(*data);
+            index->data_len = offsetof( struct dllredirect_data, paths[0] );
             index->rosterindex = i + 1;
 
             /* dll name */
@@ -3535,32 +3534,30 @@ static NTSTATUS build_dllredirect_section(ACTIVATION_CONTEXT* actctx, struct str
             name_offset += aligned_string_len(str.MaximumLength);
 
             /* setup data */
-            data = (ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION *)((BYTE *)header + index->data_offset);
+            data = (struct dllredirect_data*)((BYTE*)header + index->data_offset);
             if (dll->load_from)
             {
                 ULONG len = wcslen(dll->load_from) * sizeof(WCHAR);
-                data->Size = sizeof(*data) + sizeof(*path);
-                data->Flags = 0;
-                data->TotalPathLength = aligned_string_len( len );
-                data->PathSegmentCount = 1;
-                data->PathSegmentOffset = index->data_offset + sizeof(*data);
-                path = (ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION_PATH_SEGMENT *)(data + 1);
-                path->Offset = index->data_offset + data->Size;
-                path->Length = len;
-                ptrW = (WCHAR *)((BYTE *)header + path->Offset);
+                data->size = offsetof( struct dllredirect_data, paths[1] );
+                data->flags = 0;
+                data->total_len = aligned_string_len( len );
+                data->paths_count = 1;
+                data->paths_offset = index->data_offset + offsetof( struct dllredirect_data, paths[0] );
+                data->paths[0].offset = index->data_offset + data->size;
+                data->paths[0].len = len;
+                ptrW = (WCHAR *)((BYTE *)header + data->paths[0].offset);
                 memcpy( ptrW, dll->load_from, len );
-                if (wcschr( dll->load_from, '%' ))
-                    data->Flags |= ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION_PATH_EXPAND;
+                if (wcschr( dll->load_from, '%' )) data->flags |= DLL_REDIRECT_PATH_EXPAND;
             }
             else
             {
-                data->Size = sizeof(*data);
-                data->Flags = ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION_PATH_OMITS_ASSEMBLY_ROOT;
-                data->TotalPathLength = 0;
-                data->PathSegmentCount = 0;
-                data->PathSegmentOffset = 0;
+                data->size = offsetof( struct dllredirect_data, paths[0] );
+                data->flags = DLL_REDIRECT_PATH_OMITS_ASSEMBLY_ROOT;
+                data->total_len = 0;
+                data->paths_count = 0;
+                data->paths_offset = 0;
             }
-            name_offset += data->Size + data->TotalPathLength;
+            name_offset += data->size + data->total_len;
 
             index++;
         }
@@ -3620,15 +3617,15 @@ static struct guid_index *find_guid_index(const struct guidsection_header *secti
     return index;
 }
 
-static inline ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION *get_dllredirect_data(ACTIVATION_CONTEXT *ctxt, struct string_index *index)
+static inline struct dllredirect_data *get_dllredirect_data(ACTIVATION_CONTEXT *ctxt, struct string_index *index)
 {
-    return (ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION *)((BYTE *)ctxt->dllredirect_section + index->data_offset);
+    return (struct dllredirect_data*)((BYTE*)ctxt->dllredirect_section + index->data_offset);
 }
 
 static NTSTATUS find_dll_redirection(ACTIVATION_CONTEXT* actctx, const UNICODE_STRING *name,
                                      PACTCTX_SECTION_KEYED_DATA data)
 {
-    ACTIVATION_CONTEXT_DATA_DLL_REDIRECTION *dll;
+    struct dllredirect_data *dll;
     struct string_index *index;
 
     if (!(actctx->sections & DLLREDIRECT_SECTION)) return STATUS_SXS_KEY_NOT_FOUND;
@@ -3653,7 +3650,7 @@ static NTSTATUS find_dll_redirection(ACTIVATION_CONTEXT* actctx, const UNICODE_S
 
         data->ulDataFormatVersion = 1;
         data->lpData = dll;
-        data->ulLength = dll->Size;
+        data->ulLength = dll->size;
         data->lpSectionGlobalData = NULL;
         data->ulSectionGlobalDataLength = 0;
         data->lpSectionBase = actctx->dllredirect_section;

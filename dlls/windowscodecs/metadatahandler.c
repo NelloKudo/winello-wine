@@ -410,7 +410,7 @@ HRESULT MetadataReader_Create(const MetadataHandlerVtbl *vtable, REFIID iid, voi
     This->items = NULL;
     This->item_count = 0;
 
-    InitializeCriticalSectionEx(&This->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&This->lock);
     This->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": MetadataHandler.lock");
 
     hr = IWICMetadataWriter_QueryInterface(&This->IWICMetadataWriter_iface, iid, ppv);

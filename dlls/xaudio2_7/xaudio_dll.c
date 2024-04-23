@@ -499,7 +499,11 @@ static const FAudioEngineCallback FAudioEngineCallback_Vtbl = {
 
 static inline void destroy_voice(XA2VoiceImpl *This)
 {
-    FAudioVoice_DestroyVoice(This->faudio_voice);
+    if (FAILED(FAudioVoice_DestroyVoiceSafeEXT(This->faudio_voice)))
+    {
+        ERR("Destroying voice %p failed.\n", This);
+        return;
+    }
     free_effect_chain(This->effect_chain);
     This->effect_chain = NULL;
     This->in_use = FALSE;
@@ -1566,7 +1570,7 @@ static inline XA2VoiceImpl *create_voice(IXAudio2Impl *This)
     voice->IXAudio2SubmixVoice_iface.lpVtbl = &XAudio2SubmixVoice_Vtbl;
     voice->FAudioVoiceCallback_vtbl = FAudioVoiceCallback_Vtbl;
 
-    InitializeCriticalSectionEx(&voice->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&voice->lock);
     voice->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": XA2VoiceImpl.lock");
 
     return voice;
@@ -1900,10 +1904,10 @@ static HRESULT WINAPI XAudio2CF_CreateInstance(IClassFactory *iface, IUnknown *p
 
     list_init(&object->voices);
 
-    InitializeCriticalSectionEx(&object->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&object->lock);
     object->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": IXAudio2Impl.lock");
 
-    InitializeCriticalSectionEx(&object->mst.lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&object->mst.lock);
     object->mst.lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": XA2MasteringVoice.lock");
 
     FAudioCOMConstructWithCustomAllocatorEXT(

@@ -20,8 +20,8 @@
 
 #include "ntdll_test.h"
 #include <winnls.h>
-#include <ddk/ntddk.h>
 #include <stdio.h>
+#include <psapi.h>
 
 static NTSTATUS (WINAPI * pNtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
 static NTSTATUS (WINAPI * pNtSetSystemInformation)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG);
@@ -2677,59 +2677,6 @@ static void test_query_process_debug_flags(int argc, char **argv)
     }
 }
 
-static void test_query_process_quota_limits(void)
-{
-    QUOTA_LIMITS qlimits;
-    NTSTATUS status;
-    HANDLE process;
-    ULONG ret_len;
-
-    status = NtQueryInformationProcess(NULL, ProcessQuotaLimits, NULL, sizeof(qlimits), NULL);
-    ok(status == STATUS_INVALID_HANDLE, "NtQueryInformationProcess failed, status %#lx.\n", status);
-
-    status = NtQueryInformationProcess(NULL, ProcessQuotaLimits, &qlimits, sizeof(qlimits), NULL);
-    ok(status == STATUS_INVALID_HANDLE, "NtQueryInformationProcess failed, status %#lx.\n", status);
-
-    process = GetCurrentProcess();
-    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, 2, &ret_len);
-    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
-
-    memset(&qlimits, 0, sizeof(qlimits));
-    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits), &ret_len);
-    ok(status == STATUS_SUCCESS, "NtQueryInformationProcess failed, status %#lx.\n", status);
-    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
-    ok(qlimits.MinimumWorkingSetSize == 204800,"Expected MinimumWorkingSetSize = 204800, got %s\n",
-        wine_dbgstr_longlong(qlimits.MinimumWorkingSetSize));
-    ok(qlimits.MaximumWorkingSetSize == 1413120,"Expected MaximumWorkingSetSize = 1413120, got %s\n",
-        wine_dbgstr_longlong(qlimits.MaximumWorkingSetSize));
-    ok(qlimits.PagefileLimit == ~0,"Expected PagefileLimit = ~0, got %s\n",
-        wine_dbgstr_longlong(qlimits.PagefileLimit));
-    ok(qlimits.TimeLimit.QuadPart == ~0,"Expected TimeLimit = ~0, got %s\n",
-        wine_dbgstr_longlong(qlimits.TimeLimit.QuadPart));
-
-    if (winetest_debug > 1)
-    {
-        trace("Quota Limits:\n");
-        trace("PagedPoolLimit: %s\n", wine_dbgstr_longlong(qlimits.PagedPoolLimit));
-        trace("NonPagedPoolLimit: %s\n", wine_dbgstr_longlong(qlimits.NonPagedPoolLimit));
-    }
-
-    memset(&qlimits, 0, sizeof(qlimits));
-    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits) * 2, &ret_len);
-    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
-    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
-
-    memset(&qlimits, 0, sizeof(qlimits));
-    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits) - 1, &ret_len);
-    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
-    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
-
-    memset(&qlimits, 0, sizeof(qlimits));
-    status = NtQueryInformationProcess( process, ProcessQuotaLimits, &qlimits, sizeof(qlimits) + 1, &ret_len);
-    ok(status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryInformationProcess failed, status %#lx.\n", status);
-    ok(sizeof(qlimits) == ret_len, "len set to %lx\n", ret_len);
-}
-
 static void test_readvirtualmemory(void)
 {
     HANDLE process;
@@ -3796,7 +3743,7 @@ static void test_system_debug_control(void)
     NTSTATUS status;
     int class;
 
-    for (class = 0; class < SysDbgMaxInfoClass; ++class)
+    for (class = 0; class <= SysDbgSetKdBlockEnable; ++class)
     {
         status = pNtSystemDebugControl( class, NULL, 0, NULL, 0, NULL );
         if (is_wow64)
@@ -3807,82 +3754,136 @@ static void test_system_debug_control(void)
         }
         else
         {
-            ok( status == STATUS_DEBUGGER_INACTIVE || status == STATUS_ACCESS_DENIED || status == STATUS_INFO_LENGTH_MISMATCH,
-                "class %d, got %#lx.\n", class, status );
+            ok( status == STATUS_DEBUGGER_INACTIVE || status == STATUS_ACCESS_DENIED, "class %d, got %#lx.\n", class, status );
         }
     }
 }
 
-static void test_process_token(int argc, char **argv)
+static void test_process_id(void)
 {
-    STARTUPINFOA si = {.cb = sizeof(si)};
-    PROCESS_ACCESS_TOKEN token_info = {0};
-    TOKEN_STATISTICS stats1, stats2;
-    HANDLE token, their_token;
-    PROCESS_INFORMATION pi;
-    char cmdline[MAX_PATH];
+    char image_name_buffer[1024 * sizeof(WCHAR)];
+    UNICODE_STRING *image_name = (UNICODE_STRING *)image_name_buffer;
+    SYSTEM_PROCESS_ID_INFORMATION info;
+    unsigned int i, length;
+    DWORD pids[2048];
+    WCHAR name[2048];
     NTSTATUS status;
-    DWORD size;
-    BOOL ret;
+    HANDLE process;
+    ULONG len;
+    BOOL bret;
 
-    token_info.Thread = (HANDLE)0xdeadbeef;
+    status = NtQueryInformationProcess( GetCurrentProcess(), ProcessImageFileName, image_name,
+                                        sizeof(image_name_buffer), NULL );
+    ok( !status, "got %#lx.\n", status );
+    length = image_name->Length;
+    image_name->Buffer[length] = 0;
 
-    sprintf( cmdline, "%s %s dummy", argv[0], argv[1] );
+    len = 0xdeadbeef;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, NULL, 0, &len );
+    ok( status == STATUS_INFO_LENGTH_MISMATCH || (is_wow64 && status == STATUS_ACCESS_VIOLATION), "got %#lx.\n", status );
+    ok( len == sizeof(info) || (is_wow64 && len == 0xdeadbeef), "got %#lx.\n", len );
 
-    ret = CreateProcessA( NULL, cmdline, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi );
-    ok( ret, "got error %lu\n", GetLastError() );
+    info.ProcessId = (void *)0xdeadbeef;
+    info.ImageName.Length = info.ImageName.MaximumLength = 0;
+    info.ImageName.Buffer = NULL;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( status == STATUS_INVALID_CID, "got %#lx.\n", status );
+    ok( !info.ImageName.Length, "got %#x.\n", info.ImageName.Length );
+    ok( !info.ImageName.MaximumLength, "got %#x.\n", info.ImageName.MaximumLength );
 
-    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) - 1 );
-    ok( status == STATUS_INFO_LENGTH_MISMATCH, "got %#lx\n", status );
+    info.ProcessId = (void *)(ULONG_PTR)GetCurrentProcessId();
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( status == STATUS_INFO_LENGTH_MISMATCH, "got %#lx.\n", status );
+    ok( len == sizeof(info), "got %#lx.\n", len );
+    ok( !info.ImageName.Length, "got %#x.\n", info.ImageName.Length );
+    ok( info.ImageName.MaximumLength == length + 2 || (is_wow64 && !info.ImageName.MaximumLength),
+        "got %#x.\n", info.ImageName.MaximumLength );
 
-    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
-    ok( status == STATUS_INVALID_HANDLE, "got %#lx\n", status );
+    info.ImageName.MaximumLength = sizeof(name);
+    len = 0xdeadbeef;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( status == STATUS_ACCESS_VIOLATION, "got %#lx.\n", status );
+    ok( len == sizeof(info), "got %#lx.\n", len );
+    ok( info.ImageName.Length == length || (is_wow64 && !info.ImageName.Length),
+        "got %u.\n", info.ImageName.Length );
+    ok( info.ImageName.MaximumLength == length + 2 || (is_wow64 && !info.ImageName.Length),
+        "got %#x.\n", info.ImageName.MaximumLength );
 
-    ret = OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL | TOKEN_DUPLICATE
-            | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_DEFAULT, &token );
-    ok( ret, "got error %lu\n", GetLastError() );
+    info.ProcessId = (void *)0xdeadbeef;
+    info.ImageName.MaximumLength = sizeof(name);
+    info.ImageName.Buffer = name;
+    info.ImageName.Length = 0;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( status == STATUS_INVALID_CID, "got %#lx.\n", status );
+    ok( !info.ImageName.Length, "got %#x.\n", info.ImageName.Length );
+    ok( info.ImageName.MaximumLength == sizeof(name), "got %#x.\n", info.ImageName.MaximumLength );
+    ok( info.ImageName.Buffer == name, "got %p, %p.\n", info.ImageName.Buffer, name );
 
-    token_info.Token = token;
-    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
-    todo_wine ok( status == STATUS_TOKEN_ALREADY_IN_USE, "got %#lx\n", status );
+    info.ProcessId = NULL;
+    info.ImageName.MaximumLength = sizeof(name);
+    info.ImageName.Buffer = name;
+    info.ImageName.Length = 0;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( status == STATUS_INVALID_CID, "got %#lx.\n", status );
+    ok( !info.ImageName.Length, "got %#x.\n", info.ImageName.Length );
+    ok( info.ImageName.MaximumLength == sizeof(name), "got %#x.\n", info.ImageName.MaximumLength );
+    ok( info.ImageName.Buffer == name, "got non NULL.\n" );
 
-    ret = DuplicateTokenEx( token, TOKEN_ALL_ACCESS, NULL, SecurityAnonymous, TokenImpersonation, &token_info.Token );
-    ok( ret, "got error %lu\n", GetLastError() );
-    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
-    todo_wine ok( status == STATUS_BAD_IMPERSONATION_LEVEL, "got %#lx\n", status );
-    CloseHandle( token_info.Token );
+    info.ProcessId = NULL;
+    info.ImageName.MaximumLength = sizeof(name);
+    info.ImageName.Buffer = name;
+    info.ImageName.Length = 4;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( status == STATUS_INVALID_PARAMETER, "got %#lx.\n", status );
+    ok( info.ImageName.Length == 4, "got %#x.\n", info.ImageName.Length );
+    ok( info.ImageName.MaximumLength == sizeof(name), "got %#x.\n", info.ImageName.MaximumLength );
+    ok( info.ImageName.Buffer == name, "got non NULL.\n" );
 
-    ret = DuplicateTokenEx( token, TOKEN_QUERY, NULL, SecurityAnonymous, TokenPrimary, &token_info.Token );
-    ok( ret, "got error %lu\n", GetLastError() );
-    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
-    ok( status == STATUS_ACCESS_DENIED, "got %#lx\n", status );
-    CloseHandle( token_info.Token );
+    info.ProcessId = (void *)(ULONG_PTR)GetCurrentProcessId();
+    info.ImageName.MaximumLength = sizeof(name);
+    info.ImageName.Buffer = name;
+    info.ImageName.Length = 4;
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), NULL );
+    ok( status == STATUS_INVALID_PARAMETER, "got %#lx.\n", status );
+    ok( info.ImageName.Length == 4, "got %#x.\n", info.ImageName.Length );
+    ok( info.ImageName.MaximumLength == sizeof(name), "got %#x.\n", info.ImageName.MaximumLength );
 
-    ret = DuplicateTokenEx( token, TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY, NULL, SecurityAnonymous, TokenPrimary, &token_info.Token );
-    ok(ret, "got error %lu\n", GetLastError());
-    status = pNtSetInformationProcess( pi.hProcess, ProcessAccessToken, &token_info, sizeof(token_info) );
-    ok( status == STATUS_SUCCESS, "got %#lx\n", status );
+    info.ImageName.Length = 0;
+    memset( name, 0xcc, sizeof(name) );
+    status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+    ok( !status, "got %#lx.\n", status );
+    ok( info.ImageName.Length == length, "got %#x.\n", info.ImageName.Length );
+    ok( len == sizeof(info), "got %#lx.\n", len );
+    ok( info.ImageName.MaximumLength == info.ImageName.Length + 2, "got %#x.\n", info.ImageName.MaximumLength );
+    ok( !name[info.ImageName.Length / 2], "got %#x.\n", name[info.ImageName.Length / 2] );
 
-    ret = OpenProcessToken( pi.hProcess, TOKEN_QUERY, &their_token );
-    ok( ret, "got error %lu\n", GetLastError() );
+    ok( info.ImageName.Length == image_name->Length, "got %#x, %#x.\n", info.ImageName.Length, image_name->Length );
+    ok( !wcscmp( name, image_name->Buffer ), "got %s, %s.\n", debugstr_w(name), debugstr_w(image_name->Buffer) );
 
-    /* The tokens should be the same. */
-    ret = GetTokenInformation( token_info.Token, TokenStatistics, &stats1, sizeof(stats1), &size );
-    ok( ret, "got error %lu\n", GetLastError() );
-    ret = GetTokenInformation( their_token, TokenStatistics, &stats2, sizeof(stats2), &size );
-    ok( ret, "got error %lu\n", GetLastError() );
-    ok( !memcmp( &stats1.TokenId, &stats2.TokenId, sizeof(LUID) ), "expected same IDs\n" );
-
-    CloseHandle( token_info.Token );
-    CloseHandle( their_token );
-
-    ResumeThread( pi.hThread );
-    ret = WaitForSingleObject( pi.hProcess, 1000 );
-    ok( !ret, "got %d\n", ret );
-
-    CloseHandle( pi.hProcess );
-    CloseHandle( pi.hThread );
-    CloseHandle( token );
+    bret = EnumProcesses( pids, sizeof(pids), &len );
+    ok( bret, "got error %lu.\n", GetLastError() );
+    for (i = 0; i < len / sizeof(*pids); ++i)
+    {
+        process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i] );
+        if (pids[i] && !process && GetLastError() != ERROR_ACCESS_DENIED)
+        {
+            /* process is gone already. */
+            continue;
+        }
+        info.ProcessId = (void *)(ULONG_PTR)pids[i];
+        info.ImageName.Length = 0;
+        info.ImageName.MaximumLength = sizeof(name);
+        info.ImageName.Buffer = name;
+        status = pNtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), &len );
+        ok( info.ImageName.Buffer == name || (!info.ImageName.MaximumLength && !info.ImageName.Length),
+            "got %p, %p, pid %lu, lengh %u / %u.\n", info.ImageName.Buffer, name, pids[i],
+            info.ImageName.Length, info.ImageName.MaximumLength );
+        if (pids[i])
+            ok( !status, "got %#lx, pid %lu.\n", status, pids[i] );
+        else
+            ok( status == STATUS_INVALID_CID, "got %#lx, pid %lu.\n", status, pids[i] );
+        if (process) CloseHandle( process );
+    }
 }
 
 START_TEST(info)
@@ -3939,7 +3940,6 @@ START_TEST(info)
     test_query_process_debug_object_handle(argc, argv);
     test_query_process_debug_flags(argc, argv);
     test_query_process_image_info();
-    test_query_process_quota_limits();
     test_mapprotection();
     test_threadstack();
 
@@ -3962,5 +3962,5 @@ START_TEST(info)
     test_ThreadEnableAlignmentFaultFixup();
     test_process_instrumentation_callback();
     test_system_debug_control();
-    test_process_token(argc, argv);
+    test_process_id();
 }

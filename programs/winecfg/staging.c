@@ -33,25 +33,13 @@
 static BOOL csmt_get(void)
 {
     WCHAR *buf = get_reg_key(config_key, L"Direct3D", L"csmt", NULL);
-    // (dword=0 csmt=off, dword=1 csmt=on )
-    // since we want this toggle to disable upstream's CSMT
-    // flip existing csmt dword, returning false if not set.
-    BOOL ret = buf ? !*buf : FALSE;
+    BOOL ret = buf ? !!*buf : TRUE;
     free(buf);
     return ret;
 }
 static void csmt_set(BOOL status)
 {
-    if (status)
-    {
-        // TRUE, we disable upstream's csmt by setting dword to 0
-        set_reg_key_dword(config_key, L"Direct3D", L"csmt", 0);
-    }
-    else
-    {
-        // FALSE, we remove the csmt key letting wine use its default
-        set_reg_key(config_key, "Direct3D", L"csmt", NULL);
-    }
+    set_reg_key_dword(config_key, L"Direct3D", L"csmt", status);
 }
 
 /*
@@ -120,7 +108,7 @@ static void gtk3_set(BOOL status)
 
 static void load_staging_settings(HWND dialog)
 {
-    CheckDlgButton(dialog, IDC_DISABLE_CSMT, csmt_get() ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog, IDC_ENABLE_CSMT, csmt_get() ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog, IDC_ENABLE_VAAPI, vaapi_get() ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog, IDC_ENABLE_EAX, eax_get() ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog, IDC_ENABLE_HIDEWINE, hidewine_get() ? BST_CHECKED : BST_UNCHECKED);
@@ -150,8 +138,8 @@ INT_PTR CALLBACK StagingDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
         if (HIWORD(wParam) != BN_CLICKED) break;
         switch (LOWORD(wParam))
         {
-        case IDC_DISABLE_CSMT:
-            csmt_set(IsDlgButtonChecked(hDlg, IDC_DISABLE_CSMT) == BST_CHECKED);
+        case IDC_ENABLE_CSMT:
+            csmt_set(IsDlgButtonChecked(hDlg, IDC_ENABLE_CSMT) == BST_CHECKED);
             SendMessageW(GetParent(hDlg), PSM_CHANGED, 0, 0);
             return TRUE;
         case IDC_ENABLE_VAAPI:

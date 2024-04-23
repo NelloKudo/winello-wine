@@ -1823,7 +1823,7 @@ static struct prov_method_sequence *sequence;
 
 static void flush_method_sequence(void)
 {
-    free(sequence);
+    HeapFree(GetProcessHeap(), 0, sequence);
     sequence = NULL;
     sequence_cnt = sequence_size = 0;
 }
@@ -1836,10 +1836,15 @@ static void add_method_call(struct Provider *prov, int method)
     if (!method_sequences_enabled)
         return;
 
+    if (!sequence)
+    {
+	sequence_size = 10;
+	sequence = HeapAlloc(GetProcessHeap(), 0, sequence_size * sizeof(*sequence));
+    }
     if (sequence_cnt == sequence_size)
     {
-        sequence_size = sequence_size ? sequence_size * 2 : 10;
-        sequence = realloc(sequence, sequence_size * sizeof(*sequence));
+	sequence_size *= 2;
+	sequence = HeapReAlloc(GetProcessHeap(), 0, sequence, sequence_size * sizeof(*sequence));
     }
 
     prov_method.prov = prov;
@@ -8854,7 +8859,7 @@ static ULONG WINAPI ClientSideProvider_Release(IRawElementProviderSimple *iface)
     ULONG ref = InterlockedDecrement(&This->ref);
 
     if (!ref)
-        free(This);
+        HeapFree(GetProcessHeap(), 0, This);
 
     return ref;
 }
@@ -8926,7 +8931,7 @@ static IRawElementProviderSimpleVtbl ClientSideProviderVtbl = {
 
 static IRawElementProviderSimple *create_temporary_clientside_provider(HWND hwnd, enum ProviderType prov_type)
 {
-    struct ClientSideProvider *prov = malloc(sizeof(*prov));
+    struct ClientSideProvider *prov = HeapAlloc(GetProcessHeap(), 0, sizeof(*prov));
 
     if (!prov)
     {

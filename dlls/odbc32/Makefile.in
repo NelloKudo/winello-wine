@@ -5,4 +5,5 @@ IMPORTS   = advapi32
 
 SOURCES = \
 	proxyodbc.c \
-	rsrc.rc
+	rsrc.rc \
+	unixlib.c

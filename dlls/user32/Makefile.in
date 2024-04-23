@@ -4,7 +4,6 @@ IMPORTLIB = user32
 IMPORTS   = $(PNG_PE_LIBS) gdi32 sechost advapi32 kernelbase win32u
 EXTRAINCL = $(PNG_PE_CFLAGS)
 DELAYIMPORTS = imm32
-i386_EXTRADLLFLAGS = -Wl,--image-base,0x7e410000
 
 SOURCES = \
 	button.c \

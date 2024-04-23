@@ -21,6 +21,7 @@
 
 #include "dispex.h"
 
+#include "wine/heap.h"
 #include "wine/list.h"
 
 typedef enum

@@ -1847,7 +1847,7 @@ static CRITICAL_SECTION *alloc_critsect(void)
         ExitProcess(1);
     }
 
-    InitializeCriticalSectionEx(critsect, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(critsect);
     critsect->DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": critsect");
     return critsect;
 }

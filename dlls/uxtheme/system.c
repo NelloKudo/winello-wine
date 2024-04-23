@@ -1268,7 +1268,7 @@ void WINAPI RefreshImmersiveColorPolicyState(void)
  * RETURNS
  *     Whether or not the system should use dark mode.
  */
-BOOLEAN WINAPI ShouldSystemUseDarkMode(void)
+BOOL WINAPI ShouldSystemUseDarkMode(void)
 {
     DWORD light_theme = TRUE, light_theme_size = sizeof(light_theme);
 
@@ -1285,7 +1285,7 @@ BOOLEAN WINAPI ShouldSystemUseDarkMode(void)
  * RETURNS
  *     Whether or not apps should use dark mode.
  */
-BOOLEAN WINAPI ShouldAppsUseDarkMode(void)
+BOOL WINAPI ShouldAppsUseDarkMode(void)
 {
     DWORD light_theme = TRUE, light_theme_size = sizeof(light_theme);
 
@@ -1300,7 +1300,7 @@ BOOLEAN WINAPI ShouldAppsUseDarkMode(void)
  *      AllowDarkModeForWindow                          (UXTHEME.133)
  *
  */
-BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow)
+BOOL WINAPI AllowDarkModeForWindow(HWND hwnd, BOOL allow)
 {
     FIXME("%p %d: stub\n", hwnd, allow);
     return FALSE;
@@ -1320,7 +1320,7 @@ int WINAPI SetPreferredAppMode(int app_mode)
  *      IsDarkModeAllowedForWindow                        (UXTHEME.137)
  *
  */
-BOOLEAN WINAPI IsDarkModeAllowedForWindow(HWND hwnd)
+BOOL WINAPI IsDarkModeAllowedForWindow(HWND hwnd)
 {
     FIXME("%p: stub\n", hwnd);
     return FALSE;

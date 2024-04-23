@@ -41,6 +41,27 @@
 
 bool array_reserve(void **elements, size_t *capacity, size_t count, size_t size);
 
+static inline const char *debugstr_time(REFERENCE_TIME time)
+{
+    ULONGLONG abstime = time >= 0 ? time : -time;
+    unsigned int i = 0, j = 0;
+    char buffer[23], rev[23];
+
+    while (abstime || i <= 8)
+    {
+        buffer[i++] = '0' + (abstime % 10);
+        abstime /= 10;
+        if (i == 7) buffer[i++] = '.';
+    }
+    if (time < 0) buffer[i++] = '-';
+
+    while (i--) rev[j++] = buffer[i];
+    while (rev[j-1] == '0' && rev[j-2] != '.') --j;
+    rev[j] = 0;
+
+    return wine_dbg_sprintf("%s", rev);
+}
+
 #define MEDIATIME_FROM_BYTES(x) ((LONGLONG)(x) * 10000000)
 
 struct wg_sample_queue;
@@ -49,10 +70,10 @@ HRESULT wg_sample_queue_create(struct wg_sample_queue **out);
 void wg_sample_queue_destroy(struct wg_sample_queue *queue);
 void wg_sample_queue_flush(struct wg_sample_queue *queue, bool all);
 
-wg_parser_t wg_parser_create(bool output_compressed);
+wg_parser_t wg_parser_create(enum wg_parser_type type, bool output_compressed, bool use_opengl);
 void wg_parser_destroy(wg_parser_t parser);
 
-HRESULT wg_parser_connect(wg_parser_t parser, uint64_t file_size);
+HRESULT wg_parser_connect(wg_parser_t parser, uint64_t file_size, const WCHAR *uri);
 void wg_parser_disconnect(wg_parser_t parser);
 
 bool wg_parser_get_next_read_offset(wg_parser_t parser, uint64_t *offset, uint32_t *size);
@@ -63,7 +84,8 @@ wg_parser_stream_t wg_parser_get_stream(wg_parser_t parser, uint32_t index);
 
 void wg_parser_stream_get_preferred_format(wg_parser_stream_t stream, struct wg_format *format);
 void wg_parser_stream_get_codec_format(wg_parser_stream_t stream, struct wg_format *format);
-void wg_parser_stream_enable(wg_parser_stream_t stream, const struct wg_format *format);
+void wg_parser_stream_enable(wg_parser_stream_t stream, const struct wg_format *format,
+        uint32_t flags);
 void wg_parser_stream_disable(wg_parser_stream_t stream);
 
 bool wg_parser_stream_get_buffer(wg_parser_t parser, wg_parser_stream_t stream,
@@ -80,6 +102,22 @@ char *wg_parser_stream_get_tag(wg_parser_stream_t stream, enum wg_parser_tag tag
 /* start_pos and stop_pos are in 100-nanosecond units. */
 void wg_parser_stream_seek(wg_parser_stream_t stream, double rate,
         uint64_t start_pos, uint64_t stop_pos, DWORD start_flags, DWORD stop_flags);
+
+HRESULT wg_source_create(const WCHAR *url, uint64_t file_size,
+        const void *data, uint32_t size, WCHAR mime_type[256],
+        wg_source_t *out);
+void wg_source_destroy(wg_source_t source);
+HRESULT wg_source_get_stream_count(wg_source_t source, uint32_t *stream_count);
+HRESULT wg_source_get_duration(wg_source_t source, uint64_t *duration);
+HRESULT wg_source_set_position(wg_source_t source, uint64_t time);
+HRESULT wg_source_get_position(wg_source_t source, uint64_t *read_offset);
+HRESULT wg_source_push_data(wg_source_t source, const void *data, uint32_t size);
+HRESULT wg_source_read_data(wg_source_t source, UINT32 index, IMFSample **out);
+bool wg_source_get_stream_format(wg_source_t source, UINT32 index,
+        struct wg_format *format);
+char *wg_source_get_stream_tag(wg_source_t source, UINT32 index,
+        wg_parser_tag tag);
+void wg_source_set_stream_flags(wg_source_t source, UINT32 index, BOOL select);
 
 wg_transform_t wg_transform_create(const struct wg_format *input_format,
         const struct wg_format *output_format, const struct wg_transform_attrs *attrs);
@@ -144,14 +182,18 @@ HRESULT wg_transform_read_quartz(wg_transform_t transform, struct wg_sample *sam
 HRESULT wg_transform_read_dmo(wg_transform_t transform, DMO_OUTPUT_DATA_BUFFER *buffer);
 
 HRESULT gstreamer_byte_stream_handler_create(REFIID riid, void **obj);
+HRESULT gstreamer_byte_stream_handler_2_create(REFIID riid, void **obj);
 
 unsigned int wg_format_get_stride(const struct wg_format *format);
 
 bool wg_video_format_is_rgb(enum wg_video_format format);
 
+HRESULT audio_decoder_create(REFIID riid, void **ret);
+HRESULT video_decoder_create(REFIID riid, void **ret);
 HRESULT aac_decoder_create(REFIID riid, void **ret);
 HRESULT h264_decoder_create(REFIID riid, void **ret);
 HRESULT video_processor_create(REFIID riid, void **ret);
+HRESULT gstreamer_scheme_handler_create(REFIID riid, void **ret);
 
 extern const GUID MFAudioFormat_RAW_AAC;
 

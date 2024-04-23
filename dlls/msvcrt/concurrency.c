@@ -98,7 +98,7 @@ struct scheduler_list {
 };
 
 struct beacon {
-    LONG cancelling;
+    bool cancelling;
     struct list entry;
     struct _StructuredTaskCollection *task_collection;
 };
@@ -294,12 +294,6 @@ typedef struct
         } unknown;
     } wait;
 } _ReentrantPPLLock__Scoped_lock;
-
-typedef struct
-{
-    LONG state;
-    LONG count;
-} _ReaderWriterLock;
 
 #define EVT_RUNNING     (void*)1
 #define EVT_WAITING     NULL
@@ -1637,7 +1631,7 @@ static ThreadScheduler* ThreadScheduler_ctor(ThreadScheduler *this,
     this->shutdown_count = this->shutdown_size = 0;
     this->shutdown_events = NULL;
 
-    InitializeCriticalSectionEx(&this->cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&this->cs);
     this->cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": ThreadScheduler");
 
     list_init(&this->scheduled_chores);
@@ -2149,7 +2143,7 @@ void __thiscall _StructuredTaskCollection__Cancel(
     EnterCriticalSection(&((ExternalContextBase*)this->context)->beacons_cs);
     LIST_FOR_EACH_ENTRY(beacon, &((ExternalContextBase*)this->context)->beacons, struct beacon, entry) {
         if (beacon->task_collection == this)
-            InterlockedIncrement(&beacon->cancelling);
+            beacon->cancelling = TRUE;
     }
     LeaveCriticalSection(&((ExternalContextBase*)this->context)->beacons_cs);
 
@@ -3112,22 +3106,6 @@ void __thiscall _Cancellation_beacon_dtor(_Cancellation_beacon *this)
     free(this->beacon);
 }
 
-/* ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QAA_NXZ */
-/* ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QAE_NXZ */
-/* ?_Confirm_cancel@_Cancellation_beacon@details@Concurrency@@QEAA_NXZ */
-DEFINE_THISCALL_WRAPPER(_Cancellation_beacon__Confirm_cancel, 4)
-bool __thiscall _Cancellation_beacon__Confirm_cancel(_Cancellation_beacon *this)
-{
-    bool ret;
-
-    TRACE("(%p)\n", this);
-
-    ret = Context_IsCurrentTaskCollectionCanceling();
-    if (!ret)
-        InterlockedDecrement(&this->beacon->cancelling);
-    return ret;
-}
-
 /* ??0_Condition_variable@details@Concurrency@@QAE@XZ */
 /* ??0_Condition_variable@details@Concurrency@@QEAA@XZ */
 DEFINE_THISCALL_WRAPPER(_Condition_variable_ctor, 4)
@@ -3525,7 +3503,7 @@ _ReentrantBlockingLock* __thiscall _ReentrantBlockingLock_ctor(_ReentrantBlockin
 {
     TRACE("(%p)\n", this);
 
-    InitializeCriticalSectionEx(&this->cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&this->cs);
     this->cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": _ReentrantBlockingLock");
     return this;
 }
@@ -3566,19 +3544,6 @@ bool __thiscall _ReentrantBlockingLock__TryAcquire(_ReentrantBlockingLock *this)
 {
     TRACE("(%p)\n", this);
     return TryEnterCriticalSection(&this->cs);
-}
-
-/* ??0_ReaderWriterLock@details@Concurrency@@QAA@XZ */
-/* ??0_ReaderWriterLock@details@Concurrency@@QAE@XZ */
-/* ??0_ReaderWriterLock@details@Concurrency@@QEAA@XZ */
-DEFINE_THISCALL_WRAPPER(_ReaderWriterLock_ctor, 4)
-_ReaderWriterLock* __thiscall _ReaderWriterLock_ctor(_ReaderWriterLock *this)
-{
-    TRACE("(%p)\n", this);
-
-    this->state = 0;
-    this->count = 0;
-    return this;
 }
 
 /* ?wait@Concurrency@@YAXI@Z */

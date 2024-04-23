@@ -1583,13 +1583,20 @@ static HRESULT WINAPI performance_PlaySegmentEx(IDirectMusicPerformance8 *iface,
     if (FAILED(hr = IUnknown_QueryInterface(source, &IID_IDirectMusicSegment, (void **)&segment)))
         return hr;
 
+    if (primary && SUCCEEDED(hr = IDirectMusicPerformance8_GetSegmentState(iface, &state, start_time)))
+    {
+        if (FAILED(hr = IDirectMusicPerformance_Stop(&This->IDirectMusicPerformance8_iface, NULL, state, start_time, 0)))
+            ERR("Failed to stop current previous segment, hr %#lx\n", hr);
+        IDirectMusicSegmentState_Release(state);
+    }
+
     EnterCriticalSection(&This->safe);
 
     if (primary) performance_set_primary_segment(This, segment);
     if (control) performance_set_control_segment(This, segment);
 
     if ((!(music_time = start_time) && FAILED(hr = IDirectMusicPerformance8_GetTime(iface, NULL, &music_time)))
-            || FAILED(hr = segment_state_create(segment, music_time, iface, &state)))
+            || FAILED(hr = segment_state_create(segment, music_time, segment_flags, iface, &state)))
     {
         if (primary) performance_set_primary_segment(This, NULL);
         if (control) performance_set_control_segment(This, NULL);
@@ -1651,65 +1658,16 @@ static HRESULT WINAPI performance_CreateAudioPath(IDirectMusicPerformance8 *ifac
 {
     struct performance *This = impl_from_IDirectMusicPerformance8(iface);
     IDirectMusicAudioPath *pPath;
-    IDirectMusicObject *dmo;
-    IDirectSoundBuffer *buffer, *primary_buffer;
-    DMUS_OBJECTDESC objDesc;
-    DMUS_PORTPARAMS8 port_params;
-    HRESULT hr;
-    WAVEFORMATEX format;
-    DSBUFFERDESC desc;
 
-    FIXME("(%p, %p, %d, %p): semi-stub\n", This, pSourceConfig, fActivate, ret_iface);
+    FIXME("(%p, %p, %d, %p): stub\n", This, pSourceConfig, fActivate, ret_iface);
 
-    if (!ret_iface || !pSourceConfig) return E_POINTER;
+    if (!ret_iface) return E_POINTER;
     if (!This->audio_paths_enabled) return DMUS_E_AUDIOPATH_INACTIVE;
-
-    hr = IUnknown_QueryInterface(pSourceConfig, &IID_IDirectMusicObject, (void **)&dmo);
-    if (FAILED(hr))
-        return hr;
-
-    hr = IDirectMusicObject_GetDescriptor(dmo, &objDesc);
-    IDirectMusicObject_Release(dmo);
-    if (FAILED(hr))
-        return hr;
-
-    if (!IsEqualCLSID(&objDesc.guidClass, &CLSID_DirectMusicAudioPathConfig))
-    {
-        ERR("Unexpected object class %s for source config.\n", debugstr_dmguid(&objDesc.guidClass));
-        return E_INVALIDARG;
-    }
-
-    hr = path_config_get_audio_path_params(pSourceConfig, &format, &desc, &port_params);
-    if (FAILED(hr))
-        return hr;
-
-    hr = perf_dmport_create(This, &port_params);
-    if (FAILED(hr))
-        return hr;
-
-    hr = IDirectSound_CreateSoundBuffer(This->dsound, &desc, &buffer, NULL);
-    if (FAILED(hr))
-        return DSERR_BUFFERLOST;
-
-    /* Update description for creating primary buffer */
-    desc.dwFlags |= DSBCAPS_PRIMARYBUFFER;
-    desc.dwFlags &= ~DSBCAPS_CTRLFX;
-    desc.dwBufferBytes = 0;
-    desc.lpwfxFormat = NULL;
-
-    hr = IDirectSound_CreateSoundBuffer(This->dsound, &desc, &primary_buffer, NULL);
-    if (FAILED(hr))
-    {
-        IDirectSoundBuffer_Release(buffer);
-        return DSERR_BUFFERLOST;
-    }
 
     create_dmaudiopath(&IID_IDirectMusicAudioPath, (void **)&pPath);
     set_audiopath_perf_pointer(pPath, iface);
-    set_audiopath_dsound_buffer(pPath, buffer);
-    set_audiopath_primary_dsound_buffer(pPath, primary_buffer);
-    TRACE(" returning IDirectMusicAudioPath interface at %p.\n", *ret_iface);
 
+    /** TODO */
     *ret_iface = pPath;
     return IDirectMusicAudioPath_Activate(*ret_iface, fActivate);
 }
@@ -2291,7 +2249,7 @@ HRESULT create_dmperformance(REFIID iid, void **ret_iface)
     obj->ref = 1;
 
     obj->pDefaultPath = NULL;
-    InitializeCriticalSectionEx(&obj->safe, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&obj->safe);
     obj->safe.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": performance->safe");
     wine_rb_init(&obj->channel_blocks, channel_block_compare);
 

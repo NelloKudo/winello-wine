@@ -2614,16 +2614,10 @@ BOOL WINAPI SymGetLineFromNameW64(HANDLE hProcess, PCWSTR ModuleName, PCWSTR Fil
  */
 BOOL WINAPI SymFromIndex(HANDLE hProcess, ULONG64 BaseOfDll, DWORD index, PSYMBOL_INFO symbol)
 {
-    struct module_pair  pair;
-    struct symt*        sym;
-
-    TRACE("hProcess = %p, BaseOfDll = %I64x, index = %ld, symbol = %p\n",
+    FIXME("hProcess = %p, BaseOfDll = %I64x, index = %ld, symbol = %p\n",
           hProcess, BaseOfDll, index, symbol);
 
-    if (!module_init_pair(&pair, hProcess, BaseOfDll)) return FALSE;
-    if ((sym = symt_index2ptr(pair.effective, index)) == NULL) return FALSE;
-    symt_fill_sym_info(&pair, NULL, sym, symbol);
-    return TRUE;
+    return FALSE;
 }
 
 /******************************************************************
@@ -2632,21 +2626,10 @@ BOOL WINAPI SymFromIndex(HANDLE hProcess, ULONG64 BaseOfDll, DWORD index, PSYMBO
  */
 BOOL WINAPI SymFromIndexW(HANDLE hProcess, ULONG64 BaseOfDll, DWORD index, PSYMBOL_INFOW symbol)
 {
-    PSYMBOL_INFO        si;
-    BOOL                ret;
-
-    TRACE("hProcess = %p, BaseOfDll = %I64x, index = %ld, symbol = %p\n",
+    FIXME("hProcess = %p, BaseOfDll = %I64x, index = %ld, symbol = %p\n",
           hProcess, BaseOfDll, index, symbol);
 
-    si = HeapAlloc(GetProcessHeap(), 0, sizeof(*si) + symbol->MaxNameLen * sizeof(WCHAR));
-    if (!si) return FALSE;
-
-    si->SizeOfStruct = sizeof(*si);
-    si->MaxNameLen = symbol->MaxNameLen;
-    if ((ret = SymFromIndex(hProcess, BaseOfDll, index, si)))
-        copy_symbolW(symbol, si);
-    HeapFree(GetProcessHeap(), 0, si);
-    return ret;
+    return FALSE;
 }
 
 /******************************************************************

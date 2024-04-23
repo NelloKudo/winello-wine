@@ -20,8 +20,6 @@
  */
 
 #define COBJMACROS
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
 #include "x11drv_dll.h"
 #include "shellapi.h"
 #include "shlobj.h"
@@ -248,13 +246,11 @@ NTSTATUS WINAPI x11drv_dnd_position_event( void *arg, ULONG size )
         }
     }
 
-    if (!accept) effect = DROPEFFECT_NONE;
-    return NtCallbackReturn( &effect, sizeof(effect), STATUS_SUCCESS );
+    return accept ? effect : DROPEFFECT_NONE;
 }
 
-NTSTATUS WINAPI x11drv_dnd_drop_event( void *args, ULONG size )
+NTSTATUS x11drv_dnd_drop_event( UINT arg )
 {
-    HWND hwnd = UlongToHandle( *(ULONG *)args );
     IDropTarget *dropTarget;
     DWORD effect = XDNDDropEffect;
     int accept = 0; /* Assume we're not accepting */
@@ -307,7 +303,7 @@ NTSTATUS WINAPI x11drv_dnd_drop_event( void *args, ULONG size )
         /* Only send WM_DROPFILES if Drop didn't succeed or DROPEFFECT_NONE was set.
          * Doing both causes winamp to duplicate the dropped files (#29081) */
 
-        HWND hwnd_drop = window_accepting_files(window_from_point_dnd( hwnd, XDNDxy ));
+        HWND hwnd_drop = window_accepting_files(window_from_point_dnd( UlongToHandle(arg), XDNDxy ));
 
         if (hwnd_drop && X11DRV_XDND_HasHDROP())
         {
@@ -323,8 +319,7 @@ NTSTATUS WINAPI x11drv_dnd_drop_event( void *args, ULONG size )
     TRACE("effectRequested(0x%lx) accept(%d) performed(0x%lx) at x(%ld),y(%ld)\n",
           XDNDDropEffect, accept, effect, XDNDxy.x, XDNDxy.y);
 
-    if (!accept) effect = DROPEFFECT_NONE;
-    return NtCallbackReturn( &effect, sizeof(effect), STATUS_SUCCESS );
+    return accept ? effect : DROPEFFECT_NONE;
 }
 
 /**************************************************************************
@@ -332,7 +327,7 @@ NTSTATUS WINAPI x11drv_dnd_drop_event( void *args, ULONG size )
  *
  * Handle an XdndLeave event.
  */
-NTSTATUS WINAPI x11drv_dnd_leave_event( void *params, ULONG size )
+NTSTATUS x11drv_dnd_leave_event( UINT arg )
 {
     IDropTarget *dropTarget;
 
@@ -352,7 +347,7 @@ NTSTATUS WINAPI x11drv_dnd_leave_event( void *params, ULONG size )
     }
 
     X11DRV_XDND_FreeDragDropOp();
-    return STATUS_SUCCESS;
+    return 0;
 }
 
 
@@ -370,7 +365,7 @@ NTSTATUS WINAPI x11drv_dnd_enter_event( void *params, ULONG size )
         memcpy( xdnd_formats, formats, size );
         xdnd_formats_end = (struct format_entry *)((char *)xdnd_formats + size);
     }
-    return STATUS_SUCCESS;
+    return 0;
 }
 
 
@@ -736,5 +731,5 @@ NTSTATUS WINAPI x11drv_dnd_post_drop( void *data, ULONG size )
         PostMessageW( hwnd, WM_DROPFILES, (WPARAM)handle, 0 );
     }
 
-    return STATUS_SUCCESS;
+    return 0;
 }

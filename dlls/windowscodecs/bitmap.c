@@ -30,9 +30,6 @@
 #include "wine/asm.h"
 #include "wine/debug.h"
 
-#include "initguid.h"
-DEFINE_GUID(IID_CMetaBitmapRenderTarget, 0x0ccd7824,0xdc16,0x4d09,0xbc,0xa8,0x6b,0x09,0xc4,0xef,0x55,0x35);
-
 WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
 
 /* WARNING: .NET Media Integration Layer (MIL) directly dereferences
@@ -256,10 +253,7 @@ static HRESULT WINAPI BitmapImpl_QueryInterface(IWICBitmap *iface, REFIID iid,
     }
     else
     {
-        if (IsEqualIID(&IID_CMetaBitmapRenderTarget, iid))
-            WARN("Ignoring interface %s\n", debugstr_guid(iid));
-        else
-            FIXME("unknown interface %s\n", debugstr_guid(iid));
+        FIXME("unknown interface %s\n", debugstr_guid(iid));
         *ppv = NULL;
         return E_NOINTERFACE;
     }
@@ -831,7 +825,7 @@ HRESULT BitmapImpl_Create(UINT uiWidth, UINT uiHeight, UINT stride, UINT datasiz
     This->bpp = bpp;
     memcpy(&This->pixelformat, pixelFormat, sizeof(GUID));
     This->dpix = This->dpiy = 0.0;
-    InitializeCriticalSectionEx(&This->cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&This->cs);
     This->cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": BitmapImpl.lock");
 
     *ppIBitmap = &This->IWICBitmap_iface;

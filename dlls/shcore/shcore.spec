@@ -33,7 +33,7 @@
 # @ stub RecordFeatureError
 # @ stub RecordFeatureUsage
 @ stdcall RegisterScaleChangeEvent(ptr ptr)
-@ stdcall RegisterScaleChangeNotifications(long ptr long ptr)
+@ stub RegisterScaleChangeNotifications
 @ stub RevokeScaleChangeNotifications
 @ stdcall SHAnsiToAnsi(str ptr long)
 @ stdcall SHAnsiToUnicode(str ptr long)

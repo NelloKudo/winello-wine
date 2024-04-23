@@ -103,7 +103,7 @@ static void output_entries( DLLSPEC *spec, int first, int count )
 
     for (i = 0; i < count; i++)
     {
-        ORDDEF *odp = spec->exports.ordinals[first + i];
+        ORDDEF *odp = spec->ordinals[first + i];
         output( "\t.byte 0x03\n" );  /* flags: exported & public data */
         switch (odp->type)
         {
@@ -134,10 +134,10 @@ static void output_entry_table( DLLSPEC *spec )
 {
     int i, prev = 0, prev_sel = -1, bundle_count = 0;
 
-    for (i = 1; i <= spec->exports.limit; i++)
+    for (i = 1; i <= spec->limit; i++)
     {
         int selector = 0;
-        ORDDEF *odp = spec->exports.ordinals[i];
+        ORDDEF *odp = spec->ordinals[i];
         if (!odp) continue;
         if (odp->flags & FLAG_EXPORT32) continue;
 
@@ -499,18 +499,17 @@ static int relay_type_compare( const void *e1, const void *e2 )
  */
 static void output_module16( DLLSPEC *spec )
 {
-    struct exports *exports = &spec->exports;
     ORDDEF **typelist;
     ORDDEF *entry_point = NULL;
     int i, j, nb_funcs;
 
     /* store the main entry point as ordinal 0 */
 
-    if (!exports->ordinals)
+    if (!spec->ordinals)
     {
-        assert(exports->limit == 0);
-        exports->ordinals = xmalloc( sizeof(exports->ordinals[0]) );
-        exports->ordinals[0] = NULL;
+        assert(spec->limit == 0);
+        spec->ordinals = xmalloc( sizeof(spec->ordinals[0]) );
+        spec->ordinals[0] = NULL;
     }
     if (spec->init_func && !(spec->characteristics & IMAGE_FILE_DLL))
     {
@@ -523,17 +522,17 @@ static void output_module16( DLLSPEC *spec )
         entry_point->link_name = xstrdup( spec->init_func );
         entry_point->export_name = NULL;
         entry_point->u.func.nb_args = 0;
-        assert( !exports->ordinals[0] );
-        exports->ordinals[0] = entry_point;
+        assert( !spec->ordinals[0] );
+        spec->ordinals[0] = entry_point;
     }
 
     /* Build sorted list of all argument types, without duplicates */
 
-    typelist = xmalloc( (exports->limit + 1) * sizeof(*typelist) );
+    typelist = xmalloc( (spec->limit + 1) * sizeof(*typelist) );
 
-    for (i = nb_funcs = 0; i <= exports->limit; i++)
+    for (i = nb_funcs = 0; i <= spec->limit; i++)
     {
-        ORDDEF *odp = exports->ordinals[i];
+        ORDDEF *odp = spec->ordinals[i];
         if (!odp) continue;
         if (is_function( odp )) typelist[nb_funcs++] = odp;
     }
@@ -630,9 +629,9 @@ static void output_module16( DLLSPEC *spec )
     output( "\n\t.balign 2\n" );
     output( ".L__wine_spec_ne_restab:\n" );
     output_resident_name( spec->dll_name, 0 );
-    for (i = 1; i <= exports->limit; i++)
+    for (i = 1; i <= spec->limit; i++)
     {
-        ORDDEF *odp = exports->ordinals[i];
+        ORDDEF *odp = spec->ordinals[i];
         if (!odp || !odp->name[0]) continue;
         if (odp->flags & FLAG_EXPORT32) continue;
         output_resident_name( odp->name, i );
@@ -730,9 +729,9 @@ static void output_module16( DLLSPEC *spec )
         output( "\t.long 0x%08x,0x%08x\n", arg_types[0], arg_types[1] );
     }
 
-    for (i = 0; i <= exports->limit; i++)
+    for (i = 0; i <= spec->limit; i++)
     {
-        ORDDEF *odp = exports->ordinals[i];
+        ORDDEF *odp = spec->ordinals[i];
         if (!odp || !is_function( odp )) continue;
         output( ".L__wine_%s_%u:\n", spec->c_name, i );
         output( "\tpushw %%bp\n" );
@@ -746,9 +745,9 @@ static void output_module16( DLLSPEC *spec )
 
     output( "\n.L__wine_spec_data_segment:\n" );
     output( "\t.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n" );  /* instance data */
-    for (i = 0; i <= exports->limit; i++)
+    for (i = 0; i <= spec->limit; i++)
     {
-        ORDDEF *odp = exports->ordinals[i];
+        ORDDEF *odp = spec->ordinals[i];
         if (!odp || odp->type != TYPE_VARIABLE) continue;
         output( ".L__wine_%s_%u:\n", spec->c_name, i );
         output( "\t.long " );

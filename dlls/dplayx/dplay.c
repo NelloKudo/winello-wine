@@ -5675,7 +5675,7 @@ HRESULT dplay_create( REFIID riid, void **ppv )
     obj->ref4A = 0;
     obj->ref4 = 1;
 
-    InitializeCriticalSectionEx( &obj->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO );
+    InitializeCriticalSection( &obj->lock );
     obj->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": IDirectPlayImpl.lock");
 
     if ( DP_CreateDirectPlay2( obj ) )

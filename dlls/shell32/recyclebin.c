@@ -570,7 +570,7 @@ static void DoErase(RecycleBinMenu *This)
     ISFHelper *helper;
     IShellFolder2_QueryInterface(This->folder,&IID_ISFHelper,(void**)&helper);
     if(helper)
-        ISFHelper_DeleteItems(helper,This->cidl,(LPCITEMIDLIST*)This->apidl);
+        ISFHelper_DeleteItems(helper, This->cidl, (LPCITEMIDLIST *)This->apidl, TRUE);
 }
 
 static void DoRestore(RecycleBinMenu *This)
@@ -1194,10 +1194,17 @@ static HRESULT erase_items(HWND parent,const LPCITEMIDLIST * apidl, UINT cidl, B
 }
 
 static HRESULT WINAPI RecycleBin_DeleteItems(ISFHelper * iface, UINT cidl,
-                                             LPCITEMIDLIST * apidl)
+                                             LPCITEMIDLIST * apidl, BOOL confirm)
 {
     TRACE("(%p,%u,%p)\n",iface,cidl,apidl);
-    return erase_items(GetActiveWindow(),apidl,cidl,TRUE);
+    return erase_items(GetActiveWindow(), apidl, cidl, confirm);
+}
+
+static HRESULT WINAPI RecycleBin_CopyItems(ISFHelper * iface,
+                                           IShellFolder * pSFFrom,
+                                           UINT cidl, LPCITEMIDLIST * apidl)
+{
+    return E_NOTIMPL;
 }
 
 static const ISFHelperVtbl sfhelperVtbl =
@@ -1208,6 +1215,7 @@ static const ISFHelperVtbl sfhelperVtbl =
     RecycleBin_GetUniqueName,
     RecycleBin_AddFolder,
     RecycleBin_DeleteItems,
+    RecycleBin_CopyItems
 };
 
 HRESULT WINAPI SHQueryRecycleBinA(LPCSTR pszRootPath, LPSHQUERYRBINFO pSHQueryRBInfo)

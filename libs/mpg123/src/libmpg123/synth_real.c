@@ -7,8 +7,8 @@
 */
 
 #include "mpg123lib_intern.h"
-#include "../common/sample.h"
-#include "../common/debug.h"
+#include "sample.h"
+#include "debug.h"
 
 #ifdef REAL_IS_FIXED
 #error "Do not build this file with fixed point math!"

@@ -116,7 +116,7 @@ static ULONG WINAPI domattr_Release(
             xmlFreeNs( This->node.node->ns );
             xmlFreeNode( This->node.node );
         }
-        free( This );
+        heap_free( This );
     }
 
     return ref;
@@ -731,7 +731,7 @@ IUnknown* create_attribute( xmlNodePtr attribute, BOOL floating )
 {
     domattr *This;
 
-    This = malloc(sizeof(*This));
+    This = heap_alloc( sizeof *This );
     if ( !This )
         return NULL;
 

@@ -322,7 +322,6 @@
 @ stdcall NdrXmitOrRepAsMarshall(ptr ptr ptr)
 @ stdcall NdrXmitOrRepAsMemorySize(ptr ptr)
 @ stdcall NdrXmitOrRepAsUnmarshall(ptr ptr ptr long)
-@ stdcall -arch=!i386 NdrpClientCall2(ptr ptr ptr ptr)
 @ stub NdrpCreateProxy # wxp
 @ stub NdrpCreateStub # wxp
 @ stub NdrpGetProcFormatString # wxp

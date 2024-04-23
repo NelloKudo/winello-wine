@@ -179,28 +179,6 @@ struct wined3d_device_vk;
     VK_DEVICE_PFN(vkUnmapMemory) \
     VK_DEVICE_PFN(vkUpdateDescriptorSets) \
     VK_DEVICE_PFN(vkWaitForFences) \
-    /* VK_EXT_extended_dynamic_state */ \
-    VK_DEVICE_EXT_PFN(vkCmdSetDepthCompareOpEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetDepthTestEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetDepthWriteEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveTopologyEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetStencilOpEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetStencilTestEnableEXT) \
-    /* VK_EXT_extended_dynamic_state2 */ \
-    VK_DEVICE_EXT_PFN(vkCmdSetPatchControlPointsEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveRestartEnableEXT) \
-    /* VK_EXT_extended_dynamic_state3 */ \
-    VK_DEVICE_EXT_PFN(vkCmdSetAlphaToCoverageEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetColorBlendEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetColorBlendEquationEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetColorWriteMaskEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetCullModeEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetDepthBiasEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetDepthClampEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetFrontFaceEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetRasterizationSamplesEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetRasterizerDiscardEnableEXT) \
-    VK_DEVICE_EXT_PFN(vkCmdSetSampleMaskEXT) \
     /* VK_EXT_transform_feedback */ \
     VK_DEVICE_EXT_PFN(vkCmdBeginQueryIndexedEXT) \
     VK_DEVICE_EXT_PFN(vkCmdBeginTransformFeedbackEXT) \
@@ -237,13 +215,10 @@ enum wined3d_vk_extension
 {
     WINED3D_VK_EXT_NONE,
 
-    WINED3D_VK_EXT_EXTENDED_DYNAMIC_STATE,
-    WINED3D_VK_EXT_HOST_QUERY_RESET,
-    WINED3D_VK_EXT_SHADER_STENCIL_EXPORT,
     WINED3D_VK_EXT_TRANSFORM_FEEDBACK,
-    WINED3D_VK_KHR_MAINTENANCE2,
     WINED3D_VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE,
     WINED3D_VK_KHR_SHADER_DRAW_PARAMETERS,
+    WINED3D_VK_EXT_HOST_QUERY_RESET,
 
     WINED3D_VK_EXT_COUNT,
 };
@@ -258,12 +233,7 @@ struct wined3d_vk_info
     BOOL supported[WINED3D_VK_EXT_COUNT];
     HMODULE vulkan_lib;
 
-    bool multiple_viewports;
-    bool dynamic_state2;
-    bool dynamic_patch_vertex_count;
-    bool dynamic_multisample_state;
-    bool dynamic_blend_state;
-    bool dynamic_rasterizer_state;
+    unsigned int multiple_viewports : 1;
 };
 
 #define VK_CALL(f) (vk_info->vk_ops.f)
@@ -525,6 +495,8 @@ struct wined3d_graphics_pipeline_key_vk
     VkVertexInputBindingDivisorDescriptionEXT divisors[MAX_ATTRIBS];
     VkVertexInputAttributeDescription attributes[MAX_ATTRIBS];
     VkVertexInputBindingDescription bindings[MAX_ATTRIBS];
+    VkViewport viewports[WINED3D_MAX_VIEWPORTS];
+    VkRect2D scissors[WINED3D_MAX_VIEWPORTS];
     VkSampleMask sample_mask;
     VkPipelineColorBlendAttachmentState blend_attachments[WINED3D_MAX_RENDER_TARGETS];
 
@@ -585,8 +557,6 @@ struct wined3d_context_vk
     struct wined3d_context c;
 
     const struct wined3d_vk_info *vk_info;
-
-    VkDynamicState dynamic_states[27];
 
     uint32_t update_compute_pipeline : 1;
     uint32_t update_stream_output : 1;

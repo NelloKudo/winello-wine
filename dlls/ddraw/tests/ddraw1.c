@@ -1403,16 +1403,6 @@ static BOOL compare_mode_rect(const DEVMODEW *mode1, const DEVMODEW *mode2)
             && mode1->dmPelsHeight == mode2->dmPelsHeight;
 }
 
-static void init_format_b5g6r5(DDPIXELFORMAT *format)
-{
-    format->dwSize = sizeof(*format);
-    format->dwFlags = DDPF_RGB;
-    format->dwRGBBitCount = 16;
-    format->dwRBitMask = 0xf800;
-    format->dwGBitMask = 0x07e0;
-    format->dwBBitMask = 0x001f;
-}
-
 static ULONG get_refcount(IUnknown *test_iface)
 {
     IUnknown_AddRef(test_iface);
@@ -4563,7 +4553,6 @@ static void test_unsupported_formats(void)
 
 static void test_rt_caps(const GUID *device_guid)
 {
-    DWORD fourcc_codes[64], fourcc_code_count;
     PALETTEENTRY palette_entries[256];
     IDirectDrawPalette *palette;
     IDirect3DDevice *device;
@@ -4580,12 +4569,6 @@ static void test_rt_caps(const GUID *device_guid)
     {
         sizeof(DDPIXELFORMAT), DDPF_PALETTEINDEXED8 | DDPF_RGB, 0,
         {8}, {0x00000000}, {0x00000000}, {0x00000000}, {0x00000000},
-    };
-    static const DDPIXELFORMAT fourcc_fmt =
-    {
-        .dwSize = sizeof(DDPIXELFORMAT),
-        .dwFlags = DDPF_FOURCC,
-        .dwFourCC = MAKEFOURCC('Y','U','Y','2'),
     };
 
     static const struct
@@ -4717,12 +4700,6 @@ static void test_rt_caps(const GUID *device_guid)
             DDERR_INVALIDCAPS,
             TRUE /* Nvidia Kepler */,
         },
-        {
-            &fourcc_fmt,
-            DDSCAPS_FLIP | DDSCAPS_COMPLEX | DDSCAPS_OFFSCREENPLAIN,
-            DDERR_INVALIDCAPS,
-            FALSE,
-        },
     };
 
     software_device = is_software_device_type(device_guid);
@@ -4750,10 +4727,6 @@ static void test_rt_caps(const GUID *device_guid)
     hr = IDirectDraw_GetCaps(ddraw, &hal_caps, NULL);
     ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
 
-    fourcc_code_count = ARRAY_SIZE(fourcc_codes);
-    hr = IDirectDraw4_GetFourCCCodes(ddraw, &fourcc_code_count, fourcc_codes);
-    ok(hr == DD_OK, "Got unexpected hr %#lx.\n", hr);
-
     for (i = 0; i < ARRAY_SIZE(test_data); ++i)
     {
         DWORD caps_in, expected_caps;
@@ -4770,21 +4743,6 @@ static void test_rt_caps(const GUID *device_guid)
         surface_desc.ddsCaps.dwCaps = caps_in;
         if (test_data[i].pf)
         {
-            if (test_data[i].pf->dwFlags & DDPF_FOURCC)
-            {
-                unsigned int j;
-
-                for (j = 0; j < fourcc_code_count; ++j)
-                {
-                    if (test_data[i].pf->dwFourCC == fourcc_codes[j])
-                        break;
-                }
-                if (j == fourcc_code_count)
-                {
-                    skip("Fourcc format %#lx is not supported, skipping test.\n", test_data[i].pf->dwFourCC);
-                    continue;
-                }
-            }
             surface_desc.dwFlags |= DDSD_PIXELFORMAT;
             surface_desc.ddpfPixelFormat = *test_data[i].pf;
         }
@@ -4792,11 +4750,6 @@ static void test_rt_caps(const GUID *device_guid)
         {
             surface_desc.dwFlags |= DDSD_ZBUFFERBITDEPTH;
             surface_desc.dwZBufferBitDepth = z_depth;
-        }
-        if (caps_in & DDSCAPS_FLIP)
-        {
-            surface_desc.dwFlags |= DDSD_BACKBUFFERCOUNT;
-            surface_desc.dwBackBufferCount = 1;
         }
         surface_desc.dwWidth = 640;
         surface_desc.dwHeight = 480;
@@ -4820,9 +4773,6 @@ static void test_rt_caps(const GUID *device_guid)
             expected_caps = caps_in | DDSCAPS_SYSTEMMEMORY;
         else
             expected_caps = caps_in | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM;
-
-        if (caps_in & DDSCAPS_FLIP)
-            expected_caps |= DDSCAPS_FRONTBUFFER;
 
         ok(surface_desc.ddsCaps.dwCaps == expected_caps || (test_data[i].pf == &p8_fmt
                 && surface_desc.ddsCaps.dwCaps == (caps_in | DDSCAPS_SYSTEMMEMORY))
@@ -15507,222 +15457,17 @@ static void test_enum_devices(void)
     ok(!refcount, "Device has %lu references left.\n", refcount);
 }
 
-static void test_pick(void)
-{
-    static D3DTLVERTEX tquad[] =
-    {
-        {{320.0f}, {480.0f}, { 1.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-        {{  0.0f}, {480.0f}, {-0.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-        {{320.0f}, {  0.0f}, { 1.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-        {{  0.0f}, {  0.0f}, {-0.5f}, {1.0f}, {0xff00ff00}, {0x00000000}, {0.0f}, {0.0f}},
-    };
-    IDirect3DExecuteBuffer *execute_buffer;
-    D3DEXECUTEBUFFERDESC exec_desc;
-    IDirect3DViewport *viewport;
-    IDirect3DDevice *device;
-    IDirectDraw *ddraw;
-    UINT inst_length;
-    HWND window;
-    HRESULT hr;
-    void *ptr;
-    DWORD rec_count;
-    D3DRECT pick_rect;
-    UINT screen_width = 640;
-    UINT screen_height = 480;
-    UINT hits = 0;
-    UINT nohits = 0;
-    int i, j;
-
-    window = create_window();
-    ddraw = create_ddraw();
-    ok(!!ddraw, "Failed to create a ddraw object.\n");
-    if (!(device = create_device(ddraw, window, DDSCL_NORMAL)))
-    {
-        skip("Failed to create a 3D device, skipping test.\n");
-        IDirectDraw_Release(ddraw);
-        DestroyWindow(window);
-        return;
-    }
-
-    viewport = create_viewport(device, 0, 0, screen_width, screen_height);
-
-    memset(&exec_desc, 0, sizeof(exec_desc));
-    exec_desc.dwSize = sizeof(exec_desc);
-    exec_desc.dwFlags = D3DDEB_BUFSIZE | D3DDEB_CAPS;
-    exec_desc.dwBufferSize = 1024;
-    exec_desc.dwCaps = D3DDEBCAPS_SYSTEMMEMORY;
-
-    hr = IDirect3DDevice_CreateExecuteBuffer(device, &exec_desc, &execute_buffer, NULL);
-    ok(SUCCEEDED(hr), "Failed to create execute buffer, hr %#lx.\n", hr);
-    hr = IDirect3DExecuteBuffer_Lock(execute_buffer, &exec_desc);
-    ok(SUCCEEDED(hr), "Failed to lock execute buffer, hr %#lx.\n", hr);
-    memcpy(exec_desc.lpData, tquad, sizeof(tquad));
-    ptr = ((BYTE *)exec_desc.lpData) + sizeof(tquad);
-    emit_process_vertices(&ptr, D3DPROCESSVERTICES_COPY, 0, 4);
-    emit_tquad(&ptr, 0);
-    emit_end(&ptr);
-    inst_length = (BYTE *)ptr - (BYTE *)exec_desc.lpData;
-    inst_length -= sizeof(tquad);
-    hr = IDirect3DExecuteBuffer_Unlock(execute_buffer);
-    ok(SUCCEEDED(hr), "Failed to unlock execute buffer, hr %#lx.\n", hr);
-
-    set_execute_data(execute_buffer, 4, sizeof(tquad), inst_length);
-
-    /* Perform a number of picks, we should have a specific amount by the end */
-    for (i = 0; i < screen_width; i += 80)
-    {
-        for (j = 0; j < screen_height; j += 60)
-        {
-            pick_rect.x1 = i;
-            pick_rect.y1 = j;
-
-            hr = IDirect3DDevice_Pick(device, execute_buffer, viewport, 0, &pick_rect);
-            ok(SUCCEEDED(hr), "Failed to perform pick, hr %#lx.\n", hr);
-            hr = IDirect3DDevice_GetPickRecords(device, &rec_count, NULL);
-            ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-            if (rec_count > 0)
-                hits++;
-            else
-                nohits++;
-        }
-    }
-
-    /*
-        We should have gotten precisely equal numbers of hits and no hits since our quad
-        covers exactly half the screen
-    */
-    ok(hits == nohits, "Got a non-equal amount of pick successes/failures: %i vs %i.\n", hits, nohits);
-
-    /* Try some specific pixel picks */
-    pick_rect.x1 = 480;
-    pick_rect.y1 = 360;
-    hr = IDirect3DDevice_Pick(device, execute_buffer, viewport, 0, &pick_rect);
-    ok(SUCCEEDED(hr), "Failed to perform pick, hr %#lx.\n", hr);
-    hr = IDirect3DDevice_GetPickRecords(device, &rec_count, NULL);
-    ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-    ok(rec_count == 0, "Got incorrect number of pick records (expected 0): %lu.\n", rec_count);
-
-    pick_rect.x1 = 240;
-    pick_rect.y1 = 120;
-    hr = IDirect3DDevice_Pick(device, execute_buffer, viewport, 0, &pick_rect);
-    ok(SUCCEEDED(hr), "Failed to perform pick, hr %#lx.\n", hr);
-    rec_count = 0;
-    hr = IDirect3DDevice_GetPickRecords(device, &rec_count, NULL);
-    ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-    ok(rec_count == 1, "Got incorrect number of pick records (expected 1): %lu.\n", rec_count);
-
-    if (rec_count == 1)
-    {
-        D3DPICKRECORD record;
-
-        hr = IDirect3DDevice_GetPickRecords(device, &rec_count, &record);
-        ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-        ok(rec_count == 1, "Got incorrect number of pick records (expected 1): %lu.\n", rec_count);
-
-        hr = IDirect3DDevice_GetPickRecords(device, &rec_count, &record);
-        ok(SUCCEEDED(hr), "Failed to get pick records, hr %#lx.\n", hr);
-        ok(rec_count == 1, "Got incorrect number of pick records (expected 1): %lu.\n", rec_count);
-
-        /* Tests D3DPICKRECORD for correct information */
-        ok(record.bOpcode == 3, "Got incorrect bOpcode: %i.\n", record.bOpcode);
-        ok(record.bPad == 0, "Got incorrect bPad: %i.\n", record.bPad);
-        ok(record.dwOffset == 24, "Got incorrect dwOffset: %lu.\n", record.dwOffset);
-        ok(compare_float(record.dvZ, 1.0, 0.1), "Got incorrect dvZ: %f.\n", record.dvZ);
-    }
-
-    destroy_viewport(device, viewport);
-    IDirect3DExecuteBuffer_Release(execute_buffer);
-    IDirect3DDevice_Release(device);
-    IDirectDraw_Release(ddraw);
-
-    DestroyWindow(window);
-}
-
-/* Emperor: Rise of the Middle Kingdom locks a sysmem surface and then accesses
- * the pointer after unlocking it. This test roughly replicates the calls that
- * it makes. */
-static void test_pinned_sysmem(void)
-{
-    DDBLTFX fx = {.dwSize = sizeof(fx), .dwFillColor = 0xface};
-    IDirectDrawSurface *surface, *surface2;
-    DDSURFACEDESC surface_desc;
-    unsigned int color;
-    IDirectDraw *ddraw;
-    ULONG refcount;
-    HWND window;
-    HRESULT hr;
-
-    window = create_window();
-    ddraw = create_ddraw();
-    hr = IDirectDraw_SetCooperativeLevel(ddraw, window, DDSCL_NORMAL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-
-    memset(&surface_desc, 0, sizeof(surface_desc));
-    surface_desc.dwSize = sizeof(surface_desc);
-    surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
-    surface_desc.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY;
-    surface_desc.dwWidth = 32;
-    surface_desc.dwHeight = 32;
-    init_format_b5g6r5(&surface_desc.ddpfPixelFormat);
-    hr = IDirectDraw_CreateSurface(ddraw, &surface_desc, &surface, NULL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    hr = IDirectDraw_CreateSurface(ddraw, &surface_desc, &surface2, NULL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-
-    hr = IDirectDrawSurface_Lock(surface, NULL, &surface_desc, DDLOCK_WAIT, NULL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    hr = IDirectDrawSurface_Unlock(surface, NULL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-
-    hr = IDirectDrawSurface_Blt(surface, NULL, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &fx);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-
-    color = ((unsigned short *)surface_desc.lpSurface)[0];
-    ok(color == 0xface, "Got color %04x.\n", color);
-
-    memset(surface_desc.lpSurface, 0x55, 32 * 16 * 2);
-
-    hr = IDirectDrawSurface_BltFast(surface2, 0, 0, surface, NULL, DDBLTFAST_WAIT);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-
-    hr = IDirectDrawSurface_Lock(surface2, NULL, &surface_desc, DDLOCK_WAIT, NULL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    color = ((unsigned short *)surface_desc.lpSurface)[0];
-    ok(color == 0x5555, "Got color %04x.\n", color);
-    color = ((unsigned short *)surface_desc.lpSurface)[32 * 16];
-    ok(color == 0xface, "Got color %04x.\n", color);
-    hr = IDirectDrawSurface_Unlock(surface2, NULL);
-    ok(hr == S_OK, "Got hr %#lx.\n", hr);
-
-    IDirectDrawSurface_Release(surface2);
-    IDirectDrawSurface_Release(surface);
-    refcount = IDirectDraw_Release(ddraw);
-    ok(!refcount, "Device has %lu references left.\n", refcount);
-
-    DestroyWindow(window);
-}
-
 static void test_multiple_devices(void)
 {
-    static D3DMATRIX test_matrix =
-    {
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 2.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 3.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 4.0f,
-    };
-
     D3DTEXTUREHANDLE texture_handle, texture_handle2;
     D3DMATERIALHANDLE mat_handle, mat_handle2;
     IDirect3DViewport *viewport, *viewport2;
     IDirect3DDevice *device, *device2;
     IDirectDrawSurface *texture_surf;
-    D3DMATRIXHANDLE matrix_handle;
-    IDirectDraw *ddraw, *ddraw2;
     IDirect3DMaterial *material;
     DDSURFACEDESC surface_desc;
     IDirect3DTexture *texture;
-    D3DMATRIX matrix;
+    IDirectDraw *ddraw;
     ULONG refcount;
     HWND window;
     HRESULT hr;
@@ -15738,10 +15483,7 @@ static void test_multiple_devices(void)
         return;
     }
 
-    ddraw2 = create_ddraw();
-    ok(!!ddraw2, "Failed to create a ddraw object.\n");
-
-    device2 = create_device_ex(ddraw2, window, DDSCL_NORMAL, &IID_IDirect3DHALDevice);
+    device2 = create_device_ex(ddraw, window, DDSCL_NORMAL, &IID_IDirect3DHALDevice);
     ok(!!device2, "got NULL.\n");
 
     viewport = create_viewport(device, 0, 0, 640, 480);
@@ -15779,16 +15521,6 @@ static void test_multiple_devices(void)
     ok(hr == D3D_OK, "got %#lx.\n", hr);
     ok(texture_handle != texture_handle2, "got same handles.\n");
 
-    hr = IDirect3DDevice_CreateMatrix(device, &matrix_handle);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
-    hr = IDirect3DDevice_SetMatrix(device, matrix_handle, &test_matrix);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
-
-    memset(&matrix, 0xcc, sizeof(matrix));
-    hr = IDirect3DDevice_GetMatrix(device2, matrix_handle, &matrix);
-    ok(hr == D3D_OK, "got %#lx.\n", hr);
-    ok(!memcmp(&matrix, &test_matrix, sizeof(matrix)), "matrix does not match.\n");
-
     IDirect3DTexture_Release(texture);
     IDirectDrawSurface_Release(texture_surf);
     IDirect3DMaterial_Release(material);
@@ -15801,7 +15533,6 @@ static void test_multiple_devices(void)
     ok(!refcount, "Device has %lu references left.\n", refcount);
 
     IDirectDraw_Release(ddraw);
-    IDirectDraw_Release(ddraw2);
     DestroyWindow(window);
 }
 
@@ -15921,10 +15652,8 @@ START_TEST(ddraw1)
     test_vtbl_protection();
     test_window_position();
     test_get_display_mode();
-    test_pick();
     run_for_each_device_type(test_texture_wrong_caps);
     test_filling_convention();
     test_enum_devices();
-    test_pinned_sysmem();
     test_multiple_devices();
 }

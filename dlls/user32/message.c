@@ -333,7 +333,7 @@ static HGLOBAL dde_get_pair(HGLOBAL shm)
  *
  * Post a DDE message
  */
-NTSTATUS post_dde_message( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, DWORD dest_tid, DWORD type )
+BOOL post_dde_message( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, DWORD dest_tid, DWORD type )
 {
     void*       ptr = NULL;
     int         size = 0;
@@ -344,7 +344,7 @@ NTSTATUS post_dde_message( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, DW
     ULONGLONG   hpack;
 
     if (!UnpackDDElParam( msg, lparam, &uiLo, &uiHi ))
-        return STATUS_INVALID_PARAMETER;
+        return FALSE;
 
     lp = lparam;
     switch (msg)
@@ -386,9 +386,9 @@ NTSTATUS post_dde_message( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, DW
             if ((msg == WM_DDE_ADVISE && size < sizeof(DDEADVISE)) ||
                 (msg == WM_DDE_DATA   && size < FIELD_OFFSET(DDEDATA, Value)) ||
                 (msg == WM_DDE_POKE   && size < FIELD_OFFSET(DDEPOKE, Value)))
-                return STATUS_INVALID_PARAMETER;
+                return FALSE;
         }
-        else if (msg != WM_DDE_DATA) return STATUS_INVALID_PARAMETER;
+        else if (msg != WM_DDE_DATA) return FALSE;
 
         lp = uiHi;
         if (uiLo)
@@ -428,12 +428,21 @@ NTSTATUS post_dde_message( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, DW
         req->lparam  = lp;
         req->timeout = TIMEOUT_INFINITE;
         if (size) wine_server_add_data( req, ptr, size );
-        if (!(res = wine_server_call( req ))) FreeDDElParam( msg, lparam );
+        if ((res = wine_server_call( req )))
+        {
+            if (res == STATUS_INVALID_PARAMETER)
+                /* FIXME: find a STATUS_ value for this one */
+                SetLastError( ERROR_INVALID_THREAD_ID );
+            else
+                SetLastError( RtlNtStatusToDosError(res) );
+        }
+        else
+            FreeDDElParam( msg, lparam );
     }
     SERVER_END_REQ;
     if (hunlock) GlobalUnlock(hunlock);
 
-    return res;
+    return !res;
 }
 
 /***********************************************************************

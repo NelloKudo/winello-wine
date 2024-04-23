@@ -26,7 +26,6 @@
 #include "winbase.h"
 #include "ntgdi.h"
 #include "ntuser.h"
-#include "rtlsupportapi.h"
 #include "wine/unixlib.h"
 #include "wine/asm.h"
 #include "win32syscalls.h"
@@ -47,106 +46,105 @@ ALL_SYSCALLS64
 };
 
 #define SYSCALL_API __attribute__((naked))
-#define SYSCALL_FUNC(name) __ASM_SYSCALL_FUNC( __id_##name, name )
 
 INT SYSCALL_API NtGdiAbortDoc( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiAbortDoc );
+    __ASM_SYSCALL_FUNC( __id_NtGdiAbortDoc );
 }
 
 BOOL SYSCALL_API NtGdiAbortPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiAbortPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiAbortPath );
 }
 
 HANDLE SYSCALL_API NtGdiAddFontMemResourceEx( void *ptr, DWORD size, void *dv, ULONG dv_size,
                                               DWORD *count )
 {
-    SYSCALL_FUNC( NtGdiAddFontMemResourceEx );
+    __ASM_SYSCALL_FUNC( __id_NtGdiAddFontMemResourceEx );
 }
 
 INT SYSCALL_API NtGdiAddFontResourceW( const WCHAR *str, ULONG size, ULONG files, DWORD flags,
                                        DWORD tid, void *dv )
 {
-    SYSCALL_FUNC( NtGdiAddFontResourceW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiAddFontResourceW );
 }
 
 BOOL SYSCALL_API NtGdiAlphaBlend( HDC hdcDst, int xDst, int yDst, int widthDst, int heightDst,
                                   HDC hdcSrc, int xSrc, int ySrc, int widthSrc, int heightSrc,
                                   DWORD blend_func, HANDLE xform )
 {
-    SYSCALL_FUNC( NtGdiAlphaBlend );
+    __ASM_SYSCALL_FUNC( __id_NtGdiAlphaBlend );
 }
 
 BOOL SYSCALL_API NtGdiAngleArc( HDC hdc, INT x, INT y, DWORD dwRadius, DWORD start_angle, DWORD sweep_angle )
 {
-    SYSCALL_FUNC( NtGdiAngleArc );
+    __ASM_SYSCALL_FUNC( __id_NtGdiAngleArc );
 }
 
 BOOL SYSCALL_API NtGdiArcInternal( UINT type, HDC hdc, INT left, INT top, INT right,
                                    INT bottom, INT xstart, INT ystart, INT xend, INT yend )
 {
-    SYSCALL_FUNC( NtGdiArcInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiArcInternal );
 }
 
 BOOL SYSCALL_API NtGdiBeginPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiBeginPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiBeginPath );
 }
 
 BOOL SYSCALL_API NtGdiBitBlt( HDC hdc_dst, INT x_dst, INT y_dst, INT width, INT height,
                               HDC hdc_src, INT x_src, INT y_src, DWORD rop, DWORD bk_color, FLONG fl )
 {
-    SYSCALL_FUNC( NtGdiBitBlt );
+    __ASM_SYSCALL_FUNC( __id_NtGdiBitBlt );
 }
 
 BOOL SYSCALL_API NtGdiCloseFigure( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiCloseFigure );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCloseFigure );
 }
 
 INT SYSCALL_API NtGdiCombineRgn( HRGN hDest, HRGN hSrc1, HRGN hSrc2, INT mode )
 {
-    SYSCALL_FUNC( NtGdiCombineRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCombineRgn );
 }
 
 BOOL SYSCALL_API NtGdiComputeXformCoefficients( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiComputeXformCoefficients );
+    __ASM_SYSCALL_FUNC( __id_NtGdiComputeXformCoefficients );
 }
 
 HBITMAP SYSCALL_API NtGdiCreateBitmap( INT width, INT height, UINT planes,
                                        UINT bpp, const void *bits )
 {
-    SYSCALL_FUNC( NtGdiCreateBitmap );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateBitmap );
 }
 
 HANDLE SYSCALL_API NtGdiCreateClientObj( ULONG type )
 {
-    SYSCALL_FUNC( NtGdiCreateClientObj );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateClientObj );
 }
 
 HBITMAP SYSCALL_API NtGdiCreateCompatibleBitmap( HDC hdc, INT width, INT height )
 {
-    SYSCALL_FUNC( NtGdiCreateCompatibleBitmap );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateCompatibleBitmap );
 }
 
 HDC SYSCALL_API NtGdiCreateCompatibleDC( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiCreateCompatibleDC );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateCompatibleDC );
 }
 
 HBRUSH SYSCALL_API NtGdiCreateDIBBrush( const void *data, UINT coloruse, UINT size,
                                         BOOL is_8x8, BOOL pen, const void *client )
 {
-    SYSCALL_FUNC( NtGdiCreateDIBBrush );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateDIBBrush );
 }
 
 HBITMAP SYSCALL_API NtGdiCreateDIBSection( HDC hdc, HANDLE section, DWORD offset, const BITMAPINFO *bmi,
                                            UINT usage, UINT header_size, ULONG flags,
                                            ULONG_PTR color_space, void **bits )
 {
-    SYSCALL_FUNC( NtGdiCreateDIBSection );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateDIBSection );
 }
 
 HBITMAP SYSCALL_API NtGdiCreateDIBitmapInternal( HDC hdc, INT width, INT height, DWORD init,
@@ -154,200 +152,195 @@ HBITMAP SYSCALL_API NtGdiCreateDIBitmapInternal( HDC hdc, INT width, INT height,
                                                  UINT coloruse, UINT max_info, UINT max_bits,
                                                  ULONG flags, HANDLE xform )
 {
-    SYSCALL_FUNC( NtGdiCreateDIBitmapInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateDIBitmapInternal );
 }
 
 HRGN SYSCALL_API NtGdiCreateEllipticRgn( INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiCreateEllipticRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateEllipticRgn );
 }
 
 HPALETTE SYSCALL_API NtGdiCreateHalftonePalette( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiCreateHalftonePalette );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateHalftonePalette );
 }
 
 HBRUSH SYSCALL_API NtGdiCreateHatchBrushInternal( INT style, COLORREF color, BOOL pen )
 {
-    SYSCALL_FUNC( NtGdiCreateHatchBrushInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateHatchBrushInternal );
 }
 
 HDC SYSCALL_API NtGdiCreateMetafileDC( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiCreateMetafileDC );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateMetafileDC );
 }
 
 HPALETTE SYSCALL_API NtGdiCreatePaletteInternal( const LOGPALETTE *palette, UINT count )
 {
-    SYSCALL_FUNC( NtGdiCreatePaletteInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreatePaletteInternal );
 }
 
 HBRUSH SYSCALL_API NtGdiCreatePatternBrushInternal( HBITMAP bitmap, BOOL pen, BOOL is_8x8 )
 {
-    SYSCALL_FUNC( NtGdiCreatePatternBrushInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreatePatternBrushInternal );
 }
 
 HPEN SYSCALL_API NtGdiCreatePen( INT style, INT width, COLORREF color, HBRUSH brush )
 {
-    SYSCALL_FUNC( NtGdiCreatePen );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreatePen );
 }
 
 HRGN SYSCALL_API NtGdiCreateRectRgn( INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiCreateRectRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateRectRgn );
 }
 
 HRGN SYSCALL_API NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bottom,
                                           INT ellipse_width, INT ellipse_height )
 {
-    SYSCALL_FUNC( NtGdiCreateRoundRectRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateRoundRectRgn );
 }
 
 HBRUSH SYSCALL_API NtGdiCreateSolidBrush( COLORREF color, HBRUSH brush )
 {
-    SYSCALL_FUNC( NtGdiCreateSolidBrush );
+    __ASM_SYSCALL_FUNC( __id_NtGdiCreateSolidBrush );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDICheckVidPnExclusiveOwnership( const D3DKMT_CHECKVIDPNEXCLUSIVEOWNERSHIP *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDICheckVidPnExclusiveOwnership );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDICheckVidPnExclusiveOwnership );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDICloseAdapter( const D3DKMT_CLOSEADAPTER *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDICloseAdapter );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDICloseAdapter );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDICreateDCFromMemory( D3DKMT_CREATEDCFROMMEMORY *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDICreateDCFromMemory );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDICreateDCFromMemory );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDICreateDevice( D3DKMT_CREATEDEVICE *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDICreateDevice );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDICreateDevice );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIDestroyDCFromMemory( const D3DKMT_DESTROYDCFROMMEMORY *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIDestroyDCFromMemory );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIDestroyDCFromMemory );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIDestroyDevice( const D3DKMT_DESTROYDEVICE *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIDestroyDevice );
-}
-
-NTSTATUS SYSCALL_API NtGdiDdDDIEnumAdapters2( D3DKMT_ENUMADAPTERS2 *desc )
-{
-    SYSCALL_FUNC( NtGdiDdDDIEnumAdapters2 );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIDestroyDevice );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIEscape( const D3DKMT_ESCAPE *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIEscape );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIEscape );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIOpenAdapterFromDeviceName( D3DKMT_OPENADAPTERFROMDEVICENAME *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIOpenAdapterFromDeviceName );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIOpenAdapterFromDeviceName );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIOpenAdapterFromHdc( D3DKMT_OPENADAPTERFROMHDC *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIOpenAdapterFromHdc );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIOpenAdapterFromHdc );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIOpenAdapterFromLuid( D3DKMT_OPENADAPTERFROMLUID *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIOpenAdapterFromLuid );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIOpenAdapterFromLuid );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIQueryAdapterInfo( D3DKMT_QUERYADAPTERINFO *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIQueryAdapterInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIQueryAdapterInfo );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIQueryStatistics( D3DKMT_QUERYSTATISTICS *stats )
 {
-    SYSCALL_FUNC( NtGdiDdDDIQueryStatistics );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIQueryStatistics );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDIQueryVideoMemoryInfo( D3DKMT_QUERYVIDEOMEMORYINFO *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDIQueryVideoMemoryInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDIQueryVideoMemoryInfo );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDISetQueuedLimit( D3DKMT_SETQUEUEDLIMIT *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDISetQueuedLimit );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDISetQueuedLimit );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDISetVidPnSourceOwner( const D3DKMT_SETVIDPNSOURCEOWNER *desc )
 {
-    SYSCALL_FUNC( NtGdiDdDDISetVidPnSourceOwner );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDdDDISetVidPnSourceOwner );
 }
 
 BOOL SYSCALL_API NtGdiDeleteClientObj( HGDIOBJ handle )
 {
-    SYSCALL_FUNC( NtGdiDeleteClientObj );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDeleteClientObj );
 }
 
 BOOL SYSCALL_API NtGdiDeleteObjectApp( HGDIOBJ obj )
 {
-    SYSCALL_FUNC( NtGdiDeleteObjectApp );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDeleteObjectApp );
 }
 
 INT SYSCALL_API NtGdiDescribePixelFormat( HDC hdc, INT format, UINT size, PIXELFORMATDESCRIPTOR *descr )
 {
-    SYSCALL_FUNC( NtGdiDescribePixelFormat );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDescribePixelFormat );
 }
 
 LONG SYSCALL_API NtGdiDoPalette( HGDIOBJ handle, WORD start, WORD count, void *entries,
                                  DWORD func, BOOL inbound )
 {
-    SYSCALL_FUNC( NtGdiDoPalette );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDoPalette );
 }
 
 BOOL SYSCALL_API NtGdiDrawStream( HDC hdc, ULONG in, void *pvin )
 {
-    SYSCALL_FUNC( NtGdiDrawStream );
+    __ASM_SYSCALL_FUNC( __id_NtGdiDrawStream );
 }
 
 BOOL SYSCALL_API NtGdiEllipse( HDC hdc, INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiEllipse );
+    __ASM_SYSCALL_FUNC( __id_NtGdiEllipse );
 }
 
 INT SYSCALL_API NtGdiEndDoc( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiEndDoc );
+    __ASM_SYSCALL_FUNC( __id_NtGdiEndDoc );
 }
 
 INT SYSCALL_API NtGdiEndPage( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiEndPage );
+    __ASM_SYSCALL_FUNC( __id_NtGdiEndPage );
 }
 
 BOOL SYSCALL_API NtGdiEndPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiEndPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiEndPath );
 }
 
 BOOL SYSCALL_API NtGdiEnumFonts( HDC hdc, ULONG type, ULONG win32_compat, ULONG face_name_len,
                                  const WCHAR *face_name, ULONG charset, ULONG *count, void *buf )
 {
-    SYSCALL_FUNC( NtGdiEnumFonts );
+    __ASM_SYSCALL_FUNC( __id_NtGdiEnumFonts );
 }
 
 BOOL SYSCALL_API NtGdiEqualRgn( HRGN hrgn1, HRGN hrgn2 )
 {
-    SYSCALL_FUNC( NtGdiEqualRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiEqualRgn );
 }
 
 INT SYSCALL_API NtGdiExcludeClipRect( HDC hdc, INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiExcludeClipRect );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExcludeClipRect );
 }
 
 HPEN SYSCALL_API NtGdiExtCreatePen( DWORD style, DWORD width, ULONG brush_style, ULONG color,
@@ -355,500 +348,500 @@ HPEN SYSCALL_API NtGdiExtCreatePen( DWORD style, DWORD width, ULONG brush_style,
                                     const DWORD *style_bits, ULONG dib_size, BOOL old_style,
                                     HBRUSH brush )
 {
-    SYSCALL_FUNC( NtGdiExtCreatePen );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtCreatePen );
 }
 
 HRGN SYSCALL_API NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA *rgndata )
 {
-    SYSCALL_FUNC( NtGdiExtCreateRegion );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtCreateRegion );
 }
 
 INT SYSCALL_API NtGdiExtEscape( HDC hdc, WCHAR *driver, int driver_id, INT escape, INT input_size,
                                 const char *input, INT output_size, char *output )
 {
-    SYSCALL_FUNC( NtGdiExtEscape );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtEscape );
 }
 
 BOOL SYSCALL_API NtGdiExtFloodFill( HDC hdc, INT x, INT y, COLORREF color, UINT fill_type )
 {
-    SYSCALL_FUNC( NtGdiExtFloodFill );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtFloodFill );
 }
 
 INT SYSCALL_API NtGdiExtGetObjectW( HGDIOBJ handle, INT count, void *buffer )
 {
-    SYSCALL_FUNC( NtGdiExtGetObjectW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtGetObjectW );
 }
 
 INT SYSCALL_API NtGdiExtSelectClipRgn( HDC hdc, HRGN rgn, INT mode )
 {
-    SYSCALL_FUNC( NtGdiExtSelectClipRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtSelectClipRgn );
 }
 
 BOOL SYSCALL_API NtGdiExtTextOutW( HDC hdc, INT x, INT y, UINT flags, const RECT *lprect,
                                    const WCHAR *str, UINT count, const INT *lpDx, DWORD cp )
 {
-    SYSCALL_FUNC( NtGdiExtTextOutW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiExtTextOutW );
 }
 
 BOOL SYSCALL_API NtGdiFillPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiFillPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiFillPath );
 }
 
 BOOL SYSCALL_API NtGdiFillRgn( HDC hdc, HRGN hrgn, HBRUSH hbrush )
 {
-    SYSCALL_FUNC( NtGdiFillRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiFillRgn );
 }
 
 BOOL SYSCALL_API NtGdiFlattenPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiFlattenPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiFlattenPath );
 }
 
 BOOL SYSCALL_API NtGdiFlush(void)
 {
-    SYSCALL_FUNC( NtGdiFlush );
+    __ASM_SYSCALL_FUNC( __id_NtGdiFlush );
 }
 
 BOOL SYSCALL_API NtGdiFontIsLinked( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiFontIsLinked );
+    __ASM_SYSCALL_FUNC( __id_NtGdiFontIsLinked );
 }
 
 BOOL SYSCALL_API NtGdiFrameRgn( HDC hdc, HRGN hrgn, HBRUSH hbrush, INT width, INT height )
 {
-    SYSCALL_FUNC( NtGdiFrameRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiFrameRgn );
 }
 
 BOOL SYSCALL_API NtGdiGetAndSetDCDword( HDC hdc, UINT method, DWORD value, DWORD *prev_value )
 {
-    SYSCALL_FUNC( NtGdiGetAndSetDCDword );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetAndSetDCDword );
 }
 
 INT SYSCALL_API NtGdiGetAppClipBox( HDC hdc, RECT *rect )
 {
-    SYSCALL_FUNC( NtGdiGetAppClipBox );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetAppClipBox );
 }
 
 LONG SYSCALL_API NtGdiGetBitmapBits( HBITMAP hbitmap, LONG count, LPVOID bits )
 {
-    SYSCALL_FUNC( NtGdiGetBitmapBits );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetBitmapBits );
 }
 
 BOOL SYSCALL_API NtGdiGetBitmapDimension( HBITMAP hbitmap, LPSIZE size )
 {
-    SYSCALL_FUNC( NtGdiGetBitmapDimension );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetBitmapDimension );
 }
 
 UINT SYSCALL_API NtGdiGetBoundsRect( HDC hdc, RECT *rect, UINT flags )
 {
-    SYSCALL_FUNC( NtGdiGetBoundsRect );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetBoundsRect );
 }
 
 BOOL SYSCALL_API NtGdiGetCharABCWidthsW( HDC hdc, UINT first, UINT last, WCHAR *chars,
                                          ULONG flags, void *buffer )
 {
-    SYSCALL_FUNC( NtGdiGetCharABCWidthsW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetCharABCWidthsW );
 }
 
 BOOL SYSCALL_API NtGdiGetCharWidthInfo( HDC hdc, struct char_width_info *info )
 {
-    SYSCALL_FUNC( NtGdiGetCharWidthInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetCharWidthInfo );
 }
 
 BOOL SYSCALL_API NtGdiGetCharWidthW( HDC hdc, UINT first, UINT last, WCHAR *chars,
                                      ULONG flags, void *buf )
 {
-    SYSCALL_FUNC( NtGdiGetCharWidthW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetCharWidthW );
 }
 
 BOOL SYSCALL_API NtGdiGetColorAdjustment( HDC hdc, COLORADJUSTMENT *ca )
 {
-    SYSCALL_FUNC( NtGdiGetColorAdjustment );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetColorAdjustment );
 }
 
 BOOL SYSCALL_API NtGdiGetDCDword( HDC hdc, UINT method, DWORD *result )
 {
-    SYSCALL_FUNC( NtGdiGetDCDword );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetDCDword );
 }
 
 HANDLE SYSCALL_API NtGdiGetDCObject( HDC hdc, UINT type )
 {
-    SYSCALL_FUNC( NtGdiGetDCObject );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetDCObject );
 }
 
 BOOL SYSCALL_API NtGdiGetDCPoint( HDC hdc, UINT method, POINT *result )
 {
-    SYSCALL_FUNC( NtGdiGetDCPoint );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetDCPoint );
 }
 
 INT SYSCALL_API NtGdiGetDIBitsInternal( HDC hdc, HBITMAP hbitmap, UINT startscan, UINT lines,
                                         void *bits, BITMAPINFO *info, UINT coloruse,
                                         UINT max_bits, UINT max_info )
 {
-    SYSCALL_FUNC( NtGdiGetDIBitsInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetDIBitsInternal );
 }
 
 INT SYSCALL_API NtGdiGetDeviceCaps( HDC hdc, INT cap )
 {
-    SYSCALL_FUNC( NtGdiGetDeviceCaps );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetDeviceCaps );
 }
 
 BOOL SYSCALL_API NtGdiGetDeviceGammaRamp( HDC hdc, void *ptr )
 {
-    SYSCALL_FUNC( NtGdiGetDeviceGammaRamp );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetDeviceGammaRamp );
 }
 
 DWORD SYSCALL_API NtGdiGetFontData( HDC hdc, DWORD table, DWORD offset, void *buffer, DWORD length )
 {
-    SYSCALL_FUNC( NtGdiGetFontData );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetFontData );
 }
 
 BOOL SYSCALL_API NtGdiGetFontFileData( DWORD instance_id, DWORD file_index, UINT64 *offset,
                                        void *buff, SIZE_T buff_size )
 {
-    SYSCALL_FUNC( NtGdiGetFontFileData );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetFontFileData );
 }
 
 BOOL SYSCALL_API NtGdiGetFontFileInfo( DWORD instance_id, DWORD file_index, struct font_fileinfo *info,
                                        SIZE_T size, SIZE_T *needed )
 {
-    SYSCALL_FUNC( NtGdiGetFontFileInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetFontFileInfo );
 }
 
 DWORD SYSCALL_API NtGdiGetFontUnicodeRanges( HDC hdc, GLYPHSET *lpgs )
 {
-    SYSCALL_FUNC( NtGdiGetFontUnicodeRanges );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetFontUnicodeRanges );
 }
 
 DWORD SYSCALL_API NtGdiGetGlyphIndicesW( HDC hdc, const WCHAR *str, INT count,
                                          WORD *indices, DWORD flags )
 {
-    SYSCALL_FUNC( NtGdiGetGlyphIndicesW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetGlyphIndicesW );
 }
 
 DWORD SYSCALL_API NtGdiGetGlyphOutline( HDC hdc, UINT ch, UINT format, GLYPHMETRICS *metrics,
                                         DWORD size, void *buffer, const MAT2 *mat2,
                                         BOOL ignore_rotation )
 {
-    SYSCALL_FUNC( NtGdiGetGlyphOutline );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetGlyphOutline );
 }
 
 DWORD SYSCALL_API NtGdiGetKerningPairs( HDC hdc, DWORD count, KERNINGPAIR *kern_pair )
 {
-    SYSCALL_FUNC( NtGdiGetKerningPairs );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetKerningPairs );
 }
 
 COLORREF SYSCALL_API NtGdiGetNearestColor( HDC hdc, COLORREF color )
 {
-    SYSCALL_FUNC( NtGdiGetNearestColor );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetNearestColor );
 }
 
 UINT SYSCALL_API NtGdiGetNearestPaletteIndex( HPALETTE hpalette, COLORREF color )
 {
-    SYSCALL_FUNC( NtGdiGetNearestPaletteIndex );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetNearestPaletteIndex );
 }
 
 UINT SYSCALL_API NtGdiGetOutlineTextMetricsInternalW( HDC hdc, UINT cbData,
                                                       OUTLINETEXTMETRICW *lpOTM, ULONG opts )
 {
-    SYSCALL_FUNC( NtGdiGetOutlineTextMetricsInternalW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetOutlineTextMetricsInternalW );
 }
 
 INT SYSCALL_API NtGdiGetPath( HDC hdc, POINT *points, BYTE *types, INT size )
 {
-    SYSCALL_FUNC( NtGdiGetPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetPath );
 }
 
 COLORREF SYSCALL_API NtGdiGetPixel( HDC hdc, INT x, INT y )
 {
-    SYSCALL_FUNC( NtGdiGetPixel );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetPixel );
 }
 
 INT SYSCALL_API NtGdiGetRandomRgn( HDC hDC, HRGN hRgn, INT iCode )
 {
-    SYSCALL_FUNC( NtGdiGetRandomRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetRandomRgn );
 }
 
 BOOL SYSCALL_API NtGdiGetRasterizerCaps( RASTERIZER_STATUS *status, UINT size )
 {
-    SYSCALL_FUNC( NtGdiGetRasterizerCaps );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetRasterizerCaps );
 }
 
 BOOL SYSCALL_API NtGdiGetRealizationInfo( HDC hdc, struct font_realization_info *info )
 {
-    SYSCALL_FUNC( NtGdiGetRealizationInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetRealizationInfo );
 }
 
 DWORD SYSCALL_API NtGdiGetRegionData( HRGN hrgn, DWORD count, RGNDATA *rgndata )
 {
-    SYSCALL_FUNC( NtGdiGetRegionData );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetRegionData );
 }
 
 INT SYSCALL_API NtGdiGetRgnBox( HRGN hrgn, RECT *rect )
 {
-    SYSCALL_FUNC( NtGdiGetRgnBox );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetRgnBox );
 }
 
 DWORD SYSCALL_API NtGdiGetSpoolMessage( void *ptr1, DWORD data2, void *ptr3, DWORD data4 )
 {
-    SYSCALL_FUNC( NtGdiGetSpoolMessage );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetSpoolMessage );
 }
 
 UINT SYSCALL_API NtGdiGetSystemPaletteUse( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiGetSystemPaletteUse );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetSystemPaletteUse );
 }
 
 UINT SYSCALL_API NtGdiGetTextCharsetInfo( HDC hdc, FONTSIGNATURE *fs, DWORD flags )
 {
-    SYSCALL_FUNC( NtGdiGetTextCharsetInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetTextCharsetInfo );
 }
 
 BOOL SYSCALL_API NtGdiGetTextExtentExW( HDC hdc, const WCHAR *str, INT count, INT max_ext,
                                         INT *nfit, INT *dxs, SIZE *size, UINT flags )
 {
-    SYSCALL_FUNC( NtGdiGetTextExtentExW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetTextExtentExW );
 }
 
 INT SYSCALL_API NtGdiGetTextFaceW( HDC hdc, INT count, WCHAR *name, BOOL alias_name )
 {
-    SYSCALL_FUNC( NtGdiGetTextFaceW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetTextFaceW );
 }
 
 BOOL SYSCALL_API NtGdiGetTextMetricsW( HDC hdc, TEXTMETRICW *metrics, ULONG flags )
 {
-    SYSCALL_FUNC( NtGdiGetTextMetricsW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetTextMetricsW );
 }
 
 BOOL SYSCALL_API NtGdiGetTransform( HDC hdc, DWORD which, XFORM *xform )
 {
-    SYSCALL_FUNC( NtGdiGetTransform );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGetTransform );
 }
 
 BOOL SYSCALL_API NtGdiGradientFill( HDC hdc, TRIVERTEX *vert_array, ULONG nvert,
                                     void *grad_array, ULONG ngrad, ULONG mode )
 {
-    SYSCALL_FUNC( NtGdiGradientFill );
+    __ASM_SYSCALL_FUNC( __id_NtGdiGradientFill );
 }
 
 HFONT SYSCALL_API NtGdiHfontCreate( const void *logfont, ULONG size, ULONG type,
                                     ULONG flags, void *data )
 {
-    SYSCALL_FUNC( NtGdiHfontCreate );
+    __ASM_SYSCALL_FUNC( __id_NtGdiHfontCreate );
 }
 
 BOOL SYSCALL_API NtGdiIcmBrushInfo( HDC hdc, HBRUSH handle, BITMAPINFO *info, void *bits,
                                     ULONG *bits_size, UINT *usage, BOOL *unk, UINT mode )
 {
-    SYSCALL_FUNC( NtGdiIcmBrushInfo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiIcmBrushInfo );
 }
 
 DWORD SYSCALL_API NtGdiInitSpool(void)
 {
-    SYSCALL_FUNC( NtGdiInitSpool );
+    __ASM_SYSCALL_FUNC( __id_NtGdiInitSpool );
 }
 
 INT SYSCALL_API NtGdiIntersectClipRect( HDC hdc, INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiIntersectClipRect );
+    __ASM_SYSCALL_FUNC( __id_NtGdiIntersectClipRect );
 }
 
 BOOL SYSCALL_API NtGdiInvertRgn( HDC hdc, HRGN hrgn )
 {
-    SYSCALL_FUNC( NtGdiInvertRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiInvertRgn );
 }
 
 BOOL SYSCALL_API NtGdiLineTo( HDC hdc, INT x, INT y )
 {
-    SYSCALL_FUNC( NtGdiLineTo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiLineTo );
 }
 
 BOOL SYSCALL_API NtGdiMaskBlt( HDC hdcDest, INT nXDest, INT nYDest, INT nWidth, INT nHeight,
                                HDC hdcSrc, INT nXSrc, INT nYSrc, HBITMAP hbmMask,
                                INT xMask, INT yMask, DWORD dwRop, DWORD bk_color )
 {
-    SYSCALL_FUNC( NtGdiMaskBlt );
+    __ASM_SYSCALL_FUNC( __id_NtGdiMaskBlt );
 }
 
 BOOL SYSCALL_API NtGdiModifyWorldTransform( HDC hdc, const XFORM *xform, DWORD mode )
 {
-    SYSCALL_FUNC( NtGdiModifyWorldTransform );
+    __ASM_SYSCALL_FUNC( __id_NtGdiModifyWorldTransform );
 }
 
 BOOL SYSCALL_API NtGdiMoveTo( HDC hdc, INT x, INT y, POINT *pt )
 {
-    SYSCALL_FUNC( NtGdiMoveTo );
+    __ASM_SYSCALL_FUNC( __id_NtGdiMoveTo );
 }
 
 INT SYSCALL_API NtGdiOffsetClipRgn( HDC hdc, INT x, INT y )
 {
-    SYSCALL_FUNC( NtGdiOffsetClipRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiOffsetClipRgn );
 }
 
 INT SYSCALL_API NtGdiOffsetRgn( HRGN hrgn, INT x, INT y )
 {
-    SYSCALL_FUNC( NtGdiOffsetRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiOffsetRgn );
 }
 
 HDC SYSCALL_API NtGdiOpenDCW( UNICODE_STRING *device, const DEVMODEW *devmode, UNICODE_STRING *output,
                               ULONG type, BOOL is_display, HANDLE hspool, DRIVER_INFO_2W *driver_info,
                               void *pdev )
 {
-    SYSCALL_FUNC( NtGdiOpenDCW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiOpenDCW );
 }
 
 BOOL SYSCALL_API NtGdiPatBlt( HDC hdc, INT left, INT top, INT width, INT height, DWORD rop )
 {
-    SYSCALL_FUNC( NtGdiPatBlt );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPatBlt );
 }
 
 HRGN SYSCALL_API NtGdiPathToRegion( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiPathToRegion );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPathToRegion );
 }
 
 BOOL SYSCALL_API NtGdiPlgBlt( HDC hdcDest, const POINT *lpPoint, HDC hdcSrc, INT nXSrc, INT nYSrc,
                               INT nWidth, INT nHeight, HBITMAP hbmMask, INT xMask, INT yMask,
                               DWORD bk_color )
 {
-    SYSCALL_FUNC( NtGdiPlgBlt );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPlgBlt );
 }
 
 BOOL SYSCALL_API NtGdiPolyDraw( HDC hdc, const POINT *points, const BYTE *types, DWORD count )
 {
-    SYSCALL_FUNC( NtGdiPolyDraw );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPolyDraw );
 }
 
 ULONG SYSCALL_API NtGdiPolyPolyDraw( HDC hdc, const POINT *points, const ULONG *counts,
                                      DWORD count, UINT function )
 {
-    SYSCALL_FUNC( NtGdiPolyPolyDraw );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPolyPolyDraw );
 }
 
 BOOL SYSCALL_API NtGdiPtInRegion( HRGN hrgn, INT x, INT y )
 {
-    SYSCALL_FUNC( NtGdiPtInRegion );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPtInRegion );
 }
 
 BOOL SYSCALL_API NtGdiPtVisible( HDC hdc, INT x, INT y )
 {
-    SYSCALL_FUNC( NtGdiPtVisible );
+    __ASM_SYSCALL_FUNC( __id_NtGdiPtVisible );
 }
 
 BOOL SYSCALL_API NtGdiRectInRegion( HRGN hrgn, const RECT *rect )
 {
-    SYSCALL_FUNC( NtGdiRectInRegion );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRectInRegion );
 }
 
 BOOL SYSCALL_API NtGdiRectVisible( HDC hdc, const RECT *rect )
 {
-    SYSCALL_FUNC( NtGdiRectVisible );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRectVisible );
 }
 
 BOOL SYSCALL_API NtGdiRectangle( HDC hdc, INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiRectangle );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRectangle );
 }
 
 BOOL SYSCALL_API NtGdiRemoveFontMemResourceEx( HANDLE handle )
 {
-    SYSCALL_FUNC( NtGdiRemoveFontMemResourceEx );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRemoveFontMemResourceEx );
 }
 
 BOOL SYSCALL_API NtGdiRemoveFontResourceW( const WCHAR *str, ULONG size, ULONG files, DWORD flags,
                                            DWORD tid, void *dv )
 {
-    SYSCALL_FUNC( NtGdiRemoveFontResourceW );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRemoveFontResourceW );
 }
 
 BOOL SYSCALL_API NtGdiResetDC( HDC hdc, const DEVMODEW *devmode, BOOL *banding,
                                DRIVER_INFO_2W *driver_info, void *dev )
 {
-    SYSCALL_FUNC( NtGdiResetDC );
+    __ASM_SYSCALL_FUNC( __id_NtGdiResetDC );
 }
 
 BOOL SYSCALL_API NtGdiResizePalette( HPALETTE hPal, UINT count )
 {
-    SYSCALL_FUNC( NtGdiResizePalette );
+    __ASM_SYSCALL_FUNC( __id_NtGdiResizePalette );
 }
 
 BOOL SYSCALL_API NtGdiRestoreDC( HDC hdc, INT level )
 {
-    SYSCALL_FUNC( NtGdiRestoreDC );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRestoreDC );
 }
 
 BOOL SYSCALL_API NtGdiRoundRect( HDC hdc, INT left, INT top, INT right,
                                  INT bottom, INT ell_width, INT ell_height )
 {
-    SYSCALL_FUNC( NtGdiRoundRect );
+    __ASM_SYSCALL_FUNC( __id_NtGdiRoundRect );
 }
 
 INT SYSCALL_API NtGdiSaveDC( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiSaveDC );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSaveDC );
 }
 
 BOOL SYSCALL_API NtGdiScaleViewportExtEx( HDC hdc, INT x_num, INT x_denom,
                                           INT y_num, INT y_denom, SIZE *size )
 {
-    SYSCALL_FUNC( NtGdiScaleViewportExtEx );
+    __ASM_SYSCALL_FUNC( __id_NtGdiScaleViewportExtEx );
 }
 
 BOOL SYSCALL_API NtGdiScaleWindowExtEx( HDC hdc, INT x_num, INT x_denom,
                                         INT y_num, INT y_denom, SIZE *size )
 {
-    SYSCALL_FUNC( NtGdiScaleWindowExtEx );
+    __ASM_SYSCALL_FUNC( __id_NtGdiScaleWindowExtEx );
 }
 
 HGDIOBJ SYSCALL_API NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
 {
-    SYSCALL_FUNC( NtGdiSelectBitmap );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSelectBitmap );
 }
 
 HGDIOBJ SYSCALL_API NtGdiSelectBrush( HDC hdc, HGDIOBJ handle )
 {
-    SYSCALL_FUNC( NtGdiSelectBrush );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSelectBrush );
 }
 
 BOOL SYSCALL_API NtGdiSelectClipPath( HDC hdc, INT mode )
 {
-    SYSCALL_FUNC( NtGdiSelectClipPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSelectClipPath );
 }
 
 HGDIOBJ SYSCALL_API NtGdiSelectFont( HDC hdc, HGDIOBJ handle )
 {
-    SYSCALL_FUNC( NtGdiSelectFont );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSelectFont );
 }
 
 HGDIOBJ SYSCALL_API NtGdiSelectPen( HDC hdc, HGDIOBJ handle )
 {
-    SYSCALL_FUNC( NtGdiSelectPen );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSelectPen );
 }
 
 LONG SYSCALL_API NtGdiSetBitmapBits( HBITMAP hbitmap, LONG count, LPCVOID bits )
 {
-    SYSCALL_FUNC( NtGdiSetBitmapBits );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetBitmapBits );
 }
 
 BOOL SYSCALL_API NtGdiSetBitmapDimension( HBITMAP hbitmap, INT x, INT y, LPSIZE prevSize )
 {
-    SYSCALL_FUNC( NtGdiSetBitmapDimension );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetBitmapDimension );
 }
 
 UINT SYSCALL_API NtGdiSetBoundsRect( HDC hdc, const RECT *rect, UINT flags )
 {
-    SYSCALL_FUNC( NtGdiSetBoundsRect );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetBoundsRect );
 }
 
 BOOL SYSCALL_API NtGdiSetBrushOrg( HDC hdc, INT x, INT y, POINT *oldorg )
 {
-    SYSCALL_FUNC( NtGdiSetBrushOrg );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetBrushOrg );
 }
 
 BOOL SYSCALL_API NtGdiSetColorAdjustment( HDC hdc, const COLORADJUSTMENT *ca )
 {
-    SYSCALL_FUNC( NtGdiSetColorAdjustment );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetColorAdjustment );
 }
 
 INT SYSCALL_API NtGdiSetDIBitsToDeviceInternal( HDC hdc, INT xDest, INT yDest, DWORD cx,
@@ -857,75 +850,75 @@ INT SYSCALL_API NtGdiSetDIBitsToDeviceInternal( HDC hdc, INT xDest, INT yDest, D
                                                 UINT coloruse, UINT max_bits, UINT max_info,
                                                 BOOL xform_coords, HANDLE xform )
 {
-    SYSCALL_FUNC( NtGdiSetDIBitsToDeviceInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetDIBitsToDeviceInternal );
 }
 
 BOOL SYSCALL_API NtGdiSetDeviceGammaRamp( HDC hdc, void *ptr )
 {
-    SYSCALL_FUNC( NtGdiSetDeviceGammaRamp );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetDeviceGammaRamp );
 }
 
 DWORD SYSCALL_API NtGdiSetLayout( HDC hdc, LONG wox, DWORD layout )
 {
-    SYSCALL_FUNC( NtGdiSetLayout );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetLayout );
 }
 
 BOOL SYSCALL_API NtGdiSetMagicColors( HDC hdc, DWORD magic, ULONG index )
 {
-    SYSCALL_FUNC( NtGdiSetMagicColors );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetMagicColors );
 }
 
 INT SYSCALL_API NtGdiSetMetaRgn( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiSetMetaRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetMetaRgn );
 }
 
 COLORREF SYSCALL_API NtGdiSetPixel( HDC hdc, INT x, INT y, COLORREF color )
 {
-    SYSCALL_FUNC( NtGdiSetPixel );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetPixel );
 }
 
 BOOL SYSCALL_API NtGdiSetPixelFormat( HDC hdc, INT format )
 {
-    SYSCALL_FUNC( NtGdiSetPixelFormat );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetPixelFormat );
 }
 
 BOOL SYSCALL_API NtGdiSetRectRgn( HRGN hrgn, INT left, INT top, INT right, INT bottom )
 {
-    SYSCALL_FUNC( NtGdiSetRectRgn );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetRectRgn );
 }
 
 UINT SYSCALL_API NtGdiSetSystemPaletteUse( HDC hdc, UINT use )
 {
-    SYSCALL_FUNC( NtGdiSetSystemPaletteUse );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetSystemPaletteUse );
 }
 
 BOOL SYSCALL_API NtGdiSetTextJustification( HDC hdc, INT extra, INT breaks )
 {
-    SYSCALL_FUNC( NtGdiSetTextJustification );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetTextJustification );
 }
 
 BOOL SYSCALL_API NtGdiSetVirtualResolution( HDC hdc, DWORD horz_res, DWORD vert_res,
                                             DWORD horz_size, DWORD vert_size )
 {
-    SYSCALL_FUNC( NtGdiSetVirtualResolution );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSetVirtualResolution );
 }
 
 INT SYSCALL_API NtGdiStartDoc( HDC hdc, const DOCINFOW *doc, BOOL *banding, INT job )
 {
-    SYSCALL_FUNC( NtGdiStartDoc );
+    __ASM_SYSCALL_FUNC( __id_NtGdiStartDoc );
 }
 
 INT SYSCALL_API NtGdiStartPage( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiStartPage );
+    __ASM_SYSCALL_FUNC( __id_NtGdiStartPage );
 }
 
 BOOL SYSCALL_API NtGdiStretchBlt( HDC hdcDst, INT xDst, INT yDst, INT widthDst, INT heightDst,
                                   HDC hdcSrc, INT xSrc, INT ySrc, INT widthSrc, INT heightSrc,
                                   DWORD rop, COLORREF bk_color )
 {
-    SYSCALL_FUNC( NtGdiStretchBlt );
+    __ASM_SYSCALL_FUNC( __id_NtGdiStretchBlt );
 }
 
 INT SYSCALL_API NtGdiStretchDIBitsInternal( HDC hdc, INT xDst, INT yDst, INT widthDst, INT heightDst,
@@ -933,194 +926,194 @@ INT SYSCALL_API NtGdiStretchDIBitsInternal( HDC hdc, INT xDst, INT yDst, INT wid
                                             const void *bits, const BITMAPINFO *bmi, UINT coloruse,
                                             DWORD rop, UINT max_info, UINT max_bits, HANDLE xform )
 {
-    SYSCALL_FUNC( NtGdiStretchDIBitsInternal );
+    __ASM_SYSCALL_FUNC( __id_NtGdiStretchDIBitsInternal );
 }
 
 BOOL SYSCALL_API NtGdiStrokeAndFillPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiStrokeAndFillPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiStrokeAndFillPath );
 }
 
 BOOL SYSCALL_API NtGdiStrokePath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiStrokePath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiStrokePath );
 }
 
 BOOL SYSCALL_API NtGdiSwapBuffers( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiSwapBuffers );
+    __ASM_SYSCALL_FUNC( __id_NtGdiSwapBuffers );
 }
 
 BOOL SYSCALL_API NtGdiTransformPoints( HDC hdc, const POINT *points_in, POINT *points_out,
                                        INT count, UINT mode )
 {
-    SYSCALL_FUNC( NtGdiTransformPoints );
+    __ASM_SYSCALL_FUNC( __id_NtGdiTransformPoints );
 }
 
 BOOL SYSCALL_API NtGdiTransparentBlt( HDC hdcDest, int xDest, int yDest, int widthDest, int heightDest,
                                       HDC hdcSrc, int xSrc, int ySrc, int widthSrc, int heightSrc,
                                       UINT crTransparent )
 {
-    SYSCALL_FUNC( NtGdiTransparentBlt );
+    __ASM_SYSCALL_FUNC( __id_NtGdiTransparentBlt );
 }
 
 BOOL SYSCALL_API NtGdiUnrealizeObject( HGDIOBJ obj )
 {
-    SYSCALL_FUNC( NtGdiUnrealizeObject );
+    __ASM_SYSCALL_FUNC( __id_NtGdiUnrealizeObject );
 }
 
 BOOL SYSCALL_API NtGdiUpdateColors( HDC hDC )
 {
-    SYSCALL_FUNC( NtGdiUpdateColors );
+    __ASM_SYSCALL_FUNC( __id_NtGdiUpdateColors );
 }
 
 BOOL SYSCALL_API NtGdiWidenPath( HDC hdc )
 {
-    SYSCALL_FUNC( NtGdiWidenPath );
+    __ASM_SYSCALL_FUNC( __id_NtGdiWidenPath );
 }
 
 HKL SYSCALL_API NtUserActivateKeyboardLayout( HKL layout, UINT flags )
 {
-    SYSCALL_FUNC( NtUserActivateKeyboardLayout );
+    __ASM_SYSCALL_FUNC( __id_NtUserActivateKeyboardLayout );
 }
 
 BOOL SYSCALL_API NtUserAddClipboardFormatListener( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserAddClipboardFormatListener );
+    __ASM_SYSCALL_FUNC( __id_NtUserAddClipboardFormatListener );
 }
 
 UINT SYSCALL_API NtUserAssociateInputContext( HWND hwnd, HIMC ctx, ULONG flags )
 {
-    SYSCALL_FUNC( NtUserAssociateInputContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserAssociateInputContext );
 }
 
 BOOL SYSCALL_API NtUserAttachThreadInput( DWORD from, DWORD to, BOOL attach )
 {
-    SYSCALL_FUNC( NtUserAttachThreadInput );
+    __ASM_SYSCALL_FUNC( __id_NtUserAttachThreadInput );
 }
 
 HDC SYSCALL_API NtUserBeginPaint( HWND hwnd, PAINTSTRUCT *ps )
 {
-    SYSCALL_FUNC( NtUserBeginPaint );
+    __ASM_SYSCALL_FUNC( __id_NtUserBeginPaint );
 }
 
 NTSTATUS SYSCALL_API NtUserBuildHimcList( UINT thread_id, UINT count, HIMC *buffer, UINT *size )
 {
-    SYSCALL_FUNC( NtUserBuildHimcList );
+    __ASM_SYSCALL_FUNC( __id_NtUserBuildHimcList );
 }
 
 NTSTATUS SYSCALL_API NtUserBuildHwndList( HDESK desktop, ULONG unk2, ULONG unk3, ULONG unk4,
                                           ULONG thread_id, ULONG count, HWND *buffer, ULONG *size )
 {
-    SYSCALL_FUNC( NtUserBuildHwndList );
+    __ASM_SYSCALL_FUNC( __id_NtUserBuildHwndList );
 }
 
 ULONG_PTR SYSCALL_API NtUserCallHwnd( HWND hwnd, DWORD code )
 {
-    SYSCALL_FUNC( NtUserCallHwnd );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallHwnd );
 }
 
 ULONG_PTR SYSCALL_API NtUserCallHwndParam( HWND hwnd, DWORD_PTR param, DWORD code )
 {
-    SYSCALL_FUNC( NtUserCallHwndParam );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallHwndParam );
 }
 
 BOOL SYSCALL_API NtUserCallMsgFilter( MSG *msg, INT code )
 {
-    SYSCALL_FUNC( NtUserCallMsgFilter );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallMsgFilter );
 }
 
 LRESULT SYSCALL_API NtUserCallNextHookEx( HHOOK hhook, INT code, WPARAM wparam, LPARAM lparam )
 {
-    SYSCALL_FUNC( NtUserCallNextHookEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallNextHookEx );
 }
 
 ULONG_PTR SYSCALL_API NtUserCallNoParam( ULONG code )
 {
-    SYSCALL_FUNC( NtUserCallNoParam );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallNoParam );
 }
 
 ULONG_PTR SYSCALL_API NtUserCallOneParam( ULONG_PTR arg, ULONG code )
 {
-    SYSCALL_FUNC( NtUserCallOneParam );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallOneParam );
 }
 
 ULONG_PTR SYSCALL_API NtUserCallTwoParam( ULONG_PTR arg1, ULONG_PTR arg2, ULONG code )
 {
-    SYSCALL_FUNC( NtUserCallTwoParam );
+    __ASM_SYSCALL_FUNC( __id_NtUserCallTwoParam );
 }
 
 BOOL SYSCALL_API NtUserChangeClipboardChain( HWND hwnd, HWND next )
 {
-    SYSCALL_FUNC( NtUserChangeClipboardChain );
+    __ASM_SYSCALL_FUNC( __id_NtUserChangeClipboardChain );
 }
 
 LONG SYSCALL_API NtUserChangeDisplaySettings( UNICODE_STRING *devname, DEVMODEW *devmode, HWND hwnd,
                                               DWORD flags, void *lparam )
 {
-    SYSCALL_FUNC( NtUserChangeDisplaySettings );
+    __ASM_SYSCALL_FUNC( __id_NtUserChangeDisplaySettings );
 }
 
 DWORD SYSCALL_API NtUserCheckMenuItem( HMENU handle, UINT id, UINT flags )
 {
-    SYSCALL_FUNC( NtUserCheckMenuItem );
+    __ASM_SYSCALL_FUNC( __id_NtUserCheckMenuItem );
 }
 
 HWND SYSCALL_API NtUserChildWindowFromPointEx( HWND parent, LONG x, LONG y, UINT flags )
 {
-    SYSCALL_FUNC( NtUserChildWindowFromPointEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserChildWindowFromPointEx );
 }
 
 BOOL SYSCALL_API NtUserClipCursor( const RECT *rect )
 {
-    SYSCALL_FUNC( NtUserClipCursor );
+    __ASM_SYSCALL_FUNC( __id_NtUserClipCursor );
 }
 
 BOOL SYSCALL_API NtUserCloseClipboard(void)
 {
-    SYSCALL_FUNC( NtUserCloseClipboard );
+    __ASM_SYSCALL_FUNC( __id_NtUserCloseClipboard );
 }
 
 BOOL SYSCALL_API NtUserCloseDesktop( HDESK handle )
 {
-    SYSCALL_FUNC( NtUserCloseDesktop );
+    __ASM_SYSCALL_FUNC( __id_NtUserCloseDesktop );
 }
 
 BOOL SYSCALL_API NtUserCloseWindowStation( HWINSTA handle )
 {
-    SYSCALL_FUNC( NtUserCloseWindowStation );
+    __ASM_SYSCALL_FUNC( __id_NtUserCloseWindowStation );
 }
 
 INT SYSCALL_API NtUserCopyAcceleratorTable( HACCEL src, ACCEL *dst, INT count )
 {
-    SYSCALL_FUNC( NtUserCopyAcceleratorTable );
+    __ASM_SYSCALL_FUNC( __id_NtUserCopyAcceleratorTable );
 }
 
 INT SYSCALL_API NtUserCountClipboardFormats(void)
 {
-    SYSCALL_FUNC( NtUserCountClipboardFormats );
+    __ASM_SYSCALL_FUNC( __id_NtUserCountClipboardFormats );
 }
 
 HACCEL SYSCALL_API NtUserCreateAcceleratorTable( ACCEL *table, INT count )
 {
-    SYSCALL_FUNC( NtUserCreateAcceleratorTable );
+    __ASM_SYSCALL_FUNC( __id_NtUserCreateAcceleratorTable );
 }
 
 BOOL SYSCALL_API NtUserCreateCaret( HWND hwnd, HBITMAP bitmap, int width, int height )
 {
-    SYSCALL_FUNC( NtUserCreateCaret );
+    __ASM_SYSCALL_FUNC( __id_NtUserCreateCaret );
 }
 
 HDESK SYSCALL_API NtUserCreateDesktopEx( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *device,
                                          DEVMODEW *devmode, DWORD flags, ACCESS_MASK access,
                                          ULONG heap_size )
 {
-    SYSCALL_FUNC( NtUserCreateDesktopEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserCreateDesktopEx );
 }
 
 HIMC SYSCALL_API NtUserCreateInputContext( UINT_PTR client_ptr )
 {
-    SYSCALL_FUNC( NtUserCreateInputContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserCreateInputContext );
 }
 
 HWND SYSCALL_API NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
@@ -1129,1038 +1122,1048 @@ HWND SYSCALL_API NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_nam
                                        HWND parent, HMENU menu, HINSTANCE instance, void *params,
                                        DWORD flags, HINSTANCE client_instance, DWORD unk, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserCreateWindowEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserCreateWindowEx );
 }
 
 HWINSTA SYSCALL_API NtUserCreateWindowStation( OBJECT_ATTRIBUTES *attr, ACCESS_MASK access, ULONG arg3,
                                                ULONG arg4, ULONG arg5, ULONG arg6, ULONG arg7 )
 {
-    SYSCALL_FUNC( NtUserCreateWindowStation );
+    __ASM_SYSCALL_FUNC( __id_NtUserCreateWindowStation );
 }
 
 HDWP SYSCALL_API NtUserDeferWindowPosAndBand( HDWP hdwp, HWND hwnd, HWND after,
                                               INT x, INT y, INT cx, INT cy,
                                               UINT flags, UINT unk1, UINT unk2 )
 {
-    SYSCALL_FUNC( NtUserDeferWindowPosAndBand );
+    __ASM_SYSCALL_FUNC( __id_NtUserDeferWindowPosAndBand );
 }
 
 BOOL SYSCALL_API NtUserDeleteMenu( HMENU handle, UINT id, UINT flags )
 {
-    SYSCALL_FUNC( NtUserDeleteMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserDeleteMenu );
 }
 
 BOOL SYSCALL_API NtUserDestroyAcceleratorTable( HACCEL handle )
 {
-    SYSCALL_FUNC( NtUserDestroyAcceleratorTable );
+    __ASM_SYSCALL_FUNC( __id_NtUserDestroyAcceleratorTable );
 }
 
 BOOL SYSCALL_API NtUserDestroyCursor( HCURSOR cursor, ULONG arg )
 {
-    SYSCALL_FUNC( NtUserDestroyCursor );
+    __ASM_SYSCALL_FUNC( __id_NtUserDestroyCursor );
 }
 
 BOOL SYSCALL_API NtUserDestroyInputContext( HIMC handle )
 {
-    SYSCALL_FUNC( NtUserDestroyInputContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserDestroyInputContext );
 }
 
 BOOL SYSCALL_API NtUserDestroyMenu( HMENU handle )
 {
-    SYSCALL_FUNC( NtUserDestroyMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserDestroyMenu );
 }
 
 BOOL SYSCALL_API NtUserDestroyWindow( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserDestroyWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserDestroyWindow );
 }
 
 BOOL SYSCALL_API NtUserDisableThreadIme( DWORD thread_id )
 {
-    SYSCALL_FUNC( NtUserDisableThreadIme );
+    __ASM_SYSCALL_FUNC( __id_NtUserDisableThreadIme );
 }
 
 LRESULT SYSCALL_API NtUserDispatchMessage( const MSG *msg )
 {
-    SYSCALL_FUNC( NtUserDispatchMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserDispatchMessage );
 }
 
 NTSTATUS SYSCALL_API NtUserDisplayConfigGetDeviceInfo( DISPLAYCONFIG_DEVICE_INFO_HEADER *packet )
 {
-    SYSCALL_FUNC( NtUserDisplayConfigGetDeviceInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserDisplayConfigGetDeviceInfo );
 }
 
 BOOL SYSCALL_API NtUserDragDetect( HWND hwnd, int x, int y )
 {
-    SYSCALL_FUNC( NtUserDragDetect );
+    __ASM_SYSCALL_FUNC( __id_NtUserDragDetect );
 }
 
 DWORD SYSCALL_API NtUserDragObject( HWND parent, HWND hwnd, UINT fmt, ULONG_PTR data, HCURSOR cursor )
 {
-    SYSCALL_FUNC( NtUserDragObject );
+    __ASM_SYSCALL_FUNC( __id_NtUserDragObject );
 }
 
 BOOL SYSCALL_API NtUserDrawCaptionTemp( HWND hwnd, HDC hdc, const RECT *rect, HFONT font,
                                         HICON icon, const WCHAR *str, UINT flags )
 {
-    SYSCALL_FUNC( NtUserDrawCaptionTemp );
+    __ASM_SYSCALL_FUNC( __id_NtUserDrawCaptionTemp );
 }
 
 BOOL SYSCALL_API NtUserDrawIconEx( HDC hdc, INT x0, INT y0, HICON icon, INT width,
                                    INT height, UINT step, HBRUSH brush, UINT flags )
 {
-    SYSCALL_FUNC( NtUserDrawIconEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserDrawIconEx );
 }
 
 DWORD SYSCALL_API NtUserDrawMenuBarTemp( HWND hwnd, HDC hdc, RECT *rect, HMENU handle, HFONT font )
 {
-    SYSCALL_FUNC( NtUserDrawMenuBarTemp );
+    __ASM_SYSCALL_FUNC( __id_NtUserDrawMenuBarTemp );
 }
 
 BOOL SYSCALL_API NtUserEmptyClipboard(void)
 {
-    SYSCALL_FUNC( NtUserEmptyClipboard );
+    __ASM_SYSCALL_FUNC( __id_NtUserEmptyClipboard );
 }
 
 BOOL SYSCALL_API NtUserEnableMenuItem( HMENU handle, UINT id, UINT flags )
 {
-    SYSCALL_FUNC( NtUserEnableMenuItem );
+    __ASM_SYSCALL_FUNC( __id_NtUserEnableMenuItem );
 }
 
 BOOL SYSCALL_API NtUserEnableMouseInPointer( BOOL enable )
 {
-    SYSCALL_FUNC( NtUserEnableMouseInPointer );
+    __ASM_SYSCALL_FUNC( __id_NtUserEnableMouseInPointer );
 }
 
 BOOL SYSCALL_API NtUserEnableScrollBar( HWND hwnd, UINT bar, UINT flags )
 {
-    SYSCALL_FUNC( NtUserEnableScrollBar );
+    __ASM_SYSCALL_FUNC( __id_NtUserEnableScrollBar );
 }
 
 BOOL SYSCALL_API NtUserEndDeferWindowPosEx( HDWP hdwp, BOOL async )
 {
-    SYSCALL_FUNC( NtUserEndDeferWindowPosEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserEndDeferWindowPosEx );
 }
 
 BOOL SYSCALL_API NtUserEndMenu(void)
 {
-    SYSCALL_FUNC( NtUserEndMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserEndMenu );
 }
 
 BOOL SYSCALL_API NtUserEndPaint( HWND hwnd, const PAINTSTRUCT *ps )
 {
-    SYSCALL_FUNC( NtUserEndPaint );
+    __ASM_SYSCALL_FUNC( __id_NtUserEndPaint );
 }
 
 NTSTATUS SYSCALL_API NtUserEnumDisplayDevices( UNICODE_STRING *device, DWORD index,
                                                DISPLAY_DEVICEW *info, DWORD flags )
 {
-    SYSCALL_FUNC( NtUserEnumDisplayDevices );
+    __ASM_SYSCALL_FUNC( __id_NtUserEnumDisplayDevices );
 }
 
 BOOL SYSCALL_API NtUserEnumDisplayMonitors( HDC hdc, RECT *rect, MONITORENUMPROC proc, LPARAM lparam )
 {
-    SYSCALL_FUNC( NtUserEnumDisplayMonitors );
+    __ASM_SYSCALL_FUNC( __id_NtUserEnumDisplayMonitors );
 }
 
 BOOL SYSCALL_API NtUserEnumDisplaySettings( UNICODE_STRING *device, DWORD index, DEVMODEW *devmode, DWORD flags )
 {
-    SYSCALL_FUNC( NtUserEnumDisplaySettings );
+    __ASM_SYSCALL_FUNC( __id_NtUserEnumDisplaySettings );
 }
 
 INT SYSCALL_API NtUserExcludeUpdateRgn( HDC hdc, HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserExcludeUpdateRgn );
+    __ASM_SYSCALL_FUNC( __id_NtUserExcludeUpdateRgn );
 }
 
 HICON SYSCALL_API NtUserFindExistingCursorIcon( UNICODE_STRING *module, UNICODE_STRING *res_name, void *desc )
 {
-    SYSCALL_FUNC( NtUserFindExistingCursorIcon );
+    __ASM_SYSCALL_FUNC( __id_NtUserFindExistingCursorIcon );
 }
 
 HWND SYSCALL_API NtUserFindWindowEx( HWND parent, HWND child, UNICODE_STRING *class, UNICODE_STRING *title,
                                      ULONG unk )
 {
-    SYSCALL_FUNC( NtUserFindWindowEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserFindWindowEx );
 }
 
 BOOL SYSCALL_API NtUserFlashWindowEx( FLASHWINFO *info )
 {
-    SYSCALL_FUNC( NtUserFlashWindowEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserFlashWindowEx );
 }
 
 HWND SYSCALL_API NtUserGetAncestor( HWND hwnd, UINT type )
 {
-    SYSCALL_FUNC( NtUserGetAncestor );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetAncestor );
 }
 
 SHORT SYSCALL_API NtUserGetAsyncKeyState( INT key )
 {
-    SYSCALL_FUNC( NtUserGetAsyncKeyState );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetAsyncKeyState );
 }
 
 ULONG SYSCALL_API NtUserGetAtomName( ATOM atom, UNICODE_STRING *name )
 {
-    SYSCALL_FUNC( NtUserGetAtomName );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetAtomName );
 }
 
 UINT SYSCALL_API NtUserGetCaretBlinkTime(void)
 {
-    SYSCALL_FUNC( NtUserGetCaretBlinkTime );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetCaretBlinkTime );
 }
 
 BOOL SYSCALL_API NtUserGetCaretPos( POINT *pt )
 {
-    SYSCALL_FUNC( NtUserGetCaretPos );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetCaretPos );
 }
 
 ATOM SYSCALL_API NtUserGetClassInfoEx( HINSTANCE instance, UNICODE_STRING *name, WNDCLASSEXW *wc,
                                        struct client_menu_name *menu_name, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserGetClassInfoEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClassInfoEx );
 }
 
 INT SYSCALL_API NtUserGetClassName( HWND hwnd, BOOL real, UNICODE_STRING *name )
 {
-    SYSCALL_FUNC( NtUserGetClassName );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClassName );
 }
 
 HANDLE SYSCALL_API NtUserGetClipboardData( UINT format, struct get_clipboard_params *params )
 {
-    SYSCALL_FUNC( NtUserGetClipboardData );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClipboardData );
 }
 
 INT SYSCALL_API NtUserGetClipboardFormatName( UINT format, WCHAR *buffer, INT maxlen )
 {
-    SYSCALL_FUNC( NtUserGetClipboardFormatName );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClipboardFormatName );
 }
 
 HWND SYSCALL_API NtUserGetClipboardOwner(void)
 {
-    SYSCALL_FUNC( NtUserGetClipboardOwner );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClipboardOwner );
 }
 
 DWORD SYSCALL_API NtUserGetClipboardSequenceNumber(void)
 {
-    SYSCALL_FUNC( NtUserGetClipboardSequenceNumber );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClipboardSequenceNumber );
 }
 
 HWND SYSCALL_API NtUserGetClipboardViewer(void)
 {
-    SYSCALL_FUNC( NtUserGetClipboardViewer );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetClipboardViewer );
 }
 
 HCURSOR SYSCALL_API NtUserGetCursor(void)
 {
-    SYSCALL_FUNC( NtUserGetCursor );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetCursor );
 }
 
 HCURSOR SYSCALL_API NtUserGetCursorFrameInfo( HCURSOR cursor, DWORD istep, DWORD *rate_jiffies,
                                               DWORD *num_steps )
 {
-    SYSCALL_FUNC( NtUserGetCursorFrameInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetCursorFrameInfo );
 }
 
 BOOL SYSCALL_API NtUserGetCursorInfo( CURSORINFO *info )
 {
-    SYSCALL_FUNC( NtUserGetCursorInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetCursorInfo );
 }
 
 HDC SYSCALL_API NtUserGetDC( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserGetDC );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetDC );
 }
 
 HDC SYSCALL_API NtUserGetDCEx( HWND hwnd, HRGN clip_rgn, DWORD flags )
 {
-    SYSCALL_FUNC( NtUserGetDCEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetDCEx );
 }
 
 LONG SYSCALL_API NtUserGetDisplayConfigBufferSizes( UINT32 flags, UINT32 *num_path_info,
                                                     UINT32 *num_mode_info )
 {
-    SYSCALL_FUNC( NtUserGetDisplayConfigBufferSizes );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetDisplayConfigBufferSizes );
 }
 
 UINT SYSCALL_API NtUserGetDoubleClickTime(void)
 {
-    SYSCALL_FUNC( NtUserGetDoubleClickTime );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetDoubleClickTime );
 }
 
 BOOL SYSCALL_API NtUserGetDpiForMonitor( HMONITOR monitor, UINT type, UINT *x, UINT *y )
 {
-    SYSCALL_FUNC( NtUserGetDpiForMonitor );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetDpiForMonitor );
 }
 
 HWND SYSCALL_API NtUserGetForegroundWindow(void)
 {
-    SYSCALL_FUNC( NtUserGetForegroundWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetForegroundWindow );
 }
 
 BOOL SYSCALL_API NtUserGetGUIThreadInfo( DWORD id, GUITHREADINFO *info )
 {
-    SYSCALL_FUNC( NtUserGetGUIThreadInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetGUIThreadInfo );
 }
 
 BOOL SYSCALL_API NtUserGetIconInfo( HICON icon, ICONINFO *info, UNICODE_STRING *module,
                                     UNICODE_STRING *res_name, DWORD *bpp, LONG unk )
 {
-    SYSCALL_FUNC( NtUserGetIconInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetIconInfo );
 }
 
 BOOL SYSCALL_API NtUserGetIconSize( HICON handle, UINT step, LONG *width, LONG *height )
 {
-    SYSCALL_FUNC( NtUserGetIconSize );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetIconSize );
 }
 
 UINT SYSCALL_API NtUserGetInternalWindowPos( HWND hwnd, RECT *rect, POINT *pt )
 {
-    SYSCALL_FUNC( NtUserGetInternalWindowPos );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetInternalWindowPos );
 }
 
 INT SYSCALL_API NtUserGetKeyNameText( LONG lparam, WCHAR *buffer, INT size )
 {
-    SYSCALL_FUNC( NtUserGetKeyNameText );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetKeyNameText );
 }
 
 SHORT SYSCALL_API NtUserGetKeyState( INT vkey )
 {
-    SYSCALL_FUNC( NtUserGetKeyState );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetKeyState );
 }
 
 HKL SYSCALL_API NtUserGetKeyboardLayout( DWORD thread_id )
 {
-    SYSCALL_FUNC( NtUserGetKeyboardLayout );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetKeyboardLayout );
 }
 
 UINT SYSCALL_API NtUserGetKeyboardLayoutList( INT size, HKL *layouts )
 {
-    SYSCALL_FUNC( NtUserGetKeyboardLayoutList );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetKeyboardLayoutList );
 }
 
 BOOL SYSCALL_API NtUserGetKeyboardLayoutName( WCHAR *name )
 {
-    SYSCALL_FUNC( NtUserGetKeyboardLayoutName );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetKeyboardLayoutName );
 }
 
 BOOL SYSCALL_API NtUserGetKeyboardState( BYTE *state )
 {
-    SYSCALL_FUNC( NtUserGetKeyboardState );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetKeyboardState );
 }
 
 BOOL SYSCALL_API NtUserGetLayeredWindowAttributes( HWND hwnd, COLORREF *key, BYTE *alpha, DWORD *flags )
 {
-    SYSCALL_FUNC( NtUserGetLayeredWindowAttributes );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetLayeredWindowAttributes );
 }
 
 BOOL SYSCALL_API NtUserGetMenuBarInfo( HWND hwnd, LONG id, LONG item, MENUBARINFO *info )
 {
-    SYSCALL_FUNC( NtUserGetMenuBarInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetMenuBarInfo );
 }
 
 BOOL SYSCALL_API NtUserGetMenuItemRect( HWND hwnd, HMENU handle, UINT item, RECT *rect )
 {
-    SYSCALL_FUNC( NtUserGetMenuItemRect );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetMenuItemRect );
 }
 
 BOOL SYSCALL_API NtUserGetMessage( MSG *msg, HWND hwnd, UINT first, UINT last )
 {
-    SYSCALL_FUNC( NtUserGetMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetMessage );
 }
 
 int SYSCALL_API NtUserGetMouseMovePointsEx( UINT size, MOUSEMOVEPOINT *ptin, MOUSEMOVEPOINT *ptout,
                                             int count, DWORD resolution )
 {
-    SYSCALL_FUNC( NtUserGetMouseMovePointsEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetMouseMovePointsEx );
 }
 
 BOOL SYSCALL_API NtUserGetObjectInformation( HANDLE handle, INT index, void *info,
                                              DWORD len, DWORD *needed )
 {
-    SYSCALL_FUNC( NtUserGetObjectInformation );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetObjectInformation );
 }
 
 HWND SYSCALL_API NtUserGetOpenClipboardWindow(void)
 {
-    SYSCALL_FUNC( NtUserGetOpenClipboardWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetOpenClipboardWindow );
 }
 
 BOOL SYSCALL_API NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_PTR unk0, UINT_PTR unk1, SIZE_T size,
                                            UINT32 *entry_count, UINT32 *pointer_count, void *pointer_info )
 {
-    SYSCALL_FUNC( NtUserGetPointerInfoList );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetPointerInfoList );
 }
 
 INT SYSCALL_API NtUserGetPriorityClipboardFormat( UINT *list, INT count )
 {
-    SYSCALL_FUNC( NtUserGetPriorityClipboardFormat );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetPriorityClipboardFormat );
 }
 
 ULONG SYSCALL_API NtUserGetProcessDpiAwarenessContext( HANDLE process )
 {
-    SYSCALL_FUNC( NtUserGetProcessDpiAwarenessContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetProcessDpiAwarenessContext );
 }
 
 HWINSTA SYSCALL_API NtUserGetProcessWindowStation(void)
 {
-    SYSCALL_FUNC( NtUserGetProcessWindowStation );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetProcessWindowStation );
 }
 
 HANDLE SYSCALL_API NtUserGetProp( HWND hwnd, const WCHAR *str )
 {
-    SYSCALL_FUNC( NtUserGetProp );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetProp );
 }
 
 DWORD SYSCALL_API NtUserGetQueueStatus( UINT flags )
 {
-    SYSCALL_FUNC( NtUserGetQueueStatus );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetQueueStatus );
 }
 
 UINT SYSCALL_API NtUserGetRawInputBuffer( RAWINPUT *data, UINT *data_size, UINT header_size )
 {
-    SYSCALL_FUNC( NtUserGetRawInputBuffer );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetRawInputBuffer );
 }
 
 UINT SYSCALL_API NtUserGetRawInputData( HRAWINPUT rawinput, UINT command, void *data, UINT *data_size, UINT header_size )
 {
-    SYSCALL_FUNC( NtUserGetRawInputData );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetRawInputData );
 }
 
 UINT SYSCALL_API NtUserGetRawInputDeviceInfo( HANDLE handle, UINT command, void *data, UINT *data_size )
 {
-    SYSCALL_FUNC( NtUserGetRawInputDeviceInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetRawInputDeviceInfo );
 }
 
 UINT SYSCALL_API NtUserGetRawInputDeviceList( RAWINPUTDEVICELIST *device_list, UINT *device_count, UINT size )
 {
-    SYSCALL_FUNC( NtUserGetRawInputDeviceList );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetRawInputDeviceList );
 }
 
 UINT SYSCALL_API NtUserGetRegisteredRawInputDevices( RAWINPUTDEVICE *devices, UINT *device_count, UINT device_size )
 {
-    SYSCALL_FUNC( NtUserGetRegisteredRawInputDevices );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetRegisteredRawInputDevices );
 }
 
 BOOL SYSCALL_API NtUserGetScrollBarInfo( HWND hwnd, LONG id, SCROLLBARINFO *info )
 {
-    SYSCALL_FUNC( NtUserGetScrollBarInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetScrollBarInfo );
 }
 
 ULONG SYSCALL_API NtUserGetSystemDpiForProcess( HANDLE process )
 {
-    SYSCALL_FUNC( NtUserGetSystemDpiForProcess );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetSystemDpiForProcess );
 }
 
 HMENU SYSCALL_API NtUserGetSystemMenu( HWND hwnd, BOOL revert )
 {
-    SYSCALL_FUNC( NtUserGetSystemMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetSystemMenu );
 }
 
 HDESK SYSCALL_API NtUserGetThreadDesktop( DWORD thread )
 {
-    SYSCALL_FUNC( NtUserGetThreadDesktop );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetThreadDesktop );
 }
 
 BOOL SYSCALL_API NtUserGetTitleBarInfo( HWND hwnd, TITLEBARINFO *info )
 {
-    SYSCALL_FUNC( NtUserGetTitleBarInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetTitleBarInfo );
+}
+
+BOOL SYSCALL_API NtUserGetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size )
+{
+    __ASM_SYSCALL_FUNC( __id_NtUserGetTouchInputInfo );
 }
 
 BOOL SYSCALL_API NtUserGetUpdateRect( HWND hwnd, RECT *rect, BOOL erase )
 {
-    SYSCALL_FUNC( NtUserGetUpdateRect );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetUpdateRect );
 }
 
 INT SYSCALL_API NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase )
 {
-    SYSCALL_FUNC( NtUserGetUpdateRgn );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetUpdateRgn );
 }
 
 BOOL SYSCALL_API NtUserGetUpdatedClipboardFormats( UINT *formats, UINT size, UINT *out_size )
 {
-    SYSCALL_FUNC( NtUserGetUpdatedClipboardFormats );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetUpdatedClipboardFormats );
 }
 
 HDC SYSCALL_API NtUserGetWindowDC( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserGetWindowDC );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetWindowDC );
 }
 
 BOOL SYSCALL_API NtUserGetWindowPlacement( HWND hwnd, WINDOWPLACEMENT *placement )
 {
-    SYSCALL_FUNC( NtUserGetWindowPlacement );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetWindowPlacement );
 }
 
 int SYSCALL_API NtUserGetWindowRgnEx( HWND hwnd, HRGN hrgn, UINT unk )
 {
-    SYSCALL_FUNC( NtUserGetWindowRgnEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserGetWindowRgnEx );
 }
 
 BOOL SYSCALL_API NtUserHideCaret( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserHideCaret );
+    __ASM_SYSCALL_FUNC( __id_NtUserHideCaret );
 }
 
 BOOL SYSCALL_API NtUserHiliteMenuItem( HWND hwnd, HMENU handle, UINT item, UINT hilite )
 {
-    SYSCALL_FUNC( NtUserHiliteMenuItem );
+    __ASM_SYSCALL_FUNC( __id_NtUserHiliteMenuItem );
 }
 
 NTSTATUS SYSCALL_API NtUserInitializeClientPfnArrays( const struct user_client_procs *client_procsA,
                                                       const struct user_client_procs *client_procsW,
                                                       const void *client_workers, HINSTANCE user_module )
 {
-    SYSCALL_FUNC( NtUserInitializeClientPfnArrays );
+    __ASM_SYSCALL_FUNC( __id_NtUserInitializeClientPfnArrays );
 }
 
 HICON SYSCALL_API NtUserInternalGetWindowIcon( HWND hwnd, UINT type )
 {
-    SYSCALL_FUNC( NtUserInternalGetWindowIcon );
+    __ASM_SYSCALL_FUNC( __id_NtUserInternalGetWindowIcon );
 }
 
 INT SYSCALL_API NtUserInternalGetWindowText( HWND hwnd, WCHAR *text, INT count )
 {
-    SYSCALL_FUNC( NtUserInternalGetWindowText );
+    __ASM_SYSCALL_FUNC( __id_NtUserInternalGetWindowText );
 }
 
 BOOL SYSCALL_API NtUserInvalidateRect( HWND hwnd, const RECT *rect, BOOL erase )
 {
-    SYSCALL_FUNC( NtUserInvalidateRect );
+    __ASM_SYSCALL_FUNC( __id_NtUserInvalidateRect );
 }
 
 BOOL SYSCALL_API NtUserInvalidateRgn( HWND hwnd, HRGN hrgn, BOOL erase )
 {
-    SYSCALL_FUNC( NtUserInvalidateRgn );
+    __ASM_SYSCALL_FUNC( __id_NtUserInvalidateRgn );
 }
 
 BOOL SYSCALL_API NtUserIsClipboardFormatAvailable( UINT format )
 {
-    SYSCALL_FUNC( NtUserIsClipboardFormatAvailable );
+    __ASM_SYSCALL_FUNC( __id_NtUserIsClipboardFormatAvailable );
 }
 
 BOOL SYSCALL_API NtUserIsMouseInPointerEnabled(void)
 {
-    SYSCALL_FUNC( NtUserIsMouseInPointerEnabled );
+    __ASM_SYSCALL_FUNC( __id_NtUserIsMouseInPointerEnabled );
+}
+
+BOOL SYSCALL_API NtUserIsTouchWindow( HWND hwnd, ULONG *flags )
+{
+    __ASM_SYSCALL_FUNC( __id_NtUserIsTouchWindow );
 }
 
 BOOL SYSCALL_API NtUserKillTimer( HWND hwnd, UINT_PTR id )
 {
-    SYSCALL_FUNC( NtUserKillTimer );
+    __ASM_SYSCALL_FUNC( __id_NtUserKillTimer );
 }
 
 BOOL SYSCALL_API NtUserLockWindowUpdate( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserLockWindowUpdate );
+    __ASM_SYSCALL_FUNC( __id_NtUserLockWindowUpdate );
 }
 
 BOOL SYSCALL_API NtUserLogicalToPerMonitorDPIPhysicalPoint( HWND hwnd, POINT *pt )
 {
-    SYSCALL_FUNC( NtUserLogicalToPerMonitorDPIPhysicalPoint );
+    __ASM_SYSCALL_FUNC( __id_NtUserLogicalToPerMonitorDPIPhysicalPoint );
 }
 
 UINT SYSCALL_API NtUserMapVirtualKeyEx( UINT code, UINT type, HKL layout )
 {
-    SYSCALL_FUNC( NtUserMapVirtualKeyEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserMapVirtualKeyEx );
 }
 
 INT SYSCALL_API NtUserMenuItemFromPoint( HWND hwnd, HMENU handle, int x, int y )
 {
-    SYSCALL_FUNC( NtUserMenuItemFromPoint );
+    __ASM_SYSCALL_FUNC( __id_NtUserMenuItemFromPoint );
 }
 
 LRESULT SYSCALL_API NtUserMessageCall( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                                        void *result_info, DWORD type, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserMessageCall );
+    __ASM_SYSCALL_FUNC( __id_NtUserMessageCall );
 }
 
 BOOL SYSCALL_API NtUserMoveWindow( HWND hwnd, INT x, INT y, INT cx, INT cy, BOOL repaint )
 {
-    SYSCALL_FUNC( NtUserMoveWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserMoveWindow );
 }
 
 DWORD SYSCALL_API NtUserMsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *handles,
                                                      DWORD timeout, DWORD mask, DWORD flags )
 {
-    SYSCALL_FUNC( NtUserMsgWaitForMultipleObjectsEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserMsgWaitForMultipleObjectsEx );
 }
 
 void SYSCALL_API NtUserNotifyIMEStatus( HWND hwnd, UINT status )
 {
-    SYSCALL_FUNC( NtUserNotifyIMEStatus );
+    __ASM_SYSCALL_FUNC( __id_NtUserNotifyIMEStatus );
 }
 
 void SYSCALL_API NtUserNotifyWinEvent( DWORD event, HWND hwnd, LONG object_id, LONG child_id )
 {
-    SYSCALL_FUNC( NtUserNotifyWinEvent );
+    __ASM_SYSCALL_FUNC( __id_NtUserNotifyWinEvent );
 }
 
 BOOL SYSCALL_API NtUserOpenClipboard( HWND hwnd, ULONG unk )
 {
-    SYSCALL_FUNC( NtUserOpenClipboard );
+    __ASM_SYSCALL_FUNC( __id_NtUserOpenClipboard );
 }
 
 HDESK SYSCALL_API NtUserOpenDesktop( OBJECT_ATTRIBUTES *attr, DWORD flags, ACCESS_MASK access )
 {
-    SYSCALL_FUNC( NtUserOpenDesktop );
+    __ASM_SYSCALL_FUNC( __id_NtUserOpenDesktop );
 }
 
 HDESK SYSCALL_API NtUserOpenInputDesktop( DWORD flags, BOOL inherit, ACCESS_MASK access )
 {
-    SYSCALL_FUNC( NtUserOpenInputDesktop );
+    __ASM_SYSCALL_FUNC( __id_NtUserOpenInputDesktop );
 }
 
 HWINSTA SYSCALL_API NtUserOpenWindowStation( OBJECT_ATTRIBUTES *attr, ACCESS_MASK access )
 {
-    SYSCALL_FUNC( NtUserOpenWindowStation );
+    __ASM_SYSCALL_FUNC( __id_NtUserOpenWindowStation );
 }
 
 BOOL SYSCALL_API NtUserPeekMessage( MSG *msg_out, HWND hwnd, UINT first, UINT last, UINT flags )
 {
-    SYSCALL_FUNC( NtUserPeekMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserPeekMessage );
 }
 
 BOOL SYSCALL_API NtUserPerMonitorDPIPhysicalToLogicalPoint( HWND hwnd, POINT *pt )
 {
-    SYSCALL_FUNC( NtUserPerMonitorDPIPhysicalToLogicalPoint );
+    __ASM_SYSCALL_FUNC( __id_NtUserPerMonitorDPIPhysicalToLogicalPoint );
 }
 
 BOOL SYSCALL_API NtUserPostMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
-    SYSCALL_FUNC( NtUserPostMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserPostMessage );
 }
 
 BOOL SYSCALL_API NtUserPostThreadMessage( DWORD thread, UINT msg, WPARAM wparam, LPARAM lparam )
 {
-    SYSCALL_FUNC( NtUserPostThreadMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserPostThreadMessage );
 }
 
 BOOL SYSCALL_API NtUserPrintWindow( HWND hwnd, HDC hdc, UINT flags )
 {
-    SYSCALL_FUNC( NtUserPrintWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserPrintWindow );
 }
 
 LONG SYSCALL_API NtUserQueryDisplayConfig( UINT32 flags, UINT32 *paths_count, DISPLAYCONFIG_PATH_INFO *paths,
                                            UINT32 *modes_count, DISPLAYCONFIG_MODE_INFO *modes,
                                            DISPLAYCONFIG_TOPOLOGY_ID *topology_id )
 {
-    SYSCALL_FUNC( NtUserQueryDisplayConfig );
+    __ASM_SYSCALL_FUNC( __id_NtUserQueryDisplayConfig );
 }
 
 UINT_PTR SYSCALL_API NtUserQueryInputContext( HIMC handle, UINT attr )
 {
-    SYSCALL_FUNC( NtUserQueryInputContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserQueryInputContext );
 }
 
 HWND SYSCALL_API NtUserRealChildWindowFromPoint( HWND parent, LONG x, LONG y )
 {
-    SYSCALL_FUNC( NtUserRealChildWindowFromPoint );
+    __ASM_SYSCALL_FUNC( __id_NtUserRealChildWindowFromPoint );
 }
 
 BOOL SYSCALL_API NtUserRedrawWindow( HWND hwnd, const RECT *rect, HRGN hrgn, UINT flags )
 {
-    SYSCALL_FUNC( NtUserRedrawWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserRedrawWindow );
 }
 
 ATOM SYSCALL_API NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *name, UNICODE_STRING *version,
                                            struct client_menu_name *client_menu_name, DWORD fnid,
                                            DWORD flags, DWORD *wow )
 {
-    SYSCALL_FUNC( NtUserRegisterClassExWOW );
+    __ASM_SYSCALL_FUNC( __id_NtUserRegisterClassExWOW );
 }
 
 BOOL SYSCALL_API NtUserRegisterHotKey( HWND hwnd, INT id, UINT modifiers, UINT vk )
 {
-    SYSCALL_FUNC( NtUserRegisterHotKey );
+    __ASM_SYSCALL_FUNC( __id_NtUserRegisterHotKey );
 }
 
 BOOL SYSCALL_API NtUserRegisterRawInputDevices( const RAWINPUTDEVICE *devices, UINT device_count, UINT device_size )
 {
-    SYSCALL_FUNC( NtUserRegisterRawInputDevices );
+    __ASM_SYSCALL_FUNC( __id_NtUserRegisterRawInputDevices );
 }
 
 INT SYSCALL_API NtUserReleaseDC( HWND hwnd, HDC hdc )
 {
-    SYSCALL_FUNC( NtUserReleaseDC );
+    __ASM_SYSCALL_FUNC( __id_NtUserReleaseDC );
 }
 
 BOOL SYSCALL_API NtUserRemoveClipboardFormatListener( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserRemoveClipboardFormatListener );
+    __ASM_SYSCALL_FUNC( __id_NtUserRemoveClipboardFormatListener );
 }
 
 BOOL SYSCALL_API NtUserRemoveMenu( HMENU handle, UINT id, UINT flags )
 {
-    SYSCALL_FUNC( NtUserRemoveMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserRemoveMenu );
 }
 
 HANDLE SYSCALL_API NtUserRemoveProp( HWND hwnd, const WCHAR *str )
 {
-    SYSCALL_FUNC( NtUserRemoveProp );
+    __ASM_SYSCALL_FUNC( __id_NtUserRemoveProp );
 }
 
 BOOL SYSCALL_API NtUserScrollDC( HDC hdc, INT dx, INT dy, const RECT *scroll, const RECT *clip,
                                  HRGN ret_update_rgn, RECT *update_rect )
 {
-    SYSCALL_FUNC( NtUserScrollDC );
+    __ASM_SYSCALL_FUNC( __id_NtUserScrollDC );
 }
 
 INT SYSCALL_API NtUserScrollWindowEx( HWND hwnd, INT dx, INT dy, const RECT *rect,
                                       const RECT *clip_rect, HRGN update_rgn,
                                       RECT *update_rect, UINT flags )
 {
-    SYSCALL_FUNC( NtUserScrollWindowEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserScrollWindowEx );
 }
 
 HPALETTE SYSCALL_API NtUserSelectPalette( HDC hdc, HPALETTE hpal, WORD bkg )
 {
-    SYSCALL_FUNC( NtUserSelectPalette );
+    __ASM_SYSCALL_FUNC( __id_NtUserSelectPalette );
 }
 
 UINT SYSCALL_API NtUserSendInput( UINT count, INPUT *inputs, int size )
 {
-    SYSCALL_FUNC( NtUserSendInput );
+    __ASM_SYSCALL_FUNC( __id_NtUserSendInput );
 }
 
 HWND SYSCALL_API NtUserSetActiveWindow( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserSetActiveWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetActiveWindow );
 }
 
 HWND SYSCALL_API NtUserSetCapture( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserSetCapture );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetCapture );
 }
 
 DWORD SYSCALL_API NtUserSetClassLong( HWND hwnd, INT offset, LONG newval, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserSetClassLong );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetClassLong );
 }
 
 ULONG_PTR SYSCALL_API NtUserSetClassLongPtr( HWND hwnd, INT offset, LONG_PTR newval, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserSetClassLongPtr );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetClassLongPtr );
 }
 
 WORD SYSCALL_API NtUserSetClassWord( HWND hwnd, INT offset, WORD newval )
 {
-    SYSCALL_FUNC( NtUserSetClassWord );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetClassWord );
 }
 
 NTSTATUS SYSCALL_API NtUserSetClipboardData( UINT format, HANDLE data, struct set_clipboard_params *params )
 {
-    SYSCALL_FUNC( NtUserSetClipboardData );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetClipboardData );
 }
 
 HWND SYSCALL_API NtUserSetClipboardViewer( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserSetClipboardViewer );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetClipboardViewer );
 }
 
 HCURSOR SYSCALL_API NtUserSetCursor( HCURSOR cursor )
 {
-    SYSCALL_FUNC( NtUserSetCursor );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetCursor );
 }
 
 BOOL SYSCALL_API NtUserSetCursorIconData( HCURSOR cursor, UNICODE_STRING *module, UNICODE_STRING *res_name,
                                           struct cursoricon_desc *desc )
 {
-    SYSCALL_FUNC( NtUserSetCursorIconData );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetCursorIconData );
 }
 
 BOOL SYSCALL_API NtUserSetCursorPos( INT x, INT y )
 {
-    SYSCALL_FUNC( NtUserSetCursorPos );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetCursorPos );
 }
 
 HWND SYSCALL_API NtUserSetFocus( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserSetFocus );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetFocus );
 }
 
 void SYSCALL_API NtUserSetInternalWindowPos( HWND hwnd, UINT cmd, RECT *rect, POINT *pt )
 {
-    SYSCALL_FUNC( NtUserSetInternalWindowPos );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetInternalWindowPos );
 }
 
 BOOL SYSCALL_API NtUserSetKeyboardState( BYTE *state )
 {
-    SYSCALL_FUNC( NtUserSetKeyboardState );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetKeyboardState );
 }
 
 BOOL SYSCALL_API NtUserSetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWORD flags )
 {
-    SYSCALL_FUNC( NtUserSetLayeredWindowAttributes );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetLayeredWindowAttributes );
 }
 
 BOOL SYSCALL_API NtUserSetMenu( HWND hwnd, HMENU menu )
 {
-    SYSCALL_FUNC( NtUserSetMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetMenu );
 }
 
 BOOL SYSCALL_API NtUserSetMenuContextHelpId( HMENU handle, DWORD id )
 {
-    SYSCALL_FUNC( NtUserSetMenuContextHelpId );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetMenuContextHelpId );
 }
 
 BOOL SYSCALL_API NtUserSetMenuDefaultItem( HMENU handle, UINT item, UINT bypos )
 {
-    SYSCALL_FUNC( NtUserSetMenuDefaultItem );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetMenuDefaultItem );
 }
 
 BOOL SYSCALL_API NtUserSetObjectInformation( HANDLE handle, INT index, void *info, DWORD len )
 {
-    SYSCALL_FUNC( NtUserSetObjectInformation );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetObjectInformation );
 }
 
 HWND SYSCALL_API NtUserSetParent( HWND hwnd, HWND parent )
 {
-    SYSCALL_FUNC( NtUserSetParent );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetParent );
 }
 
 BOOL SYSCALL_API NtUserSetProcessDpiAwarenessContext( ULONG awareness, ULONG unknown )
 {
-    SYSCALL_FUNC( NtUserSetProcessDpiAwarenessContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetProcessDpiAwarenessContext );
 }
 
 BOOL SYSCALL_API NtUserSetProcessWindowStation( HWINSTA handle )
 {
-    SYSCALL_FUNC( NtUserSetProcessWindowStation );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetProcessWindowStation );
 }
 
 BOOL SYSCALL_API NtUserSetProp( HWND hwnd, const WCHAR *str, HANDLE handle )
 {
-    SYSCALL_FUNC( NtUserSetProp );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetProp );
 }
 
 INT SYSCALL_API NtUserSetScrollInfo( HWND hwnd, int bar, const SCROLLINFO *info, BOOL redraw )
 {
-    SYSCALL_FUNC( NtUserSetScrollInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetScrollInfo );
 }
 
 BOOL SYSCALL_API NtUserSetShellWindowEx( HWND shell, HWND list_view )
 {
-    SYSCALL_FUNC( NtUserSetShellWindowEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetShellWindowEx );
 }
 
 BOOL SYSCALL_API NtUserSetSysColors( INT count, const INT *colors, const COLORREF *values )
 {
-    SYSCALL_FUNC( NtUserSetSysColors );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetSysColors );
 }
 
 BOOL SYSCALL_API NtUserSetSystemMenu( HWND hwnd, HMENU menu )
 {
-    SYSCALL_FUNC( NtUserSetSystemMenu );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetSystemMenu );
 }
 
 UINT_PTR SYSCALL_API NtUserSetSystemTimer( HWND hwnd, UINT_PTR id, UINT timeout )
 {
-    SYSCALL_FUNC( NtUserSetSystemTimer );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetSystemTimer );
 }
 
 BOOL SYSCALL_API NtUserSetThreadDesktop( HDESK handle )
 {
-    SYSCALL_FUNC( NtUserSetThreadDesktop );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetThreadDesktop );
 }
 
 UINT_PTR SYSCALL_API NtUserSetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc, ULONG tolerance )
 {
-    SYSCALL_FUNC( NtUserSetTimer );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetTimer );
 }
 
 HWINEVENTHOOK SYSCALL_API NtUserSetWinEventHook( DWORD event_min, DWORD event_max, HMODULE inst,
                                                  UNICODE_STRING *module, WINEVENTPROC proc,
                                                  DWORD pid, DWORD tid, DWORD flags )
 {
-    SYSCALL_FUNC( NtUserSetWinEventHook );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWinEventHook );
 }
 
 LONG SYSCALL_API NtUserSetWindowLong( HWND hwnd, INT offset, LONG newval, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserSetWindowLong );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowLong );
 }
 
 LONG_PTR SYSCALL_API NtUserSetWindowLongPtr( HWND hwnd, INT offset, LONG_PTR newval, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserSetWindowLongPtr );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowLongPtr );
 }
 
 BOOL SYSCALL_API NtUserSetWindowPlacement( HWND hwnd, const WINDOWPLACEMENT *wpl )
 {
-    SYSCALL_FUNC( NtUserSetWindowPlacement );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowPlacement );
 }
 
 BOOL SYSCALL_API NtUserSetWindowPos( HWND hwnd, HWND after, INT x, INT y, INT cx, INT cy, UINT flags )
 {
-    SYSCALL_FUNC( NtUserSetWindowPos );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowPos );
 }
 
 int SYSCALL_API NtUserSetWindowRgn( HWND hwnd, HRGN hrgn, BOOL redraw )
 {
-    SYSCALL_FUNC( NtUserSetWindowRgn );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowRgn );
 }
 
 WORD SYSCALL_API NtUserSetWindowWord( HWND hwnd, INT offset, WORD newval )
 {
-    SYSCALL_FUNC( NtUserSetWindowWord );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowWord );
 }
 
 HHOOK SYSCALL_API NtUserSetWindowsHookEx( HINSTANCE inst, UNICODE_STRING *module, DWORD tid, INT id,
                                           HOOKPROC proc, BOOL ansi )
 {
-    SYSCALL_FUNC( NtUserSetWindowsHookEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserSetWindowsHookEx );
 }
 
 BOOL SYSCALL_API NtUserShowCaret( HWND hwnd )
 {
-    SYSCALL_FUNC( NtUserShowCaret );
+    __ASM_SYSCALL_FUNC( __id_NtUserShowCaret );
 }
 
 INT SYSCALL_API NtUserShowCursor( BOOL show )
 {
-    SYSCALL_FUNC( NtUserShowCursor );
+    __ASM_SYSCALL_FUNC( __id_NtUserShowCursor );
 }
 
 BOOL SYSCALL_API NtUserShowScrollBar( HWND hwnd, INT bar, BOOL show )
 {
-    SYSCALL_FUNC( NtUserShowScrollBar );
+    __ASM_SYSCALL_FUNC( __id_NtUserShowScrollBar );
 }
 
 BOOL SYSCALL_API NtUserShowWindow( HWND hwnd, INT cmd )
 {
-    SYSCALL_FUNC( NtUserShowWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserShowWindow );
 }
 
 BOOL SYSCALL_API NtUserShowWindowAsync( HWND hwnd, INT cmd )
 {
-    SYSCALL_FUNC( NtUserShowWindowAsync );
-}
-
-BOOL SYSCALL_API NtUserSwitchDesktop( HDESK handle )
-{
-    SYSCALL_FUNC( NtUserSwitchDesktop );
+    __ASM_SYSCALL_FUNC( __id_NtUserShowWindowAsync );
 }
 
 BOOL SYSCALL_API NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT winini )
 {
-    SYSCALL_FUNC( NtUserSystemParametersInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserSystemParametersInfo );
 }
 
 BOOL SYSCALL_API NtUserSystemParametersInfoForDpi( UINT action, UINT val, PVOID ptr, UINT winini, UINT dpi )
 {
-    SYSCALL_FUNC( NtUserSystemParametersInfoForDpi );
+    __ASM_SYSCALL_FUNC( __id_NtUserSystemParametersInfoForDpi );
 }
 
 BOOL SYSCALL_API NtUserThunkedMenuInfo( HMENU menu, const MENUINFO *info )
 {
-    SYSCALL_FUNC( NtUserThunkedMenuInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserThunkedMenuInfo );
 }
 
 UINT SYSCALL_API NtUserThunkedMenuItemInfo( HMENU handle, UINT pos, UINT flags, UINT method,
                                             MENUITEMINFOW *info, UNICODE_STRING *str )
 {
-    SYSCALL_FUNC( NtUserThunkedMenuItemInfo );
+    __ASM_SYSCALL_FUNC( __id_NtUserThunkedMenuItemInfo );
 }
 
 INT SYSCALL_API NtUserToUnicodeEx( UINT virt, UINT scan, const BYTE *state,
                                    WCHAR *str, int size, UINT flags, HKL layout )
 {
-    SYSCALL_FUNC( NtUserToUnicodeEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserToUnicodeEx );
 }
 
 BOOL SYSCALL_API NtUserTrackMouseEvent( TRACKMOUSEEVENT *info )
 {
-    SYSCALL_FUNC( NtUserTrackMouseEvent );
+    __ASM_SYSCALL_FUNC( __id_NtUserTrackMouseEvent );
 }
 
 BOOL SYSCALL_API NtUserTrackPopupMenuEx( HMENU handle, UINT flags, INT x, INT y, HWND hwnd,
                                          TPMPARAMS *params )
 {
-    SYSCALL_FUNC( NtUserTrackPopupMenuEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserTrackPopupMenuEx );
 }
 
 INT SYSCALL_API NtUserTranslateAccelerator( HWND hwnd, HACCEL accel, MSG *msg )
 {
-    SYSCALL_FUNC( NtUserTranslateAccelerator );
+    __ASM_SYSCALL_FUNC( __id_NtUserTranslateAccelerator );
 }
 
 BOOL SYSCALL_API NtUserTranslateMessage( const MSG *msg, UINT flags )
 {
-    SYSCALL_FUNC( NtUserTranslateMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserTranslateMessage );
 }
 
 BOOL SYSCALL_API NtUserUnhookWinEvent( HWINEVENTHOOK handle )
 {
-    SYSCALL_FUNC( NtUserUnhookWinEvent );
+    __ASM_SYSCALL_FUNC( __id_NtUserUnhookWinEvent );
 }
 
 BOOL SYSCALL_API NtUserUnhookWindowsHookEx( HHOOK handle )
 {
-    SYSCALL_FUNC( NtUserUnhookWindowsHookEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserUnhookWindowsHookEx );
 }
 
 BOOL SYSCALL_API NtUserUnregisterClass( UNICODE_STRING *name, HINSTANCE instance,
                                         struct client_menu_name *client_menu_name )
 {
-    SYSCALL_FUNC( NtUserUnregisterClass );
+    __ASM_SYSCALL_FUNC( __id_NtUserUnregisterClass );
 }
 
 BOOL SYSCALL_API NtUserUnregisterHotKey( HWND hwnd, INT id )
 {
-    SYSCALL_FUNC( NtUserUnregisterHotKey );
+    __ASM_SYSCALL_FUNC( __id_NtUserUnregisterHotKey );
 }
 
 BOOL SYSCALL_API NtUserUpdateInputContext( HIMC handle, UINT attr, UINT_PTR value )
 {
-    SYSCALL_FUNC( NtUserUpdateInputContext );
+    __ASM_SYSCALL_FUNC( __id_NtUserUpdateInputContext );
 }
 
 BOOL SYSCALL_API NtUserUpdateLayeredWindow( HWND hwnd, HDC hdc_dst, const POINT *pts_dst, const SIZE *size,
                                             HDC hdc_src, const POINT *pts_src, COLORREF key,
                                             const BLENDFUNCTION *blend, DWORD flags, const RECT *dirty )
 {
-    SYSCALL_FUNC( NtUserUpdateLayeredWindow );
+    __ASM_SYSCALL_FUNC( __id_NtUserUpdateLayeredWindow );
 }
 
 BOOL SYSCALL_API NtUserValidateRect( HWND hwnd, const RECT *rect )
 {
-    SYSCALL_FUNC( NtUserValidateRect );
+    __ASM_SYSCALL_FUNC( __id_NtUserValidateRect );
 }
 
 WORD SYSCALL_API NtUserVkKeyScanEx( WCHAR chr, HKL layout )
 {
-    SYSCALL_FUNC( NtUserVkKeyScanEx );
+    __ASM_SYSCALL_FUNC( __id_NtUserVkKeyScanEx );
 }
 
 DWORD SYSCALL_API NtUserWaitForInputIdle( HANDLE process, DWORD timeout, BOOL wow )
 {
-    SYSCALL_FUNC( NtUserWaitForInputIdle );
+    __ASM_SYSCALL_FUNC( __id_NtUserWaitForInputIdle );
 }
 
 BOOL SYSCALL_API NtUserWaitMessage(void)
 {
-    SYSCALL_FUNC( NtUserWaitMessage );
+    __ASM_SYSCALL_FUNC( __id_NtUserWaitMessage );
 }
 
 HWND SYSCALL_API NtUserWindowFromDC( HDC hdc )
 {
-    SYSCALL_FUNC( NtUserWindowFromDC );
+    __ASM_SYSCALL_FUNC( __id_NtUserWindowFromDC );
 }
 
 HWND SYSCALL_API NtUserWindowFromPoint( LONG x, LONG y )
 {
-    SYSCALL_FUNC( NtUserWindowFromPoint );
+    __ASM_SYSCALL_FUNC( __id_NtUserWindowFromPoint );
 }
 
 BOOL SYSCALL_API __wine_get_file_outline_text_metric( const WCHAR *path, TEXTMETRICW *otm,
                                                       UINT *em_square, WCHAR *face_name )
 {
-    SYSCALL_FUNC( __wine_get_file_outline_text_metric );
+    __ASM_SYSCALL_FUNC( __id___wine_get_file_outline_text_metric );
 }
 
 BOOL SYSCALL_API __wine_get_icm_profile( HDC hdc, BOOL allow_default, DWORD *size, WCHAR *filename )
 {
-    SYSCALL_FUNC( __wine_get_icm_profile );
+    __ASM_SYSCALL_FUNC( __id___wine_get_icm_profile );
+}
+
+BOOL SYSCALL_API __wine_send_input( HWND hwnd, const INPUT *input, const RAWINPUT *rawinput )
+{
+    __ASM_SYSCALL_FUNC( __id___wine_send_input );
 }
 
 #else /*  __arm64ec__ */
@@ -2183,7 +2186,7 @@ void __cdecl __wine_spec_unimplemented_stub( const char *module, const char *fun
     EXCEPTION_RECORD record;
 
     record.ExceptionCode    = EXCEPTION_WINE_STUB;
-    record.ExceptionFlags   = EXCEPTION_NONCONTINUABLE;
+    record.ExceptionFlags   = EH_NONCONTINUABLE;
     record.ExceptionRecord  = NULL;
     record.ExceptionAddress = __wine_spec_unimplemented_stub;
     record.NumberParameters = 2;

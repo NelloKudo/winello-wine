@@ -33,6 +33,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -44,6 +45,7 @@
 
 WINE_DECLARE_DEBUG_CHANNEL(pid);
 WINE_DECLARE_DEBUG_CHANNEL(timestamp);
+WINE_DECLARE_DEBUG_CHANNEL(microsecs);
 WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
 
 struct debug_info
@@ -274,6 +276,59 @@ NTSTATUS unixcall_wine_dbg_write( void *args )
     return write( 2, params->str, params->len );
 }
 
+unsigned int WINAPI __wine_dbg_ftrace( char *str, unsigned int str_size, unsigned int ctx )
+{
+    static unsigned int curr_ctx;
+    static int ftrace_fd = -1;
+    unsigned int str_len;
+    char ctx_str[64];
+    int ctx_len;
+
+    if (ftrace_fd == -1)
+    {
+        int expected = -1;
+        const char *fn;
+        int fd;
+
+        if (!(fn = getenv( "WINE_FTRACE_FILE" )))
+        {
+            MESSAGE( "wine: WINE_FTRACE_FILE is not set.\n" );
+            ftrace_fd = -2;
+            return 0;
+        }
+        if ((fd = open( fn, O_WRONLY )) == -1)
+        {
+            MESSAGE( "wine: error opening ftrace file: %s.\n", strerror(errno) );
+            ftrace_fd = -2;
+            return 0;
+        }
+        if (!__atomic_compare_exchange_n( &ftrace_fd, &expected, fd, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ))
+            close( fd );
+        else
+            MESSAGE( "wine: ftrace initialized.\n" );
+    }
+    if (ftrace_fd == -2) return ~0u;
+
+    if (ctx == ~0u) ctx_len = 0;
+    else if (ctx) ctx_len = sprintf( ctx_str, " (end_ctx=%u)", ctx );
+    else
+    {
+        ctx = __atomic_add_fetch( &curr_ctx, 1, __ATOMIC_SEQ_CST );
+        ctx_len = sprintf( ctx_str, " (begin_ctx=%u)", ctx );
+    }
+
+    str_len = strlen(str);
+    if (ctx_len > 0)
+    {
+        if (str_size < ctx_len) return ~0u;
+        if (str_len + ctx_len > str_size) str_len = str_size - ctx_len;
+        memcpy( &str[str_len], ctx_str, ctx_len );
+        str_len += ctx_len;
+    }
+    write( ftrace_fd, str, str_len );
+    return ctx;
+}
+
 #ifdef _WIN64
 /***********************************************************************
  *		wow64_wine_dbg_write
@@ -327,7 +382,14 @@ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_
 
     if (init_done)
     {
-        if (TRACE_ON(timestamp))
+        if (TRACE_ON(microsecs))
+        {
+            LARGE_INTEGER counter, frequency, microsecs;
+            NtQueryPerformanceCounter(&counter, &frequency);
+            microsecs.QuadPart = counter.QuadPart * 1000000 / frequency.QuadPart;
+            pos += sprintf( pos, "%3u.%06u:", (unsigned int)(microsecs.QuadPart / 1000000), (unsigned int)(microsecs.QuadPart % 1000000) );
+        }
+        else if (TRACE_ON(timestamp))
         {
             UINT ticks = NtGetTickCount();
             pos += snprintf( pos, sizeof(info->output) - (pos - info->output), "%3u.%03u:", ticks / 1000, ticks % 1000 );

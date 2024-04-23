@@ -141,9 +141,11 @@ static void release_named_item_script_obj(named_item_t *item)
     item->script_obj = NULL;
 }
 
-static HRESULT retrieve_named_item_disp(IActiveScriptSite *site, named_item_t *item)
+static HRESULT retrieve_named_item_disp(script_ctx_t *ctx, IActiveScriptSite *site, named_item_t *item)
 {
+    IDispatch *disp;
     IUnknown *unk;
+    jsval_t val;
     HRESULT hr;
 
     if(!site)
@@ -155,12 +157,18 @@ static HRESULT retrieve_named_item_disp(IActiveScriptSite *site, named_item_t *i
         return hr;
     }
 
-    hr = IUnknown_QueryInterface(unk, &IID_IDispatch, (void**)&item->disp);
+    hr = IUnknown_QueryInterface(unk, &IID_IDispatch, (void**)&disp);
     IUnknown_Release(unk);
     if(FAILED(hr)) {
         WARN("object does not implement IDispatch\n");
         return hr;
     }
+
+    val = jsval_disp(disp);
+    hr = convert_to_proxy(ctx, &val);
+    if(FAILED(hr))
+        return hr;
+    item->disp = get_object(val);
 
     return S_OK;
 }
@@ -178,7 +186,7 @@ named_item_t *lookup_named_item(script_ctx_t *ctx, const WCHAR *item_name, unsig
             }
 
             if(!item->disp && (flags || !(item->flags & SCRIPTITEM_CODEONLY))) {
-                hr = retrieve_named_item_disp(ctx->site, item);
+                hr = retrieve_named_item_disp(ctx, ctx->site, item);
                 if(FAILED(hr)) continue;
             }
 
@@ -778,7 +786,7 @@ static HRESULT WINAPI JScript_SetScriptSite(IActiveScript *iface,
     {
         if(!item->disp)
         {
-            hres = retrieve_named_item_disp(pass, item);
+            hres = retrieve_named_item_disp(This->ctx, pass, item);
             if(FAILED(hres)) return hres;
         }
 
@@ -901,7 +909,9 @@ static HRESULT WINAPI JScript_AddNamedItem(IActiveScript *iface,
         return E_UNEXPECTED;
 
     if(dwFlags & SCRIPTITEM_GLOBALMEMBERS) {
+        jsdisp_t *jsdisp;
         IUnknown *unk;
+        jsval_t val;
 
         hres = IActiveScriptSite_GetItemInfo(This->site, pstrName, SCRIPTINFO_IUNKNOWN, &unk, NULL);
         if(FAILED(hres)) {
@@ -914,6 +924,20 @@ static HRESULT WINAPI JScript_AddNamedItem(IActiveScript *iface,
         if(FAILED(hres)) {
             WARN("object does not implement IDispatch\n");
             return hres;
+        }
+
+        if(This->ctx->html_mode)
+            init_cc_api(disp);
+
+        val = jsval_disp(disp);
+        hres = convert_to_proxy(This->ctx, &val);
+        if(FAILED(hres))
+            return hres;
+        disp = get_object(val);
+
+        if((jsdisp = to_jsdisp(disp)) && jsdisp->proxy) {
+            jsdisp_release(This->ctx->global);
+            This->ctx->global = jsdisp_addref(jsdisp);
         }
     }
 
@@ -971,7 +995,7 @@ static HRESULT WINAPI JScript_GetScriptDispatch(IActiveScript *iface, LPCOLESTR 
         if(item->script_obj) script_obj = item->script_obj;
     }
 
-    *ppdisp = to_disp(script_obj);
+    *ppdisp = script_obj->proxy ? (IDispatch*)script_obj->proxy : to_disp(script_obj);
     IDispatch_AddRef(*ppdisp);
     return S_OK;
 }
@@ -1457,4 +1481,9 @@ HRESULT create_jscript_object(BOOL is_encode, REFIID riid, void **ppv)
     hres = IActiveScript_QueryInterface(&ret->IActiveScript_iface, riid, ppv);
     IActiveScript_Release(&ret->IActiveScript_iface);
     return hres;
+}
+
+script_ctx_t *get_script_ctx(IActiveScript *script)
+{
+    return (script->lpVtbl == &JScriptVtbl) ? impl_from_IActiveScript(script)->ctx : NULL;
 }

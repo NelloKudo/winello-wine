@@ -15,9 +15,9 @@
 
 #include "config.h" /* Load this before _anything_ */
 
-#include "../common/abi_align.h"
+#include "abi_align.h"
 
-#include "../compat/compat.h"
+#include "compat.h"
 
 // Only portable API plays a role in the library itself, outside of lfs_wrap.c.
 // Also, we need to ensure no suffix renaming for the primary implementations.
@@ -230,6 +230,12 @@ static inline int32_t scale_rounded(int32_t x, int shift)
 
 #endif
 
+#ifndef REAL_IS_FIXED
+# if (defined SIZEOF_INT32_T) && (SIZEOF_INT32_T != 4)
+#  error "Bad 32bit types!!!"
+# endif
+#endif
+
 #ifndef DOUBLE_TO_REAL
 # define DOUBLE_TO_REAL(x)					(real)(x)
 #endif
@@ -278,7 +284,7 @@ static inline int32_t scale_rounded(int32_t x, int shift)
    now: factor on minimum frame buffer size (which takes upsampling into account) */
 #define		AUDIOBUFSIZE		2
 
-#include "../common/true.h"
+#include "true.h"
 
 #define         MAX_NAME_SIZE           81
 #define         SBLIMIT                 32

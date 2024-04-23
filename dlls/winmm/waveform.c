@@ -261,7 +261,7 @@ static inline void WINMM_DecomposeHWAVE(HWAVE hwave, UINT *mmdevice_index,
 
 static void WINMM_InitDevice(WINMM_Device *device)
 {
-    InitializeCriticalSectionEx(&device->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&device->lock);
     device->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": WINMM_Device.lock");
 }
 
@@ -549,7 +549,7 @@ static HRESULT WINMM_InitMMDevice(EDataFlow flow, IMMDevice *device,
 
     dev->index = index;
 
-    InitializeCriticalSectionEx(&dev->lock, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
+    InitializeCriticalSection(&dev->lock);
     dev->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": WINMM_Device.lock");
 
     return S_OK;

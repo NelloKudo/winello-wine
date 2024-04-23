@@ -85,6 +85,24 @@ coclass GStreamerByteStreamHandler {}
 
 [
     threading(both),
+    uuid(317df619-5e5a-468a-9f15-d827a9a08162)
+]
+coclass GStreamerByteStreamHandler2 {}
+
+[
+    threading(both),
+    uuid(480b1517-c8e9-4eae-b006-e6300718d85d)
+]
+coclass GStreamerAudioDecoder {}
+
+[
+    threading(both),
+    uuid(480b1518-c8e9-4eae-b006-e6300718d85d)
+]
+coclass GStreamerVideoDecoder {}
+
+[
+    threading(both),
     uuid(2eeb4adf-4578-4d10-bca7-bb955f56320a)
 ]
 coclass CWMADecMediaObject {};
@@ -131,3 +149,10 @@ coclass MFMP3SinkClassFactory {}
     uuid(a22c4fc7-6e91-4e1d-89e9-53b2667b72ba)
 ]
 coclass MFMPEG4SinkClassFactory {}
+
+[
+    helpstring("GStreamer scheme handler"),
+    threading(both),
+    uuid(587eeb6a-7336-4ebd-a4f2-91c948de622c)
+]
+coclass GStreamerSchemePlugin { }

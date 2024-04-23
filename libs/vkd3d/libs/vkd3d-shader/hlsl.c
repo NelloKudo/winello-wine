@@ -134,39 +134,14 @@ struct hlsl_ir_var *hlsl_get_var(struct hlsl_scope *scope, const char *name)
     return hlsl_get_var(scope->upper, name);
 }
 
-static void free_state_block_entry(struct hlsl_state_block_entry *entry)
-{
-    vkd3d_free(entry->name);
-    vkd3d_free(entry->args);
-    hlsl_block_cleanup(entry->instrs);
-    vkd3d_free(entry->instrs);
-    vkd3d_free(entry);
-}
-
-void hlsl_free_state_block(struct hlsl_state_block *state_block)
-{
-    unsigned int k;
-
-    assert(state_block);
-    for (k = 0; k < state_block->count; ++k)
-        free_state_block_entry(state_block->entries[k]);
-    vkd3d_free(state_block->entries);
-    vkd3d_free(state_block);
-}
-
 void hlsl_free_var(struct hlsl_ir_var *decl)
 {
-    unsigned int k, i;
+    unsigned int k;
 
     vkd3d_free((void *)decl->name);
     hlsl_cleanup_semantic(&decl->semantic);
     for (k = 0; k <= HLSL_REGSET_LAST_OBJECT; ++k)
         vkd3d_free((void *)decl->objects_usage[k]);
-
-    for (i = 0; i < decl->state_block_count; ++i)
-        hlsl_free_state_block(decl->state_blocks[i]);
-    vkd3d_free(decl->state_blocks);
-
     vkd3d_free(decl);
 }
 
@@ -776,15 +751,14 @@ struct hlsl_type *hlsl_new_texture_type(struct hlsl_ctx *ctx, enum hlsl_sampler_
     type->dimx = 4;
     type->dimy = 1;
     type->sampler_dim = dim;
-    type->e.resource.format = format;
+    type->e.resource_format = format;
     type->sample_count = sample_count;
     hlsl_type_calculate_reg_size(ctx, type);
     list_add_tail(&ctx->types, &type->entry);
     return type;
 }
 
-struct hlsl_type *hlsl_new_uav_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim dim,
-        struct hlsl_type *format, bool rasteriser_ordered)
+struct hlsl_type *hlsl_new_uav_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim dim, struct hlsl_type *format)
 {
     struct hlsl_type *type;
 
@@ -795,8 +769,7 @@ struct hlsl_type *hlsl_new_uav_type(struct hlsl_ctx *ctx, enum hlsl_sampler_dim 
     type->dimx = format->dimx;
     type->dimy = 1;
     type->sampler_dim = dim;
-    type->e.resource.format = format;
-    type->e.resource.rasteriser_ordered = rasteriser_ordered;
+    type->e.resource_format = format;
     hlsl_type_calculate_reg_size(ctx, type);
     list_add_tail(&ctx->types, &type->entry);
     return type;
@@ -809,10 +782,7 @@ static const char * get_case_insensitive_typename(const char *name)
         "dword",
         "float",
         "matrix",
-        "pixelshader",
-        "texture",
         "vector",
-        "vertexshader",
     };
     unsigned int i;
 
@@ -915,11 +885,8 @@ bool hlsl_types_are_equal(const struct hlsl_type *t1, const struct hlsl_type *t2
     {
         if (t1->sampler_dim != t2->sampler_dim)
             return false;
-        if ((t1->base_type == HLSL_TYPE_TEXTURE || t1->base_type == HLSL_TYPE_UAV)
-                && t1->sampler_dim != HLSL_SAMPLER_DIM_GENERIC
-                && !hlsl_types_are_equal(t1->e.resource.format, t2->e.resource.format))
-            return false;
-        if (t1->base_type == HLSL_TYPE_UAV && t1->e.resource.rasteriser_ordered != t2->e.resource.rasteriser_ordered)
+        if (t1->base_type == HLSL_TYPE_TEXTURE && t1->sampler_dim != HLSL_SAMPLER_DIM_GENERIC
+                && !hlsl_types_are_equal(t1->e.resource_format, t2->e.resource_format))
             return false;
     }
     if ((t1->modifiers & HLSL_MODIFIER_ROW_MAJOR)
@@ -986,8 +953,6 @@ struct hlsl_type *hlsl_type_clone(struct hlsl_ctx *ctx, struct hlsl_type *old,
         type->modifiers |= default_majority;
     type->sampler_dim = old->sampler_dim;
     type->is_minimum_precision = old->is_minimum_precision;
-    type->sample_count = old->sample_count;
-
     switch (old->class)
     {
         case HLSL_CLASS_ARRAY:
@@ -1037,14 +1002,11 @@ struct hlsl_type *hlsl_type_clone(struct hlsl_ctx *ctx, struct hlsl_type *old,
         }
 
         case HLSL_CLASS_OBJECT:
+        {
             if (type->base_type == HLSL_TYPE_TECHNIQUE)
                 type->e.version = old->e.version;
-            if (old->base_type == HLSL_TYPE_TEXTURE || old->base_type == HLSL_TYPE_UAV)
-            {
-                type->e.resource.format = old->e.resource.format;
-                type->e.resource.rasteriser_ordered = old->e.resource.rasteriser_ordered;
-            }
             break;
+        }
 
         default:
             break;
@@ -1374,16 +1336,6 @@ struct hlsl_ir_node *hlsl_new_binary_expr(struct hlsl_ctx *ctx, enum hlsl_ir_exp
     return hlsl_new_expr(ctx, op, operands, arg1->data_type, &arg1->loc);
 }
 
-struct hlsl_ir_node *hlsl_new_ternary_expr(struct hlsl_ctx *ctx, enum hlsl_ir_expr_op op,
-        struct hlsl_ir_node *arg1, struct hlsl_ir_node *arg2, struct hlsl_ir_node *arg3)
-{
-    struct hlsl_ir_node *operands[HLSL_MAX_OPERANDS] = {arg1, arg2, arg3};
-
-    assert(hlsl_types_are_equal(arg1->data_type, arg2->data_type));
-    assert(hlsl_types_are_equal(arg1->data_type, arg3->data_type));
-    return hlsl_new_expr(ctx, op, operands, arg1->data_type, &arg1->loc);
-}
-
 struct hlsl_ir_node *hlsl_new_if(struct hlsl_ctx *ctx, struct hlsl_ir_node *condition,
         struct hlsl_block *then_block, struct hlsl_block *else_block, const struct vkd3d_shader_location *loc)
 {
@@ -1586,27 +1538,6 @@ struct hlsl_ir_node *hlsl_new_swizzle(struct hlsl_ctx *ctx, uint32_t s, unsigned
     return &swizzle->node;
 }
 
-struct hlsl_ir_node *hlsl_new_stateblock_constant(struct hlsl_ctx *ctx, const char *name,
-        struct vkd3d_shader_location *loc)
-{
-    struct hlsl_ir_stateblock_constant *constant;
-    struct hlsl_type *type = hlsl_get_scalar_type(ctx, HLSL_TYPE_INT);
-
-    if (!(constant = hlsl_alloc(ctx, sizeof(*constant))))
-        return NULL;
-
-    init_node(&constant->node, HLSL_IR_STATEBLOCK_CONSTANT, type, loc);
-
-    if (!(constant->name = hlsl_alloc(ctx, strlen(name) + 1)))
-    {
-        vkd3d_free(constant);
-        return NULL;
-    }
-    strcpy(constant->name, name);
-
-    return &constant->node;
-}
-
 bool hlsl_index_is_noncontiguous(struct hlsl_ir_index *index)
 {
     struct hlsl_type *type = index->val.node->data_type;
@@ -1616,19 +1547,7 @@ bool hlsl_index_is_noncontiguous(struct hlsl_ir_index *index)
 
 bool hlsl_index_is_resource_access(struct hlsl_ir_index *index)
 {
-    const struct hlsl_type *type = index->val.node->data_type;
-
-    return type->class == HLSL_CLASS_OBJECT
-            && (type->base_type == HLSL_TYPE_TEXTURE || type->base_type == HLSL_TYPE_UAV);
-}
-
-bool hlsl_index_chain_has_resource_access(struct hlsl_ir_index *index)
-{
-    if (hlsl_index_is_resource_access(index))
-        return true;
-    if (index->val.node->type == HLSL_IR_INDEX)
-        return hlsl_index_chain_has_resource_access(hlsl_ir_index(index->val.node));
-    return false;
+    return index->val.node->data_type->class == HLSL_CLASS_OBJECT;
 }
 
 struct hlsl_ir_node *hlsl_new_index(struct hlsl_ctx *ctx, struct hlsl_ir_node *val,
@@ -1641,7 +1560,7 @@ struct hlsl_ir_node *hlsl_new_index(struct hlsl_ctx *ctx, struct hlsl_ir_node *v
         return NULL;
 
     if (type->class == HLSL_CLASS_OBJECT)
-        type = type->e.resource.format;
+        type = type->e.resource_format;
     else if (type->class == HLSL_CLASS_MATRIX)
         type = hlsl_get_vector_type(ctx, type->base_type, type->dimx);
     else
@@ -1930,12 +1849,6 @@ static struct hlsl_ir_node *clone_index(struct hlsl_ctx *ctx, struct clone_instr
     return dst;
 }
 
-static struct hlsl_ir_node *clone_stateblock_constant(struct hlsl_ctx *ctx,
-        struct clone_instr_map *map, struct hlsl_ir_stateblock_constant *constant)
-{
-    return hlsl_new_stateblock_constant(ctx, constant->name, &constant->node.loc);
-}
-
 void hlsl_free_ir_switch_case(struct hlsl_ir_switch_case *c)
 {
     hlsl_block_cleanup(&c->body);
@@ -2031,9 +1944,6 @@ static struct hlsl_ir_node *clone_instr(struct hlsl_ctx *ctx,
 
         case HLSL_IR_SWIZZLE:
             return clone_swizzle(ctx, map, hlsl_ir_swizzle(instr));
-
-        case HLSL_IR_STATEBLOCK_CONSTANT:
-            return clone_stateblock_constant(ctx, map, hlsl_ir_stateblock_constant(instr));
     }
 
     vkd3d_unreachable();
@@ -2089,8 +1999,7 @@ struct hlsl_ir_function_decl *hlsl_new_func_decl(struct hlsl_ctx *ctx,
 }
 
 struct hlsl_buffer *hlsl_new_buffer(struct hlsl_ctx *ctx, enum hlsl_buffer_type type, const char *name,
-        uint32_t modifiers, const struct hlsl_reg_reservation *reservation, struct hlsl_scope *annotations,
-        const struct vkd3d_shader_location *loc)
+        const struct hlsl_reg_reservation *reservation, const struct vkd3d_shader_location *loc)
 {
     struct hlsl_buffer *buffer;
 
@@ -2098,10 +2007,8 @@ struct hlsl_buffer *hlsl_new_buffer(struct hlsl_ctx *ctx, enum hlsl_buffer_type 
         return NULL;
     buffer->type = type;
     buffer->name = name;
-    buffer->modifiers = modifiers;
     if (reservation)
         buffer->reservation = *reservation;
-    buffer->annotations = annotations;
     buffer->loc = *loc;
     list_add_tail(&ctx->buffers, &buffer->entry);
     return buffer;
@@ -2281,17 +2188,10 @@ struct vkd3d_string_buffer *hlsl_type_to_string(struct hlsl_ctx *ctx, const stru
                         return string;
                     }
 
-                    assert(type->e.resource.format->base_type < ARRAY_SIZE(base_types));
-                    if (type->sampler_dim == HLSL_SAMPLER_DIM_BUFFER)
-                    {
-                        vkd3d_string_buffer_printf(string, "Buffer");
-                    }
-                    else
-                    {
-                        assert(type->sampler_dim < ARRAY_SIZE(dimensions));
-                        vkd3d_string_buffer_printf(string, "Texture%s", dimensions[type->sampler_dim]);
-                    }
-                    if ((inner_string = hlsl_type_to_string(ctx, type->e.resource.format)))
+                    assert(type->sampler_dim < ARRAY_SIZE(dimensions));
+                    assert(type->e.resource_format->base_type < ARRAY_SIZE(base_types));
+                    vkd3d_string_buffer_printf(string, "Texture%s", dimensions[type->sampler_dim]);
+                    if ((inner_string = hlsl_type_to_string(ctx, type->e.resource_format)))
                     {
                         vkd3d_string_buffer_printf(string, "<%s>", inner_string->buffer);
                         hlsl_release_string_buffer(ctx, inner_string);
@@ -2305,7 +2205,7 @@ struct vkd3d_string_buffer *hlsl_type_to_string(struct hlsl_ctx *ctx, const stru
                         vkd3d_string_buffer_printf(string, "RWStructuredBuffer");
                     else
                         vkd3d_string_buffer_printf(string, "RWTexture%s", dimensions[type->sampler_dim]);
-                    if ((inner_string = hlsl_type_to_string(ctx, type->e.resource.format)))
+                    if ((inner_string = hlsl_type_to_string(ctx, type->e.resource_format)))
                     {
                         vkd3d_string_buffer_printf(string, "<%s>", inner_string->buffer);
                         hlsl_release_string_buffer(ctx, inner_string);
@@ -2685,10 +2585,10 @@ const char *debug_hlsl_expr_op(enum hlsl_ir_expr_op op)
         [HLSL_OP2_MUL]         = "*",
         [HLSL_OP2_NEQUAL]      = "!=",
         [HLSL_OP2_RSHIFT]      = ">>",
-        [HLSL_OP2_SLT]         = "slt",
 
         [HLSL_OP3_CMP]         = "cmp",
         [HLSL_OP3_DP2ADD]      = "dp2add",
+        [HLSL_OP3_MOVC]        = "movc",
         [HLSL_OP3_TERNARY]     = "ternary",
     };
 
@@ -2865,12 +2765,6 @@ static void dump_ir_index(struct vkd3d_string_buffer *buffer, const struct hlsl_
     vkd3d_string_buffer_printf(buffer, "]");
 }
 
-static void dump_ir_stateblock_constant(struct vkd3d_string_buffer *buffer,
-        const struct hlsl_ir_stateblock_constant *constant)
-{
-    vkd3d_string_buffer_printf(buffer, "%s", constant->name);
-}
-
 static void dump_ir_switch(struct hlsl_ctx *ctx, struct vkd3d_string_buffer *buffer, const struct hlsl_ir_switch *s)
 {
     struct hlsl_ir_switch_case *c;
@@ -2958,10 +2852,6 @@ static void dump_instr(struct hlsl_ctx *ctx, struct vkd3d_string_buffer *buffer,
 
         case HLSL_IR_SWIZZLE:
             dump_ir_swizzle(buffer, hlsl_ir_swizzle(instr));
-            break;
-
-        case HLSL_IR_STATEBLOCK_CONSTANT:
-            dump_ir_stateblock_constant(buffer, hlsl_ir_stateblock_constant(instr));
             break;
     }
 }
@@ -3101,7 +2991,7 @@ static void free_ir_resource_load(struct hlsl_ir_resource_load *load)
 
 static void free_ir_resource_store(struct hlsl_ir_resource_store *store)
 {
-    hlsl_cleanup_deref(&store->resource);
+    hlsl_src_remove(&store->resource.rel_offset);
     hlsl_src_remove(&store->coords);
     hlsl_src_remove(&store->value);
     vkd3d_free(store);
@@ -3133,12 +3023,6 @@ static void free_ir_index(struct hlsl_ir_index *index)
     hlsl_src_remove(&index->val);
     hlsl_src_remove(&index->idx);
     vkd3d_free(index);
-}
-
-static void free_ir_stateblock_constant(struct hlsl_ir_stateblock_constant *constant)
-{
-    vkd3d_free(constant->name);
-    vkd3d_free(constant);
 }
 
 void hlsl_free_instr(struct hlsl_ir_node *node)
@@ -3197,10 +3081,6 @@ void hlsl_free_instr(struct hlsl_ir_node *node)
 
         case HLSL_IR_SWITCH:
             free_ir_switch(hlsl_ir_switch(node));
-            break;
-
-        case HLSL_IR_STATEBLOCK_CONSTANT:
-            free_ir_stateblock_constant(hlsl_ir_stateblock_constant(node));
             break;
     }
 }
@@ -3367,9 +3247,7 @@ const struct hlsl_profile_info *hlsl_get_target_info(const char *target)
         {"cs_4_0",              VKD3D_SHADER_TYPE_COMPUTE,  4, 0, 0, 0, false},
         {"cs_4_1",              VKD3D_SHADER_TYPE_COMPUTE,  4, 1, 0, 0, false},
         {"cs_5_0",              VKD3D_SHADER_TYPE_COMPUTE,  5, 0, 0, 0, false},
-        {"cs_5_1",              VKD3D_SHADER_TYPE_COMPUTE,  5, 1, 0, 0, false},
         {"ds_5_0",              VKD3D_SHADER_TYPE_DOMAIN,   5, 0, 0, 0, false},
-        {"ds_5_1",              VKD3D_SHADER_TYPE_DOMAIN,   5, 1, 0, 0, false},
         {"fx_2_0",              VKD3D_SHADER_TYPE_EFFECT,   2, 0, 0, 0, false},
         {"fx_4_0",              VKD3D_SHADER_TYPE_EFFECT,   4, 0, 0, 0, false},
         {"fx_4_1",              VKD3D_SHADER_TYPE_EFFECT,   4, 1, 0, 0, false},
@@ -3377,9 +3255,7 @@ const struct hlsl_profile_info *hlsl_get_target_info(const char *target)
         {"gs_4_0",              VKD3D_SHADER_TYPE_GEOMETRY, 4, 0, 0, 0, false},
         {"gs_4_1",              VKD3D_SHADER_TYPE_GEOMETRY, 4, 1, 0, 0, false},
         {"gs_5_0",              VKD3D_SHADER_TYPE_GEOMETRY, 5, 0, 0, 0, false},
-        {"gs_5_1",              VKD3D_SHADER_TYPE_GEOMETRY, 5, 1, 0, 0, false},
         {"hs_5_0",              VKD3D_SHADER_TYPE_HULL,     5, 0, 0, 0, false},
-        {"hs_5_1",              VKD3D_SHADER_TYPE_HULL,     5, 1, 0, 0, false},
         {"ps.1.0",              VKD3D_SHADER_TYPE_PIXEL,    1, 0, 0, 0, false},
         {"ps.1.1",              VKD3D_SHADER_TYPE_PIXEL,    1, 1, 0, 0, false},
         {"ps.1.2",              VKD3D_SHADER_TYPE_PIXEL,    1, 2, 0, 0, false},
@@ -3407,7 +3283,6 @@ const struct hlsl_profile_info *hlsl_get_target_info(const char *target)
         {"ps_4_0_level_9_3",    VKD3D_SHADER_TYPE_PIXEL,    4, 0, 9, 3, false},
         {"ps_4_1",              VKD3D_SHADER_TYPE_PIXEL,    4, 1, 0, 0, false},
         {"ps_5_0",              VKD3D_SHADER_TYPE_PIXEL,    5, 0, 0, 0, false},
-        {"ps_5_1",              VKD3D_SHADER_TYPE_PIXEL,    5, 1, 0, 0, false},
         {"tx_1_0",              VKD3D_SHADER_TYPE_TEXTURE,  1, 0, 0, 0, false},
         {"vs.1.0",              VKD3D_SHADER_TYPE_VERTEX,   1, 0, 0, 0, false},
         {"vs.1.1",              VKD3D_SHADER_TYPE_VERTEX,   1, 1, 0, 0, false},
@@ -3429,7 +3304,6 @@ const struct hlsl_profile_info *hlsl_get_target_info(const char *target)
         {"vs_4_0_level_9_3",    VKD3D_SHADER_TYPE_VERTEX,   4, 0, 9, 3, false},
         {"vs_4_1",              VKD3D_SHADER_TYPE_VERTEX,   4, 1, 0, 0, false},
         {"vs_5_0",              VKD3D_SHADER_TYPE_VERTEX,   5, 0, 0, 0, false},
-        {"vs_5_1",              VKD3D_SHADER_TYPE_VERTEX,   5, 1, 0, 0, false},
     };
 
     for (i = 0; i < ARRAY_SIZE(profiles); ++i)
@@ -3481,7 +3355,7 @@ static void declare_predefined_types(struct hlsl_ctx *ctx)
 
     static const struct
     {
-        char name[20];
+        char name[13];
         enum hlsl_type_class class;
         enum hlsl_base_type base_type;
         unsigned int dimx, dimy;
@@ -3489,21 +3363,19 @@ static void declare_predefined_types(struct hlsl_ctx *ctx)
     effect_types[] =
     {
         {"dword",           HLSL_CLASS_SCALAR, HLSL_TYPE_UINT,          1, 1},
+        {"float",           HLSL_CLASS_SCALAR, HLSL_TYPE_FLOAT,         1, 1},
         {"vector",          HLSL_CLASS_VECTOR, HLSL_TYPE_FLOAT,         4, 1},
         {"matrix",          HLSL_CLASS_MATRIX, HLSL_TYPE_FLOAT,         4, 4},
         {"fxgroup",         HLSL_CLASS_OBJECT, HLSL_TYPE_EFFECT_GROUP,  1, 1},
-        {"pass",            HLSL_CLASS_OBJECT, HLSL_TYPE_PASS,          1, 1},
         {"STRING",          HLSL_CLASS_OBJECT, HLSL_TYPE_STRING,        1, 1},
-        {"texture",         HLSL_CLASS_OBJECT, HLSL_TYPE_TEXTURE,       1, 1},
-        {"pixelshader",     HLSL_CLASS_OBJECT, HLSL_TYPE_PIXELSHADER,   1, 1},
-        {"vertexshader",    HLSL_CLASS_OBJECT, HLSL_TYPE_VERTEXSHADER,  1, 1},
-        {"RenderTargetView",HLSL_CLASS_OBJECT, HLSL_TYPE_RENDERTARGETVIEW, 1, 1},
-        {"DepthStencilView",HLSL_CLASS_OBJECT, HLSL_TYPE_DEPTHSTENCILVIEW, 1, 1},
+        {"TEXTURE",         HLSL_CLASS_OBJECT, HLSL_TYPE_TEXTURE,       1, 1},
+        {"PIXELSHADER",     HLSL_CLASS_OBJECT, HLSL_TYPE_PIXELSHADER,   1, 1},
+        {"VERTEXSHADER",    HLSL_CLASS_OBJECT, HLSL_TYPE_VERTEXSHADER,  1, 1},
     };
 
     static const struct
     {
-        const char *name;
+        char *name;
         unsigned int version;
     }
     technique_types[] =
@@ -3671,46 +3543,27 @@ static bool hlsl_ctx_init(struct hlsl_ctx *ctx, const struct vkd3d_shader_compil
     list_init(&ctx->buffers);
 
     if (!(ctx->globals_buffer = hlsl_new_buffer(ctx, HLSL_BUFFER_CONSTANT,
-            hlsl_strdup(ctx, "$Globals"), 0, NULL, NULL, &ctx->location)))
+            hlsl_strdup(ctx, "$Globals"), NULL, &ctx->location)))
         return false;
     if (!(ctx->params_buffer = hlsl_new_buffer(ctx, HLSL_BUFFER_CONSTANT,
-            hlsl_strdup(ctx, "$Params"), 0, NULL, NULL, &ctx->location)))
+            hlsl_strdup(ctx, "$Params"), NULL, &ctx->location)))
         return false;
     ctx->cur_buffer = ctx->globals_buffer;
-
-    ctx->warn_implicit_truncation = true;
 
     for (i = 0; i < compile_info->option_count; ++i)
     {
         const struct vkd3d_shader_compile_option *option = &compile_info->options[i];
 
-        switch (option->name)
+        if (option->name == VKD3D_SHADER_COMPILE_OPTION_PACK_MATRIX_ORDER)
         {
-            case VKD3D_SHADER_COMPILE_OPTION_PACK_MATRIX_ORDER:
-                if (option->value == VKD3D_SHADER_COMPILE_OPTION_PACK_MATRIX_ROW_MAJOR)
-                    ctx->matrix_majority = HLSL_MODIFIER_ROW_MAJOR;
-                else if (option->value == VKD3D_SHADER_COMPILE_OPTION_PACK_MATRIX_COLUMN_MAJOR)
-                    ctx->matrix_majority = HLSL_MODIFIER_COLUMN_MAJOR;
-                break;
-
-            case VKD3D_SHADER_COMPILE_OPTION_BACKWARD_COMPATIBILITY:
-                ctx->semantic_compat_mapping = option->value & VKD3D_SHADER_COMPILE_OPTION_BACKCOMPAT_MAP_SEMANTIC_NAMES;
-                break;
-
-            case VKD3D_SHADER_COMPILE_OPTION_CHILD_EFFECT:
-                ctx->child_effect = option->value;
-                break;
-
-            case VKD3D_SHADER_COMPILE_OPTION_WARN_IMPLICIT_TRUNCATION:
-                ctx->warn_implicit_truncation = option->value;
-                break;
-
-            case VKD3D_SHADER_COMPILE_OPTION_INCLUDE_EMPTY_BUFFERS_IN_EFFECTS:
-                ctx->include_empty_buffers = option->value;
-                break;
-
-            default:
-                break;
+            if (option->value == VKD3D_SHADER_COMPILE_OPTION_PACK_MATRIX_ROW_MAJOR)
+                ctx->matrix_majority = HLSL_MODIFIER_ROW_MAJOR;
+            else if (option->value == VKD3D_SHADER_COMPILE_OPTION_PACK_MATRIX_COLUMN_MAJOR)
+                ctx->matrix_majority = HLSL_MODIFIER_COLUMN_MAJOR;
+        }
+        else if (option->name == VKD3D_SHADER_COMPILE_OPTION_BACKWARD_COMPATIBILITY)
+        {
+            ctx->semantic_compat_mapping = option->value & VKD3D_SHADER_COMPILE_OPTION_BACKCOMPAT_MAP_SEMANTIC_NAMES;
         }
     }
 
@@ -3733,21 +3586,6 @@ static void hlsl_ctx_cleanup(struct hlsl_ctx *ctx)
     vkd3d_string_buffer_cache_cleanup(&ctx->string_buffers);
 
     rb_destroy(&ctx->functions, free_function_rb, NULL);
-
-    /* State blocks must be free before the variables, because they contain instructions that may
-     * refer to them. */
-    LIST_FOR_EACH_ENTRY_SAFE(scope, next_scope, &ctx->scopes, struct hlsl_scope, entry)
-    {
-        LIST_FOR_EACH_ENTRY_SAFE(var, next_var, &scope->vars, struct hlsl_ir_var, scope_entry)
-        {
-            for (i = 0; i < var->state_block_count; ++i)
-                hlsl_free_state_block(var->state_blocks[i]);
-            vkd3d_free(var->state_blocks);
-            var->state_blocks = NULL;
-            var->state_block_count = 0;
-            var->state_block_capacity = 0;
-        }
-    }
 
     LIST_FOR_EACH_ENTRY_SAFE(scope, next_scope, &ctx->scopes, struct hlsl_scope, entry)
     {

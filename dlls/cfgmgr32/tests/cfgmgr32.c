@@ -17,7 +17,6 @@
  */
 
 #include "wine/test.h"
-#include "winreg.h"
 #include "cfgmgr32.h"
 
 static void test_CM_MapCrToWin32Err(void)

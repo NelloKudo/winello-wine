@@ -94,8 +94,8 @@ msgstr "Informationen"
 #: dlls/mshtml/mshtml.rc:47 dlls/mshtml/mshtml.rc:57 dlls/msvfw32/msvfw32.rc:36
 #: dlls/oledlg/oledlg.rc:62 dlls/oledlg/oledlg.rc:94
 #: dlls/serialui/serialui.rc:41 dlls/setupapi/setupapi.rc:59
-#: dlls/shell32/shell32.rc:278 dlls/shell32/shell32.rc:302
-#: dlls/shell32/shell32.rc:324 dlls/shell32/shell32.rc:343
+#: dlls/shell32/shell32.rc:274 dlls/shell32/shell32.rc:298
+#: dlls/shell32/shell32.rc:320 dlls/shell32/shell32.rc:339
 #: dlls/shlwapi/shlwapi.rc:44 dlls/twain_32/twain.rc:32
 #: dlls/user32/user32.rc:94 dlls/user32/user32.rc:109 dlls/user32/user32.rc:73
 #: dlls/wininet/wininet.rc:62 dlls/wininet/wininet.rc:82
@@ -201,9 +201,9 @@ msgstr "&Installieren"
 #: dlls/mshtml/mshtml.rc:48 dlls/mshtml/mshtml.rc:58 dlls/msvfw32/msvfw32.rc:37
 #: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95
 #: dlls/serialui/serialui.rc:42 dlls/setupapi/setupapi.rc:42
-#: dlls/setupapi/setupapi.rc:60 dlls/shell32/shell32.rc:279
-#: dlls/shell32/shell32.rc:303 dlls/shell32/shell32.rc:314
-#: dlls/shell32/shell32.rc:344 dlls/shlwapi/shlwapi.rc:45
+#: dlls/setupapi/setupapi.rc:60 dlls/shell32/shell32.rc:275
+#: dlls/shell32/shell32.rc:299 dlls/shell32/shell32.rc:310
+#: dlls/shell32/shell32.rc:340 dlls/shlwapi/shlwapi.rc:45
 #: dlls/twain_32/twain.rc:33 dlls/user32/user32.rc:95 dlls/user32/user32.rc:110
 #: dlls/user32/user32.rc:74 dlls/wininet/wininet.rc:63
 #: dlls/wininet/wininet.rc:83 dlls/winspool.drv/winspool.rc:43
@@ -275,7 +275,7 @@ msgid "Not specified"
 msgstr "Nicht angegeben"
 
 #: dlls/appwiz.cpl/appwiz.rc:38 dlls/oledb32/version.rc:38
-#: dlls/shell32/shell32.rc:141 dlls/shell32/shell32.rc:243
+#: dlls/shell32/shell32.rc:144 dlls/shell32/shell32.rc:239
 #: programs/regedit/regedit.rc:150 programs/winefile/winefile.rc:106
 msgid "Name"
 msgstr "Name"
@@ -297,7 +297,7 @@ msgid "Programs (*.exe)"
 msgstr "Programme (*.exe)"
 
 #: dlls/appwiz.cpl/appwiz.rc:43 dlls/avifil32/avifil32.rc:33
-#: dlls/cryptui/cryptui.rc:83 dlls/shell32/shell32.rc:199
+#: dlls/cryptui/cryptui.rc:83 dlls/shell32/shell32.rc:197
 #: programs/notepad/notepad.rc:81 programs/oleview/oleview.rc:103
 #: programs/progman/progman.rc:82 programs/regedit/regedit.rc:230
 #: programs/winedbg/winedbg.rc:43 programs/winhlp32/winhlp32.rc:90
@@ -459,7 +459,7 @@ msgstr "&Zurücksetzen"
 #: dlls/comdlg32/comdlg32.rc:482 dlls/comdlg32/comdlg32.rc:508
 #: dlls/comdlg32/comdlg32.rc:531 dlls/ieframe/ieframe.rc:58
 #: dlls/msacm32/msacm32.rc:52 dlls/oledlg/oledlg.rc:96
-#: dlls/shell32/shell32.rc:125 programs/clock/clock.rc:44
+#: dlls/shell32/shell32.rc:128 programs/clock/clock.rc:44
 #: programs/notepad/notepad.rc:65 programs/notepad/notepad.rc:126
 #: programs/oleview/oleview.rc:72 programs/progman/progman.rc:55
 #: programs/progman/progman.rc:108 programs/progman/progman.rc:126
@@ -505,12 +505,12 @@ msgctxt "hotkey"
 msgid "None"
 msgstr "Kein"
 
-#: dlls/comctl32/comctl32.rc:52 dlls/shell32/shell32.rc:311
+#: dlls/comctl32/comctl32.rc:52 dlls/shell32/shell32.rc:307
 #: dlls/shlwapi/shlwapi.rc:46 dlls/user32/user32.rc:90 dlls/user32/user32.rc:78
 msgid "&Yes"
 msgstr "&Ja"
 
-#: dlls/comctl32/comctl32.rc:53 dlls/shell32/shell32.rc:313
+#: dlls/comctl32/comctl32.rc:53 dlls/shell32/shell32.rc:309
 #: dlls/shlwapi/shlwapi.rc:47 dlls/user32/user32.rc:91 dlls/user32/user32.rc:79
 msgid "&No"
 msgstr "&Nein"
@@ -545,7 +545,8 @@ msgstr "Gehe zu Heute"
 
 #: dlls/comdlg32/comdlg32.rc:158 dlls/comdlg32/comdlg32.rc:171
 #: dlls/comdlg32/comdlg32.rc:462 dlls/comdlg32/comdlg32.rc:487
-#: dlls/comdlg32/comdlg32.rc:514 programs/oleview/oleview.rc:101
+#: dlls/comdlg32/comdlg32.rc:514 dlls/shell32/shell32.rc:165
+#: programs/oleview/oleview.rc:101
 msgid "Open"
 msgstr "Öffnen"
 
@@ -566,7 +567,7 @@ msgid "Dri&ves:"
 msgstr "&Laufwerke:"
 
 #: dlls/comdlg32/comdlg32.rc:174 dlls/comdlg32/comdlg32.rc:196
-#: dlls/shell32/shell32.rc:372 dlls/shell32/shell32.rc:409
+#: dlls/shell32/shell32.rc:368 dlls/shell32/shell32.rc:405
 #: programs/winefile/winefile.rc:172
 msgid "&Read Only"
 msgstr "&Schreibgeschützt"
@@ -825,7 +826,7 @@ msgstr "A&lles ersetzen"
 
 #: dlls/comdlg32/comdlg32.rc:363 dlls/comdlg32/comdlg32.rc:403
 #: dlls/ieframe/ieframe.rc:42 dlls/shdoclc/shdoclc.rc:61
-#: dlls/shell32/shell32.rc:105 programs/clock/clock.rc:31
+#: dlls/shell32/shell32.rc:108 programs/clock/clock.rc:31
 #: programs/conhost/conhost.rc:34
 msgid "&Properties"
 msgstr "&Eigenschaften"
@@ -949,7 +950,7 @@ msgstr "Schreibgeschüt&zt"
 
 #: dlls/comdlg32/comdlg32.rc:480 dlls/comdlg32/comdlg32.rc:506
 #: dlls/comdlg32/comdlg32.rc:524 dlls/shdoclc/shdoclc.rc:127
-#: dlls/shell32/shell32.rc:165
+#: dlls/shell32/shell32.rc:99
 msgid "&Open"
 msgstr "&Öffnen"
 
@@ -2250,8 +2251,8 @@ msgid "Notice Text="
 msgstr "Benachrichtigungstext="
 
 #: dlls/cryptui/cryptui.rc:185 dlls/cryptui/cryptui.rc:240
-#: dlls/inetcpl.cpl/inetcpl.rc:46 dlls/shell32/shell32.rc:350
-#: dlls/shell32/shell32.rc:379
+#: dlls/inetcpl.cpl/inetcpl.rc:46 dlls/shell32/shell32.rc:346
+#: dlls/shell32/shell32.rc:375
 msgid "General"
 msgstr "Allgemein"
 
@@ -2468,7 +2469,7 @@ msgid "Certificate intended purposes"
 msgstr "Beabsichtigte Zwecke des Zertifikats"
 
 #: dlls/cryptui/cryptui.rc:355 dlls/ieframe/ieframe.rc:45
-#: dlls/shell32/shell32.rc:43 dlls/shell32/shell32.rc:117
+#: dlls/shell32/shell32.rc:43 dlls/shell32/shell32.rc:120
 #: programs/notepad/notepad.rc:61 programs/oleview/oleview.rc:59
 #: programs/oleview/oleview.rc:61 programs/oleview/oleview.rc:85
 #: programs/regedit/regedit.rc:65 programs/taskmgr/taskmgr.rc:52
@@ -2750,7 +2751,7 @@ msgstr "Erweiterte Schlüsselnutzung (Eigenschaft)"
 msgid "Friendly name"
 msgstr "Angezeigter Name"
 
-#: dlls/cryptui/cryptui.rc:65 dlls/shell32/shell32.rc:244
+#: dlls/cryptui/cryptui.rc:65 dlls/shell32/shell32.rc:240
 #: programs/ipconfig/ipconfig.rc:45
 msgid "Description"
 msgstr "Beschreibung"
@@ -2845,7 +2846,7 @@ msgstr "Zertifikatsspeicher gewählt"
 msgid "Automatically determined by the program"
 msgstr "Automatisch ausgewählt"
 
-#: dlls/cryptui/cryptui.rc:91 dlls/shell32/shell32.rc:134
+#: dlls/cryptui/cryptui.rc:91 dlls/shell32/shell32.rc:137
 msgid "File"
 msgstr "Datei"
 
@@ -3141,7 +3142,7 @@ msgstr ""
 msgid "Intended Use"
 msgstr "Geplanter Zweck"
 
-#: dlls/cryptui/cryptui.rc:178 dlls/shell32/shell32.rc:147
+#: dlls/cryptui/cryptui.rc:178 dlls/shell32/shell32.rc:150
 msgid "Location"
 msgstr "Ort"
 
@@ -3367,7 +3368,7 @@ msgstr "&Ausschneiden"
 #: dlls/hhctrl.ocx/hhctrl.rc:88 dlls/shdoclc/shdoclc.rc:80
 #: dlls/shdoclc/shdoclc.rc:94 dlls/shdoclc/shdoclc.rc:118
 #: dlls/shdoclc/shdoclc.rc:133 dlls/shdoclc/shdoclc.rc:160
-#: dlls/shdoclc/shdoclc.rc:184 dlls/shell32/shell32.rc:98
+#: dlls/shdoclc/shdoclc.rc:184 dlls/shell32/shell32.rc:102
 #: dlls/user32/user32.rc:61 programs/conhost/conhost.rc:36
 #: programs/winhlp32/winhlp32.rc:40 programs/wordpad/wordpad.rc:113
 msgid "&Copy"
@@ -3379,7 +3380,6 @@ msgid "Paste"
 msgstr "Einfügen"
 
 #: dlls/hhctrl.ocx/hhctrl.rc:91 dlls/shdoclc/shdoclc.rc:121
-#: dlls/shell32/shell32.rc:166
 msgid "&Print"
 msgstr "&Drucken"
 
@@ -3446,7 +3446,7 @@ msgstr "Vorwärts"
 msgid "Cinepak Video codec"
 msgstr "Cinepak-Video-Codec"
 
-#: dlls/ieframe/ieframe.rc:28 dlls/shell32/shell32.rc:111
+#: dlls/ieframe/ieframe.rc:28 dlls/shell32/shell32.rc:114
 #: programs/notepad/notepad.rc:29 programs/oleview/oleview.rc:30
 #: programs/oleview/oleview.rc:80 programs/progman/progman.rc:32
 #: programs/taskmgr/taskmgr.rc:35 programs/view/view.rc:31
@@ -3964,15 +3964,15 @@ msgstr "Bedingte Kompilierung ist ausgeschaltet"
 msgid "Expected '@'"
 msgstr "'@' erwartet"
 
-#: dlls/jscript/jscript.rc:89
+#: dlls/jscript/jscript.rc:84
 msgid "Microsoft JScript compilation error"
 msgstr "Microsoft JScript Übersetzungsfehler"
 
-#: dlls/jscript/jscript.rc:90
+#: dlls/jscript/jscript.rc:85
 msgid "Microsoft JScript runtime error"
 msgstr "Microsoft JScript Laufzeitfehler"
 
-#: dlls/jscript/jscript.rc:91 dlls/vbscript/vbscript.rc:64
+#: dlls/jscript/jscript.rc:86 dlls/vbscript/vbscript.rc:64
 msgid "Unknown runtime error"
 msgstr "Unbekannter Laufzeitfehler"
 
@@ -4090,38 +4090,14 @@ msgid "Cannot modify non-writable property '|'"
 msgstr "Nicht-schreibbare Eigenschaft '|' kann nicht geändert werden"
 
 #: dlls/jscript/jscript.rc:80
-#, fuzzy
-#| msgid "'this' is not a | object"
-msgid "'this' is not a DataView object"
-msgstr "'this' ist kein |-Objekt"
-
-#: dlls/jscript/jscript.rc:81
-msgid "Required argument offset or value in DataView method is not specified"
-msgstr ""
-
-#: dlls/jscript/jscript.rc:82
-msgid "DataView operation access beyond specified buffer length"
-msgstr ""
-
-#: dlls/jscript/jscript.rc:83
-msgid "DataView constructor argument offset is invalid"
-msgstr ""
-
-#: dlls/jscript/jscript.rc:84
 msgid "'this' is not a | object"
 msgstr "'this' ist kein |-Objekt"
 
-#: dlls/jscript/jscript.rc:85
+#: dlls/jscript/jscript.rc:81
 msgid "'key' is not an object"
 msgstr "'key' ist kein Objekt"
 
-#: dlls/jscript/jscript.rc:86
-#, fuzzy
-#| msgid "Array object expected"
-msgid "ArrayBuffer object expected"
-msgstr "Array-Objekt erwartet"
-
-#: dlls/jscript/jscript.rc:87
+#: dlls/jscript/jscript.rc:82
 msgid "Property cannot have both accessors and a value"
 msgstr "Eigenschaft kann nicht sowohl Accessoren als auch einen Wert haben"
 
@@ -5544,7 +5520,7 @@ msgstr "Vorgang durch Benutzer abgebrochen.\n"
 msgid "File has a user-mapped section.\n"
 msgstr "Datei hat von Benutzer abgebildeten Abschnitt.\n"
 
-#: dlls/kernelbase/winerror.mc:1758 dlls/kernelbase/winerror.mc:3788
+#: dlls/kernelbase/winerror.mc:1758 dlls/kernelbase/winerror.mc:3783
 msgid "Connection refused.\n"
 msgstr "Verbindung abgelehnt.\n"
 
@@ -7145,46 +7121,42 @@ msgid "Invalid argument.\n"
 msgstr "Ungültiges Argument.\n"
 
 #: dlls/kernelbase/winerror.mc:3778
-msgid "Cannot assign requested address.\n"
-msgstr ""
-
-#: dlls/kernelbase/winerror.mc:3783
 msgid "Connection reset by peer.\n"
 msgstr "Verbindung von Gegenstelle zurückgesetzt.\n"
 
-#: dlls/kernelbase/winerror.mc:3793
+#: dlls/kernelbase/winerror.mc:3788
 msgid "Host not found.\n"
 msgstr "Host nicht gefunden.\n"
 
-#: dlls/kernelbase/winerror.mc:3798
+#: dlls/kernelbase/winerror.mc:3793
 msgid "Nonauthoritative host not found.\n"
 msgstr "Nicht-authoritativer Host nicht gefunden.\n"
 
-#: dlls/kernelbase/winerror.mc:3803
+#: dlls/kernelbase/winerror.mc:3798
 msgid "Nonrecoverable error.\n"
 msgstr "Unausgleichbarer Fehler.\n"
 
-#: dlls/kernelbase/winerror.mc:3808
+#: dlls/kernelbase/winerror.mc:3803
 msgid "Name valid, no data record.\n"
 msgstr "Name gültig, kein Datensatz.\n"
 
-#: dlls/kernelbase/winerror.mc:3822
+#: dlls/kernelbase/winerror.mc:3817
 msgid "Not implemented.\n"
 msgstr "Nicht implementiert.\n"
 
-#: dlls/kernelbase/winerror.mc:3843
+#: dlls/kernelbase/winerror.mc:3838
 msgid "Call failed.\n"
 msgstr "Aufruf fehlgeschlagen.\n"
 
-#: dlls/kernelbase/winerror.mc:3815
+#: dlls/kernelbase/winerror.mc:3810
 msgid "No Signature found in file.\n"
 msgstr "Keine Signatur in Datei gefunden.\n"
 
-#: dlls/kernelbase/winerror.mc:3829
+#: dlls/kernelbase/winerror.mc:3824
 msgid "Invalid call.\n"
 msgstr "Ungültiger Aufruf.\n"
 
-#: dlls/kernelbase/winerror.mc:3836
+#: dlls/kernelbase/winerror.mc:3831
 msgid "Resource is not currently available.\n"
 msgstr "Ressource ist zur Zeit nicht verfügbar.\n"
 
@@ -8271,7 +8243,7 @@ msgstr "Feature von:"
 msgid "choose which folder contains %s"
 msgstr "Wählen Sie das Verzeichnis aus, das %s enthält"
 
-#: dlls/msi/msi.rc:66 dlls/shell32/shell32.rc:238
+#: dlls/msi/msi.rc:66 dlls/shell32/shell32.rc:236
 msgid "New Folder"
 msgstr "Neuer Ordner"
 
@@ -9402,9 +9374,8 @@ msgstr "Quelle:"
 #: dlls/oledlg/oledlg.rc:86 dlls/shdoclc/shdoclc.rc:50
 #: dlls/shdoclc/shdoclc.rc:82 dlls/shdoclc/shdoclc.rc:95
 #: dlls/shdoclc/shdoclc.rc:135 dlls/shdoclc/shdoclc.rc:162
-#: dlls/shdoclc/shdoclc.rc:186 dlls/shell32/shell32.rc:99
-#: dlls/user32/user32.rc:62 programs/conhost/conhost.rc:37
-#: programs/wordpad/wordpad.rc:114
+#: dlls/shdoclc/shdoclc.rc:186 dlls/user32/user32.rc:62
+#: programs/conhost/conhost.rc:37 programs/wordpad/wordpad.rc:114
 msgid "&Paste"
 msgstr "E&infügen"
 
@@ -9436,7 +9407,7 @@ msgstr ""
 "Fügt den Inhalt der Datei als Objekt so in Ihr Dokument ein, dass Sie es mit "
 "dem Programm aktivieren können, mit dem es erstellt wurde."
 
-#: dlls/oledlg/oledlg.rc:30 dlls/shell32/shell32.rc:197
+#: dlls/oledlg/oledlg.rc:30 dlls/shell32/shell32.rc:195
 msgid "Browse"
 msgstr "Durchsuchen"
 
@@ -9735,12 +9706,12 @@ msgstr "&Eigenschaften"
 msgid "&Undo"
 msgstr "&Rückgängig"
 
-#: dlls/shdoclc/shdoclc.rc:96 dlls/shell32/shell32.rc:102
+#: dlls/shdoclc/shdoclc.rc:96 dlls/shell32/shell32.rc:105
 #: dlls/user32/user32.rc:63
 msgid "&Delete"
 msgstr "&Löschen"
 
-#: dlls/shdoclc/shdoclc.rc:103
+#: dlls/shdoclc/shdoclc.rc:103 dlls/shell32/shell32.rc:97
 msgid "&Select"
 msgstr "Aus&wählen"
 
@@ -9909,26 +9880,26 @@ msgid "&w&bPage &p"
 msgstr "&w&bSeite &p"
 
 #: dlls/shell32/shell32.rc:30 dlls/shell32/shell32.rc:45
-#: dlls/shell32/shell32.rc:119 dlls/shell32/shell32.rc:157
+#: dlls/shell32/shell32.rc:122 dlls/shell32/shell32.rc:160
 #: programs/taskmgr/taskmgr.rc:65 programs/taskmgr/taskmgr.rc:110
 #: programs/taskmgr/taskmgr.rc:252
 msgid "Lar&ge Icons"
 msgstr "&Große Symbole"
 
 #: dlls/shell32/shell32.rc:31 dlls/shell32/shell32.rc:46
-#: dlls/shell32/shell32.rc:120 dlls/shell32/shell32.rc:158
+#: dlls/shell32/shell32.rc:123 dlls/shell32/shell32.rc:161
 #: programs/taskmgr/taskmgr.rc:66 programs/taskmgr/taskmgr.rc:111
 #: programs/taskmgr/taskmgr.rc:253
 msgid "S&mall Icons"
 msgstr "&Kleine Symbole"
 
 #: dlls/shell32/shell32.rc:32 dlls/shell32/shell32.rc:47
-#: dlls/shell32/shell32.rc:121 dlls/shell32/shell32.rc:159
+#: dlls/shell32/shell32.rc:124 dlls/shell32/shell32.rc:162
 msgid "&List"
 msgstr "&Liste"
 
 #: dlls/shell32/shell32.rc:33 dlls/shell32/shell32.rc:48
-#: dlls/shell32/shell32.rc:122 dlls/shell32/shell32.rc:160
+#: dlls/shell32/shell32.rc:125 dlls/shell32/shell32.rc:163
 #: programs/taskmgr/taskmgr.rc:67 programs/taskmgr/taskmgr.rc:112
 #: programs/taskmgr/taskmgr.rc:254
 msgid "&Details"
@@ -9971,7 +9942,7 @@ msgstr "Verknüpfung einfügen"
 msgid "New"
 msgstr "Neu"
 
-#: dlls/shell32/shell32.rc:69 dlls/shell32/shell32.rc:240
+#: dlls/shell32/shell32.rc:69
 msgid "New &Folder"
 msgstr "Neuer &Ordner"
 
@@ -9988,19 +9959,23 @@ msgstr "&Wiederherstellen"
 msgid "&Erase"
 msgstr "&Leeren"
 
-#: dlls/shell32/shell32.rc:97
+#: dlls/shell32/shell32.rc:98
+msgid "E&xplore"
+msgstr "E&rkunden"
+
+#: dlls/shell32/shell32.rc:101
 msgid "C&ut"
 msgstr "&Ausschneiden"
 
-#: dlls/shell32/shell32.rc:101
+#: dlls/shell32/shell32.rc:104
 msgid "Create &Link"
 msgstr "&Verknüpfung anlegen"
 
-#: dlls/shell32/shell32.rc:103
+#: dlls/shell32/shell32.rc:106
 msgid "&Rename"
 msgstr "&Umbenennen"
 
-#: dlls/shell32/shell32.rc:114 programs/notepad/notepad.rc:39
+#: dlls/shell32/shell32.rc:117 programs/notepad/notepad.rc:39
 #: programs/oleview/oleview.rc:38 programs/regedit/regedit.rc:41
 #: programs/view/view.rc:34 programs/winefile/winefile.rc:40
 #: programs/winemine/winemine.rc:51 programs/winhlp32/winhlp32.rc:37
@@ -10008,51 +9983,51 @@ msgstr "&Umbenennen"
 msgid "E&xit"
 msgstr "&Beenden"
 
-#: dlls/shell32/shell32.rc:127
+#: dlls/shell32/shell32.rc:130
 msgid "&About Control Panel"
 msgstr "&Über Systemsteuerung"
 
-#: dlls/shell32/shell32.rc:275 dlls/shell32/shell32.rc:290
+#: dlls/shell32/shell32.rc:271 dlls/shell32/shell32.rc:286
 msgid "Browse for Folder"
 msgstr "Verzeichnis auswählen"
 
-#: dlls/shell32/shell32.rc:295
+#: dlls/shell32/shell32.rc:291
 msgid "Folder:"
 msgstr "Verzeichnis:"
 
-#: dlls/shell32/shell32.rc:301
+#: dlls/shell32/shell32.rc:297
 msgid "&Make New Folder"
 msgstr "&Neues Verzeichnis erstellen"
 
-#: dlls/shell32/shell32.rc:308
+#: dlls/shell32/shell32.rc:304
 msgid "Message"
 msgstr "Meldung"
 
-#: dlls/shell32/shell32.rc:312
+#: dlls/shell32/shell32.rc:308
 msgid "Yes to &all"
 msgstr "Ja zu &allen"
 
-#: dlls/shell32/shell32.rc:321
+#: dlls/shell32/shell32.rc:317
 msgid "About %s"
 msgstr "Über %s"
 
-#: dlls/shell32/shell32.rc:325
+#: dlls/shell32/shell32.rc:321
 msgid "Wine &license"
 msgstr "&Lizenz"
 
-#: dlls/shell32/shell32.rc:330
+#: dlls/shell32/shell32.rc:326
 msgid "Running on %s"
 msgstr "Wine-Version %s"
 
-#: dlls/shell32/shell32.rc:331
+#: dlls/shell32/shell32.rc:327
 msgid "Wine was brought to you by:"
 msgstr "Wine wurde für Sie gekeltert von:"
 
-#: dlls/shell32/shell32.rc:336
+#: dlls/shell32/shell32.rc:332
 msgid "Run"
 msgstr "Ausführen"
 
-#: dlls/shell32/shell32.rc:340
+#: dlls/shell32/shell32.rc:336
 msgid ""
 "Type the name of a program, folder, document, or Internet resource, and Wine "
 "will open it for you."
@@ -10060,296 +10035,288 @@ msgstr ""
 "Geben sie den Namen eines Programms, eines Ordners, eines Dokuments oder "
 "einer Internet-Ressource ein, und Wine wird es für Sie öffnen."
 
-#: dlls/shell32/shell32.rc:341
+#: dlls/shell32/shell32.rc:337
 msgid "&Open:"
 msgstr "Ö&ffnen:"
 
-#: dlls/shell32/shell32.rc:345 programs/progman/progman.rc:182
+#: dlls/shell32/shell32.rc:341 programs/progman/progman.rc:182
 #: programs/progman/progman.rc:201 programs/progman/progman.rc:218
 #: programs/winecfg/winecfg.rc:247 programs/winefile/winefile.rc:129
 msgid "&Browse..."
 msgstr "&Durchsuchen..."
 
-#: dlls/shell32/shell32.rc:357 dlls/shell32/shell32.rc:386
+#: dlls/shell32/shell32.rc:353 dlls/shell32/shell32.rc:382
 msgid "File type:"
 msgstr "Dateityp:"
 
-#: dlls/shell32/shell32.rc:361 dlls/shell32/shell32.rc:394
+#: dlls/shell32/shell32.rc:357 dlls/shell32/shell32.rc:390
 #: dlls/urlmon/urlmon.rc:37 programs/explorer/explorer.rc:33
 msgid "Location:"
 msgstr "Ort:"
 
-#: dlls/shell32/shell32.rc:363 dlls/shell32/shell32.rc:396
+#: dlls/shell32/shell32.rc:359 dlls/shell32/shell32.rc:392
 #: programs/winefile/winefile.rc:169
 msgid "Size:"
 msgstr "Größe:"
 
-#: dlls/shell32/shell32.rc:367 dlls/shell32/shell32.rc:400
+#: dlls/shell32/shell32.rc:363 dlls/shell32/shell32.rc:396
 msgid "Creation date:"
 msgstr "Erstellungsdatum:"
 
-#: dlls/shell32/shell32.rc:371 dlls/shell32/shell32.rc:408
+#: dlls/shell32/shell32.rc:367 dlls/shell32/shell32.rc:404
 msgid "Attributes:"
 msgstr "Attribute:"
 
-#: dlls/shell32/shell32.rc:373 dlls/shell32/shell32.rc:410
+#: dlls/shell32/shell32.rc:369 dlls/shell32/shell32.rc:406
 #: programs/winefile/winefile.rc:173
 msgid "H&idden"
 msgstr "&Versteckt"
 
-#: dlls/shell32/shell32.rc:374 dlls/shell32/shell32.rc:411
+#: dlls/shell32/shell32.rc:370 dlls/shell32/shell32.rc:407
 #: programs/winefile/winefile.rc:174
 msgid "&Archive"
 msgstr "&Archiv"
 
-#: dlls/shell32/shell32.rc:388
+#: dlls/shell32/shell32.rc:384
 msgid "Open with:"
 msgstr "Öffnen mit:"
 
-#: dlls/shell32/shell32.rc:391
+#: dlls/shell32/shell32.rc:387
 msgid "&Change..."
 msgstr "&Ändern..."
 
-#: dlls/shell32/shell32.rc:402
+#: dlls/shell32/shell32.rc:398
 msgid "Last modified:"
 msgstr "Zuletzt geändert:"
 
-#: dlls/shell32/shell32.rc:404
+#: dlls/shell32/shell32.rc:400
 msgid "Last accessed:"
 msgstr "Letzter Zugriff:"
 
-#: dlls/shell32/shell32.rc:135 dlls/shell32/shell32.rc:139
+#: dlls/shell32/shell32.rc:138 dlls/shell32/shell32.rc:142
 #: programs/winefile/winefile.rc:107
 msgid "Size"
 msgstr "Größe"
 
-#: dlls/shell32/shell32.rc:136 programs/regedit/regedit.rc:151
+#: dlls/shell32/shell32.rc:139 programs/regedit/regedit.rc:151
 msgid "Type"
 msgstr "Typ"
 
-#: dlls/shell32/shell32.rc:137
+#: dlls/shell32/shell32.rc:140
 msgid "Modified"
 msgstr "Geändert"
 
-#: dlls/shell32/shell32.rc:138 programs/winefile/winefile.rc:171
+#: dlls/shell32/shell32.rc:141 programs/winefile/winefile.rc:171
 #: programs/winefile/winefile.rc:113
 msgid "Attributes"
 msgstr "Attribute"
 
-#: dlls/shell32/shell32.rc:140
+#: dlls/shell32/shell32.rc:143
 msgid "Size available"
 msgstr "Freier Speicher"
 
-#: dlls/shell32/shell32.rc:142
+#: dlls/shell32/shell32.rc:145
 msgid "Comments"
 msgstr "Kommentar"
 
-#: dlls/shell32/shell32.rc:143
+#: dlls/shell32/shell32.rc:146
 msgid "Original location"
 msgstr "Ursprung"
 
-#: dlls/shell32/shell32.rc:144
+#: dlls/shell32/shell32.rc:147
 msgid "Date deleted"
 msgstr "Gelöscht am"
 
-#: dlls/shell32/shell32.rc:151 programs/winecfg/winecfg.rc:106
+#: dlls/shell32/shell32.rc:154 programs/winecfg/winecfg.rc:106
 #: programs/winefile/winefile.rc:99
 msgctxt "display name"
 msgid "Desktop"
 msgstr "Desktop"
 
-#: dlls/shell32/shell32.rc:152 programs/regedit/regedit.rc:243
+#: dlls/shell32/shell32.rc:155 programs/regedit/regedit.rc:243
 msgid "My Computer"
 msgstr "Arbeitsplatz"
 
-#: dlls/shell32/shell32.rc:154
+#: dlls/shell32/shell32.rc:157
 msgid "Control Panel"
 msgstr "Systemsteuerung"
 
-#: dlls/shell32/shell32.rc:162
-msgid "Ne&w"
-msgstr ""
-
 #: dlls/shell32/shell32.rc:164
-msgid "E&xplore"
-msgstr "E&rkunden"
+msgid "Select"
+msgstr "Auswählen"
 
-#: dlls/shell32/shell32.rc:167
-msgid "Run as &Administrator"
-msgstr ""
-
-#: dlls/shell32/shell32.rc:189
+#: dlls/shell32/shell32.rc:187
 msgid "Restart"
 msgstr "Neustarten"
 
-#: dlls/shell32/shell32.rc:190
+#: dlls/shell32/shell32.rc:188
 msgid "Do you want to simulate a Windows reboot?"
 msgstr "Möchten Sie, dass ein simulierter Windows-Neustart durchgeführt wird?"
 
-#: dlls/shell32/shell32.rc:191
+#: dlls/shell32/shell32.rc:189
 msgid "Shutdown"
 msgstr "Beenden"
 
-#: dlls/shell32/shell32.rc:192
+#: dlls/shell32/shell32.rc:190
 msgid "Do you want to shutdown your Wine session?"
 msgstr "Möchten Sie die aktuelle Wine-Sitzung beenden?"
 
-#: dlls/shell32/shell32.rc:203 programs/progman/progman.rc:83
+#: dlls/shell32/shell32.rc:201 programs/progman/progman.rc:83
 msgid "Programs"
 msgstr "Programme"
 
-#: dlls/shell32/shell32.rc:204 dlls/shell32/shell32.rc:219
-#: dlls/shell32/shell32.rc:145 dlls/shell32/shell32.rc:235
+#: dlls/shell32/shell32.rc:202 dlls/shell32/shell32.rc:217
+#: dlls/shell32/shell32.rc:148 dlls/shell32/shell32.rc:233
 msgid "Documents"
 msgstr "Dokumente"
 
-#: dlls/shell32/shell32.rc:205
+#: dlls/shell32/shell32.rc:203
 msgid "Favorites"
 msgstr "Favoriten"
 
-#: dlls/shell32/shell32.rc:206
+#: dlls/shell32/shell32.rc:204
 msgid "StartUp"
 msgstr "Autostart"
 
-#: dlls/shell32/shell32.rc:207
+#: dlls/shell32/shell32.rc:205
 msgid "Start Menu"
 msgstr "Startmenü"
 
-#: dlls/shell32/shell32.rc:208 dlls/shell32/shell32.rc:221
+#: dlls/shell32/shell32.rc:206 dlls/shell32/shell32.rc:219
 msgid "Music"
 msgstr "Musik"
 
-#: dlls/shell32/shell32.rc:209 dlls/shell32/shell32.rc:223
+#: dlls/shell32/shell32.rc:207 dlls/shell32/shell32.rc:221
 msgid "Videos"
 msgstr "Videos"
 
-#: dlls/shell32/shell32.rc:210
+#: dlls/shell32/shell32.rc:208
 msgctxt "directory"
 msgid "Desktop"
 msgstr "Desktop"
 
-#: dlls/shell32/shell32.rc:211
+#: dlls/shell32/shell32.rc:209
 msgid "NetHood"
 msgstr "Netzwerkumgebung"
 
-#: dlls/shell32/shell32.rc:212
+#: dlls/shell32/shell32.rc:210
 msgid "Templates"
 msgstr "Vorlagen"
 
-#: dlls/shell32/shell32.rc:213
+#: dlls/shell32/shell32.rc:211
 msgid "PrintHood"
 msgstr "Druckumgebung"
 
-#: dlls/shell32/shell32.rc:214 programs/winhlp32/winhlp32.rc:49
+#: dlls/shell32/shell32.rc:212 programs/winhlp32/winhlp32.rc:49
 msgid "History"
 msgstr "Verlauf"
 
-#: dlls/shell32/shell32.rc:215
+#: dlls/shell32/shell32.rc:213
 msgid "Program Files"
 msgstr "Programme"
 
-#: dlls/shell32/shell32.rc:217 dlls/shell32/shell32.rc:222
+#: dlls/shell32/shell32.rc:215 dlls/shell32/shell32.rc:220
 msgid "Pictures"
 msgstr "Bilder"
 
-#: dlls/shell32/shell32.rc:218
+#: dlls/shell32/shell32.rc:216
 msgid "Common Files"
 msgstr "Gemeinsame Dateien"
 
-#: dlls/shell32/shell32.rc:220
+#: dlls/shell32/shell32.rc:218
 msgid "Administrative Tools"
 msgstr "Verwaltung"
 
-#: dlls/shell32/shell32.rc:216
+#: dlls/shell32/shell32.rc:214
 msgid "Program Files (x86)"
 msgstr "Programme (x86)"
 
-#: dlls/shell32/shell32.rc:224
+#: dlls/shell32/shell32.rc:222
 msgid "Contacts"
 msgstr "Kontakte"
 
-#: dlls/shell32/shell32.rc:225 programs/winefile/winefile.rc:112
+#: dlls/shell32/shell32.rc:223 programs/winefile/winefile.rc:112
 msgid "Links"
 msgstr "Links"
 
-#: dlls/shell32/shell32.rc:226
+#: dlls/shell32/shell32.rc:224
 msgid "Slide Shows"
 msgstr "Diashows"
 
-#: dlls/shell32/shell32.rc:227
+#: dlls/shell32/shell32.rc:225
 msgid "Playlists"
 msgstr "Wiedergabelisten"
 
-#: dlls/shell32/shell32.rc:146 programs/taskmgr/taskmgr.rc:326
+#: dlls/shell32/shell32.rc:149 programs/taskmgr/taskmgr.rc:326
 msgid "Status"
 msgstr "Status"
 
-#: dlls/shell32/shell32.rc:148
+#: dlls/shell32/shell32.rc:151
 msgid "Model"
 msgstr "Modell"
 
-#: dlls/shell32/shell32.rc:228
+#: dlls/shell32/shell32.rc:226
 msgid "Sample Music"
 msgstr "Beispielmusik"
 
-#: dlls/shell32/shell32.rc:229
+#: dlls/shell32/shell32.rc:227
 msgid "Sample Pictures"
 msgstr "Beispielbilder"
 
-#: dlls/shell32/shell32.rc:230
+#: dlls/shell32/shell32.rc:228
 msgid "Sample Playlists"
 msgstr "Beispielwiedergabelisten"
 
-#: dlls/shell32/shell32.rc:231
+#: dlls/shell32/shell32.rc:229
 msgid "Sample Videos"
 msgstr "Beispielvideos"
 
-#: dlls/shell32/shell32.rc:232
+#: dlls/shell32/shell32.rc:230
 msgid "Saved Games"
 msgstr "Gespeicherte Spiele"
 
-#: dlls/shell32/shell32.rc:233
+#: dlls/shell32/shell32.rc:231
 msgid "Searches"
 msgstr "Suchvorgänge"
 
-#: dlls/shell32/shell32.rc:234
+#: dlls/shell32/shell32.rc:232
 msgid "Users"
 msgstr "Benutzer"
 
-#: dlls/shell32/shell32.rc:236
+#: dlls/shell32/shell32.rc:234
 msgid "Downloads"
 msgstr "Downloads"
 
-#: dlls/shell32/shell32.rc:169
+#: dlls/shell32/shell32.rc:167
 msgid "Unable to create new Folder: Permission denied."
 msgstr "Es konnte kein neues Verzeichnis erstellt werden: Zugriff verweigert."
 
-#: dlls/shell32/shell32.rc:170
+#: dlls/shell32/shell32.rc:168
 msgid "Error during creation of a new folder"
 msgstr ""
 "Es ist ein Fehler beim Erstellen eines neuen Verzeichnisses aufgetreten"
 
-#: dlls/shell32/shell32.rc:171
+#: dlls/shell32/shell32.rc:169
 msgid "Confirm file deletion"
 msgstr "Bestätigung: Objekt löschen"
 
-#: dlls/shell32/shell32.rc:172
+#: dlls/shell32/shell32.rc:170
 msgid "Confirm folder deletion"
 msgstr "Bestätigung: Verzeichnis löschen"
 
-#: dlls/shell32/shell32.rc:173
+#: dlls/shell32/shell32.rc:171
 msgid "Are you sure you want to delete '%1'?"
 msgstr "Sind Sie sicher, dass Sie '%1' löschen möchten?"
 
-#: dlls/shell32/shell32.rc:174
+#: dlls/shell32/shell32.rc:172
 msgid "Are you sure you want to delete these %1 items?"
 msgstr "Sind Sie sicher, dass Sie diese %1 Objekte löschen möchten?"
 
-#: dlls/shell32/shell32.rc:181
+#: dlls/shell32/shell32.rc:179
 msgid "Confirm file overwrite"
 msgstr "Bestätigung: Datei überschreiben"
 
-#: dlls/shell32/shell32.rc:180
+#: dlls/shell32/shell32.rc:178
 msgid ""
 "This folder already contains a file called '%1'.\n"
 "\n"
@@ -10359,34 +10326,34 @@ msgstr ""
 "\n"
 "Möchten Sie die Datei ersetzen?"
 
-#: dlls/shell32/shell32.rc:175
+#: dlls/shell32/shell32.rc:173
 msgid "Are you sure you want to delete the selected item(s)?"
 msgstr "Sind Sie sicher, dass Sie die ausgewählten Objekte löschen möchten?"
 
-#: dlls/shell32/shell32.rc:177
+#: dlls/shell32/shell32.rc:175
 msgid ""
 "Are you sure that you want to send '%1' and all its content to the Trash?"
 msgstr ""
 "Sind Sie sicher, dass Sie '%1' und seinen Inhalt in den Papierkorb "
 "verschieben möchten?"
 
-#: dlls/shell32/shell32.rc:176
+#: dlls/shell32/shell32.rc:174
 msgid "Are you sure that you want to send '%1' to the Trash?"
 msgstr "Sind Sie sicher, dass Sie '%1' in den Papierkorb verschieben möchten?"
 
-#: dlls/shell32/shell32.rc:178
+#: dlls/shell32/shell32.rc:176
 msgid "Are you sure that you want to send these %1 items to the Trash?"
 msgstr ""
 "Sind Sie sicher, dass Sie diese %1 Dateien in den Papierkorb verschieben "
 "möchten?"
 
-#: dlls/shell32/shell32.rc:179
+#: dlls/shell32/shell32.rc:177
 msgid "The item '%1' can't be sent to Trash. Do you want to delete it instead?"
 msgstr ""
 "Das Objekt '%1' kann nicht in den Papierkorb verschoben werden. Möchten Sie "
 "es stattdessen löschen?"
 
-#: dlls/shell32/shell32.rc:186
+#: dlls/shell32/shell32.rc:184
 msgid ""
 "This folder already contains a folder named '%1'.\n"
 "\n"
@@ -10400,39 +10367,39 @@ msgstr ""
 "werden diese durch Inhalte des Quellordners ersetzt.\n"
 "Möchten Sie trotzdem fortfahren?"
 
-#: dlls/shell32/shell32.rc:242
+#: dlls/shell32/shell32.rc:238
 msgid "Wine Control Panel"
 msgstr "Wine-Systemsteuerung"
 
-#: dlls/shell32/shell32.rc:195
+#: dlls/shell32/shell32.rc:193
 msgid "Unable to display Run dialog box (internal error)"
 msgstr "Ausführen-Dialog konnte nicht angezeigt werden (interner Fehler)"
 
-#: dlls/shell32/shell32.rc:196
+#: dlls/shell32/shell32.rc:194
 msgid "Unable to display Browse dialog box (internal error)"
 msgstr "Durchsuchen-Dialog konnte nicht angezeigt werden (interner Fehler)"
 
-#: dlls/shell32/shell32.rc:198
+#: dlls/shell32/shell32.rc:196
 msgid "Executable files (*.exe)"
 msgstr "Programme (*.exe)"
 
-#: dlls/shell32/shell32.rc:246
+#: dlls/shell32/shell32.rc:242
 msgid "There is no Windows program configured to open this type of file."
 msgstr "Es ist kein Programm mit diesem Dateityp verknüpft."
 
-#: dlls/shell32/shell32.rc:248
+#: dlls/shell32/shell32.rc:244
 msgid "Are you sure you wish to permanently delete '%1'?"
 msgstr "Sind Sie sicher, dass Sie '%1' endgültig löschen möchten?"
 
-#: dlls/shell32/shell32.rc:249
+#: dlls/shell32/shell32.rc:245
 msgid "Are you sure you wish to permanently delete these %1 items?"
 msgstr "Sind Sie sicher, dass Sie diese %1 Objekte endgültig löschen möchten?"
 
-#: dlls/shell32/shell32.rc:250
+#: dlls/shell32/shell32.rc:246
 msgid "Confirm deletion"
 msgstr "Löschen bestätigen"
 
-#: dlls/shell32/shell32.rc:251
+#: dlls/shell32/shell32.rc:247
 msgid ""
 "A file already exists at the path %1.\n"
 "\n"
@@ -10442,7 +10409,7 @@ msgstr ""
 "\n"
 "Wollen Sie sie überschreiben?"
 
-#: dlls/shell32/shell32.rc:252
+#: dlls/shell32/shell32.rc:248
 msgid ""
 "A folder already exists at the path %1.\n"
 "\n"
@@ -10452,11 +10419,11 @@ msgstr ""
 "\n"
 "Wollen Sie ihn überschreiben?"
 
-#: dlls/shell32/shell32.rc:253
+#: dlls/shell32/shell32.rc:249
 msgid "Confirm overwrite"
 msgstr "Überschreiben bestätigen"
 
-#: dlls/shell32/shell32.rc:270
+#: dlls/shell32/shell32.rc:266
 msgid ""
 "Wine is free software; you can redistribute it and/or modify it under the "
 "terms of the GNU Lesser General Public License as published by the Free "
@@ -10487,11 +10454,11 @@ msgstr ""
 "bitte der Free Software Foundation, Inc., 51 Franklin St, Fifth Floor, "
 "Boston, MA 02110-1301, USA."
 
-#: dlls/shell32/shell32.rc:258
+#: dlls/shell32/shell32.rc:254
 msgid "Wine License"
 msgstr "Wine-Lizenz"
 
-#: dlls/shell32/shell32.rc:153
+#: dlls/shell32/shell32.rc:156
 msgid "Trash"
 msgstr "Papierkorb"
 
@@ -19489,9 +19456,7 @@ msgid "Help topics: "
 msgstr "Hilfethemen: "
 
 #: programs/wmic/wmic.rc:28
-#, fuzzy
-#| msgid "Error: Command line not supported\n"
-msgid "Error: Command not supported\n"
+msgid "Error: Command line not supported\n"
 msgstr "Fehler: Befehlszeile nicht unterstützt\n"
 
 #: programs/wmic/wmic.rc:29
@@ -19505,12 +19470,6 @@ msgstr "Fehler: Ungültige Anfrage\n"
 #: programs/wmic/wmic.rc:31
 msgid "Error: Invalid syntax for PATH\n"
 msgstr "Fehler: Ungültige Syntax für PATH\n"
-
-#: programs/wmic/wmic.rc:32
-#, fuzzy
-#| msgid "Bad command.\n"
-msgid "Supply a command\n"
-msgstr "Ungültiger Befehl.\n"
 
 #: programs/wordpad/wordpad.rc:31
 msgid "&New...\tCtrl+N"

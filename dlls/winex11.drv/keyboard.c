@@ -139,6 +139,19 @@ static const WORD main_key_scan_abnt_qwerty[MAIN_LEN] =
    0x56, /* the 102nd key (actually to the right of l-shift) */
 };
 
+static const WORD main_key_scan_dvorak[MAIN_LEN] =
+{
+ /* `    1    2    3    4    5    6    7    8    9    0    [    ] */
+   0x29,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x1A,0x1B,
+ /* '    ,    .    p    y    f    g    c    r    l    /    = */
+   0x28,0x33,0x34,0x19,0x15,0x21,0x22,0x2E,0x13,0x26,0x35,0x0D,
+ /* a    o    e    u    i    d    h    t    n    s    -    \ */
+   0x1E,0x18,0x12,0x16,0x17,0x20,0x23,0x14,0x31,0x1F,0x0C,0x2B,
+ /* ;    q    j    k    x    b    m    w    v    z */
+   0x27,0x10,0x24,0x25,0x2D,0x30,0x32,0x11,0x2F,0x2C,
+   0x56 /* the 102nd key (actually to the right of l-shift) */
+};
+
 static const WORD main_key_scan_qwerty_jp106[MAIN_LEN] =
 {
  /* 1    2    3    4    5    6    7    8    9    0    -    ^    \ (Yen) */
@@ -264,16 +277,6 @@ static const char main_key_US_dvorak[MAIN_LEN][4] =
  "'\"",",<",".>","pP","yY","fF","gG","cC","rR","lL","/?","=+",
  "aA","oO","eE","uU","iI","dD","hH","tT","nN","sS","-_","\\|",
  ";:","qQ","jJ","kK","xX","bB","mM","wW","vV","zZ"
-};
-
-/*** United States keyboard layout (dvorak phantom key version) */
-static const char main_key_US_dvorak_phantom[MAIN_LEN][4] =
-{
- "`~","1!","2@","3#","4$","5%","6^","7&","8*","9(","0)","[{","]}",
- "'\"",",<",".>","pP","yY","fF","gG","cC","rR","lL","/?","=+",
- "aA","oO","eE","uU","iI","dD","hH","tT","nN","sS","-_","\\|",
- ";:","qQ","jJ","kK","xX","bB","mM","wW","vV","zZ",
- "<>"
 };
 
 /*** British keyboard layout */
@@ -903,9 +906,7 @@ static const struct {
 } main_key_tab[]={
  {0x0409, "United States keyboard layout", &main_key_US, &main_key_scan_qwerty, &main_key_vkey_qwerty},
  {0x0409, "United States keyboard layout (phantom key version)", &main_key_US_phantom, &main_key_scan_qwerty, &main_key_vkey_qwerty},
- /* Dvorak users tend to run QWERTY keyboards and rely on Windows/X11/Wayland to translate to the correct keysyms */
- {0x0409, "United States keyboard layout (dvorak)", &main_key_US_dvorak, &main_key_scan_qwerty, &main_key_vkey_dvorak},
- {0x0409, "United States keyboard layout (dvorak with phantom key)", &main_key_US_dvorak_phantom, &main_key_scan_qwerty, &main_key_vkey_dvorak},
+ {0x0409, "United States keyboard layout (dvorak)", &main_key_US_dvorak, &main_key_scan_dvorak, &main_key_vkey_dvorak},
  {0x0409, "United States International keyboard layout", &main_key_US_intl, &main_key_scan_qwerty, &main_key_vkey_qwerty},
  {0x0809, "British keyboard layout", &main_key_UK, &main_key_scan_qwerty, &main_key_vkey_qwerty},
  {0x0407, "German keyboard layout", &main_key_DE, &main_key_scan_qwerty, &main_key_vkey_qwertz},
@@ -1200,6 +1201,7 @@ static WORD EVENT_event_to_vkey( XIC xic, XKeyEvent *e)
  */
 static void X11DRV_send_keyboard_input( HWND hwnd, WORD vkey, WORD scan, UINT flags, UINT time )
 {
+    RAWINPUT rawinput;
     INPUT input;
 
     TRACE_(key)( "hwnd %p vkey=%04x scan=%04x flags=%04x\n", hwnd, vkey, scan, flags );
@@ -1211,7 +1213,7 @@ static void X11DRV_send_keyboard_input( HWND hwnd, WORD vkey, WORD scan, UINT fl
     input.ki.time        = time;
     input.ki.dwExtraInfo = 0;
 
-    NtUserSendHardwareInput( hwnd, 0, &input, 0 );
+    __wine_send_input( hwnd, &input, &rawinput );
 }
 
 
@@ -1432,7 +1434,7 @@ BOOL X11DRV_KeyEvent( HWND hwnd, XEvent *xev )
     DWORD dwFlags;
     int ascii_chars;
     XIC xic = X11DRV_get_ic( hwnd );
-    DWORD event_time = EVENT_x11_time_to_win32_time(event->time);
+    DWORD event_time = x11drv_time_to_ticks( event->time );
     Status status = 0;
 
     TRACE_(key)("type %d, window %lx, state 0x%04x, keycode %u\n",
@@ -1518,6 +1520,35 @@ BOOL X11DRV_KeyEvent( HWND hwnd, XEvent *xev )
     return TRUE;
 }
 
+/* From the point of view of this function there are two types of
+ * keys: those for which the mapping to vkey and scancode depends on
+ * the keyboard layout (i.e., letters, numbers, punctuation) and those
+ * for which it doesn't (control keys); since this function is used to
+ * recognize the keyboard layout and map keysyms to vkeys and
+ * scancodes, we are only concerned about the first type, and map
+ * everything in the second type to zero.
+ */
+static char keysym_to_char( KeySym keysym )
+{
+    /* Dead keys */
+    if (0xfe50 <= keysym && keysym < 0xfed0)
+        return KEYBOARD_MapDeadKeysym( keysym );
+
+    /* Control keys (there is nothing allocated below 0xfc00, but I
+       take some margin in case something is added in the future) */
+    if (0xf000 <= keysym && keysym < 0x10000)
+        return 0;
+
+    /* XFree86 vendor keys */
+    if (0x10000000 <= keysym)
+        return 0;
+
+    /* "Normal" keys: return last octet, because our tables don't have
+       more than that; it would be better to extend the tables and
+       compare the whole keysym, but it's a lot of work... */
+    return keysym & 0xff;
+}
+
 /**********************************************************************
  *		X11DRV_KEYBOARD_DetectLayout
  *
@@ -1548,22 +1579,20 @@ X11DRV_KEYBOARD_DetectLayout( Display *display )
       /* get data for keycode from X server */
       for (i = 0; i < syms; i++) {
         if (!(keysym = XkbKeycodeToKeysym( display, keyc, 0, i ))) continue;
-	/* Allow both one-byte and two-byte national keysyms */
-	if ((keysym < 0x8000) && (keysym != ' '))
+        ckey[keyc][i] = keysym_to_char(keysym);
+        if (TRACE_ON(keyboard))
         {
-            if (!XkbTranslateKeySym(display, &keysym, 0, &ckey[keyc][i], 1, NULL))
-            {
-                TRACE("XKB could not translate keysym %04lx\n", keysym);
-                /* FIXME: query what keysym is used as Mode_switch, fill XKeyEvent
-                 * with appropriate ShiftMask and Mode_switch, use XLookupString
-                 * to get character in the local encoding.
-                 */
-                ckey[keyc][i] = keysym & 0xFF;
-            }
+            char buf[32];
+            WCHAR bufW[32];
+            int len, lenW;
+            KeySym orig_keysym = keysym;
+            len = XkbTranslateKeySym(display, &keysym, 0, buf, sizeof(buf), NULL);
+            lenW = ntdll_umbstowcs(buf, len, bufW, ARRAY_SIZE(bufW));
+            if (lenW < ARRAY_SIZE(bufW))
+                bufW[lenW] = 0;
+            TRACE("keycode %u, index %d, orig_keysym 0x%04lx, keysym 0x%04lx, buf %s, bufW %s\n",
+                    keyc, i, orig_keysym, keysym, debugstr_a(buf), debugstr_w(bufW));
         }
-	else {
-	  ckey[keyc][i] = KEYBOARD_MapDeadKeysym(keysym);
-	}
       }
   }
 
@@ -1613,7 +1642,8 @@ X11DRV_KEYBOARD_DetectLayout( Display *display )
     }
     TRACE("matches=%d, mismatches=%d, seq=%d, score=%d\n",
 	   match, mismatch, seq, score);
-    if (score + (int)seq > max_score + (int)max_seq) {
+    if ((score > max_score) ||
+	((score == max_score) && (seq > max_seq))) {
       /* best match so far */
       kbd_layout = current;
       max_score = score;
@@ -1739,20 +1769,8 @@ void X11DRV_InitKeyboard( Display *display )
 	      /* we seem to need to search the layout-dependent scancodes */
 	      int maxlen=0,maxval=-1,ok;
 	      for (i=0; i<syms; i++) {
-		keysym = XkbKeycodeToKeysym( display, keyc, 0, i );
-		if ((keysym<0x8000) && (keysym!=' '))
-                {
-                    if (!XkbTranslateKeySym(display, &keysym, 0, &ckey[i], 1, NULL))
-                    {
-                        /* FIXME: query what keysym is used as Mode_switch, fill XKeyEvent
-                         * with appropriate ShiftMask and Mode_switch, use XLookupString
-                         * to get character in the local encoding.
-                         */
-                        ckey[i] = (keysym <= 0x7F) ? keysym : 0;
-                    }
-		} else {
-		  ckey[i] = KEYBOARD_MapDeadKeysym(keysym);
-		}
+    keysym = XkbKeycodeToKeysym( display, keyc, 0, i );
+                ckey[i] = keysym_to_char(keysym);
 	      }
 	      /* find key with longest match streak */
 	      for (keyn=0; keyn<MAIN_LEN; keyn++) {
@@ -1920,30 +1938,27 @@ BOOL X11DRV_ActivateKeyboardLayout(HKL hkl, UINT flags)
     return TRUE;
 }
 
-static BOOL X11DRV_KeyboardMappingNotify( HWND dummy, XEvent *event )
-{
-    HWND hwnd;
-
-    XRefreshKeyboardMapping(&event->xmapping);
-    X11DRV_InitKeyboard( event->xmapping.display );
-
-    hwnd = get_focus();
-    if (!hwnd) hwnd = get_active_window();
-    NtUserPostMessage( hwnd, WM_INPUTLANGCHANGEREQUEST,
-                       0 /*FIXME*/, (LPARAM)NtUserGetKeyboardLayout(0) );
-    return TRUE;
-}
 
 /***********************************************************************
  *           X11DRV_MappingNotify
  */
 BOOL X11DRV_MappingNotify( HWND dummy, XEvent *event )
 {
+    HWND hwnd;
+
     switch (event->xmapping.request)
     {
     case MappingModifier:
     case MappingKeyboard:
-        return X11DRV_KeyboardMappingNotify( dummy, event );
+        XRefreshKeyboardMapping( &event->xmapping );
+        X11DRV_InitKeyboard( event->xmapping.display );
+
+        hwnd = get_focus();
+        if (!hwnd) hwnd = get_active_window();
+        NtUserPostMessage( hwnd, WM_INPUTLANGCHANGEREQUEST,
+                           0 /*FIXME*/, (LPARAM)NtUserGetKeyboardLayout(0) );
+        break;
+
     case MappingPointer:
         X11DRV_InitMouse( event->xmapping.display );
         break;

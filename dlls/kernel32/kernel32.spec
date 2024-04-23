@@ -257,7 +257,6 @@
 @ stdcall -import ConvertThreadToFiberEx(ptr long)
 @ stdcall ConvertToGlobalHandle(long)
 @ stdcall -import CopyContext(ptr long ptr)
-@ stdcall -import CopyFile2(wstr wstr ptr)
 @ stdcall CopyFileA(str str long)
 @ stdcall CopyFileExA (str str ptr ptr ptr long)
 @ stdcall -import CopyFileExW(wstr wstr ptr ptr ptr long)
@@ -775,7 +774,8 @@
 @ stdcall -import GetUserPreferredUILanguages(long ptr ptr ptr)
 @ stdcall GetPackageFamilyName(long ptr ptr) kernelbase.GetPackageFamilyName
 @ stdcall GetPackageFullName(long ptr ptr) kernelbase.GetPackageFullName
-@ stdcall GetPackagesByPackageFamily(wstr ptr ptr ptr ptr) kernelbase.GetPackagesByPackageFamily
+@ stdcall -import GetPackagePath(ptr long ptr ptr)
+@ stdcall -import GetPackagesByPackageFamily(wstr ptr ptr ptr ptr)
 @ stdcall GetPackagePathByFullName(wstr ptr wstr) kernelbase.GetPackagePathByFullName
 @ stdcall -import GetPhysicallyInstalledSystemMemory(ptr)
 @ stdcall -import GetPriorityClass(long)
@@ -1164,6 +1164,7 @@
 @ stdcall -import PeekConsoleInputW(ptr ptr long ptr)
 @ stdcall -import PeekNamedPipe(long ptr long ptr ptr ptr)
 @ stdcall -import PostQueuedCompletionStatus(long long ptr ptr)
+@ stdcall -import PackageFullNameFromId(ptr ptr ptr)
 @ stdcall -import PackageIdFromFullName(wstr long ptr ptr)
 @ stdcall PowerClearRequest(long long)
 @ stdcall PowerCreateRequest(ptr)
@@ -1323,7 +1324,7 @@
 @ stdcall -arch=!i386 RtlLookupFunctionEntry(long ptr ptr) NTDLL.RtlLookupFunctionEntry
 @ stdcall RtlMoveMemory(ptr ptr long) NTDLL.RtlMoveMemory
 @ stdcall RtlPcToFileHeader(ptr ptr) NTDLL.RtlPcToFileHeader
-@ stdcall -arch=arm,x86_64 -norelay RtlRaiseException(ptr) NTDLL.RtlRaiseException
+@ stdcall -arch=!i386 -norelay RtlRaiseException(ptr) NTDLL.RtlRaiseException
 @ cdecl -import RtlRestoreContext(ptr ptr)
 @ stdcall RtlUnwind(ptr ptr ptr long) NTDLL.RtlUnwind
 @ stdcall -arch=!i386 RtlUnwindEx(long long ptr long ptr) NTDLL.RtlUnwindEx
@@ -1639,10 +1640,10 @@
 @ stdcall WinExec(str long)
 @ stdcall -import Wow64DisableWow64FsRedirection(ptr)
 @ stdcall -import Wow64EnableWow64FsRedirection(long)
-@ stdcall -import Wow64GetThreadContext(long ptr)
+@ stdcall Wow64GetThreadContext(long ptr)
 @ stdcall Wow64GetThreadSelectorEntry(long long ptr)
 @ stdcall -import Wow64RevertWow64FsRedirection(ptr)
-@ stdcall -import Wow64SetThreadContext(long ptr)
+@ stdcall Wow64SetThreadContext(long ptr)
 # @ stub Wow64SuspendThread
 @ stdcall -import WriteConsoleA(long ptr long ptr ptr)
 @ stdcall -import WriteConsoleInputA(long ptr long ptr)

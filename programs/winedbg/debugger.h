@@ -311,6 +311,8 @@ extern	DWORD	                dbg_curr_tid;
 extern  dbg_ctx_t               dbg_context;
 extern  BOOL                    dbg_interactiveP;
 extern  HANDLE                  dbg_houtput;
+extern  HANDLE                  dbg_crash_report_file;
+extern  BOOL                    dbg_use_wine_dbg_output;
 
 struct dbg_internal_var
 {
@@ -474,7 +476,6 @@ struct list_string
     char* string;
     struct list_string* next;
 };
-extern void             dbg_set_exec_file(const char *path);
 extern void             dbg_run_debuggee(struct list_string* ls);
 extern void             dbg_wait_next_exception(DWORD cont, int count, int mode);
 extern enum dbg_start   dbg_active_attach(int argc, char* argv[]);
@@ -488,8 +489,7 @@ extern void             fetch_module_name(void* name_addr, void* mod_addr, WCHAR
 
   /* tgt_minidump.c */
 extern void             minidump_write(const char*, const EXCEPTION_RECORD*);
-extern enum dbg_start   minidump_reload(const char *);
-extern enum dbg_start   minidump_start(int argc, char* argv[]);
+extern enum dbg_start   minidump_reload(int argc, char* argv[]);
 
   /* tgt_module.c */
 extern enum dbg_start   tgt_module_load(const char* name, BOOL keep);

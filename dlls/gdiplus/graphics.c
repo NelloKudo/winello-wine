@@ -3033,49 +3033,13 @@ GpStatus WINGDIPAPI GdipDrawImage(GpGraphics *graphics, GpImage *image, REAL x, 
                                   0.0, 0.0, (REAL)width, (REAL)height, UnitPixel);
 }
 
-GpStatus WINGDIPAPI GdipDrawImageFX(GpGraphics *graphics, GpImage *image, GpRectF *src_rect,
+GpStatus WINGDIPAPI GdipDrawImageFX(GpGraphics *graphics, GpImage *image, GpRectF *src,
     GpMatrix *transform, CGpEffect *effect, GpImageAttributes *imageattr,
-    GpUnit src_unit)
+    GpUnit srcUnit)
 {
-    GpRectF src_rect_buf;
-    GpPointF points[3];
-    GpStatus status;
+    FIXME("(%p, %p, %p, %p, %p, %p, %d): stub\n", graphics, image, src, transform, effect, imageattr, srcUnit);
 
-    TRACE("(%p, %p, %p, %p, %p, %p, %d)\n", graphics, image, src_rect, transform, effect, imageattr, src_unit);
-
-    if (!graphics || !image)
-        return InvalidParameter;
-
-    if (effect)
-        FIXME("effect not implemented\n");
-
-    if (!src_rect)
-    {
-        if ((status = GdipGetImageBounds(image, &src_rect_buf, &src_unit)) != Ok)
-            return status;
-
-        /* Metafiles may have different left-top coordinates */
-        if (src_rect_buf.X != 0.0 || src_rect_buf.Y != 0.0)
-        {
-            FIXME("image bounds %s left-top not at origin", debugstr_rectf(&src_rect_buf));
-            /* TODO: only use width and height (force origin)? */
-        }
-
-        src_rect = &src_rect_buf;
-    }
-
-    points[0].X = points[2].X = src_rect->X;
-    points[0].Y = points[1].Y = src_rect->Y;
-    points[1].X = src_rect->X + src_rect->Width;
-    points[2].Y = src_rect->Y + src_rect->Height;
-
-    if (transform)
-        GdipTransformMatrixPoints(transform, points, 3);
-
-    return GdipDrawImagePointsRect(graphics, image, points, 3,
-                                   src_rect->X, src_rect->Y,
-                                   src_rect->Width, src_rect->Height,
-                                   src_unit, imageattr, NULL, NULL);
+    return NotImplemented;
 }
 
 GpStatus WINGDIPAPI GdipDrawImageI(GpGraphics *graphics, GpImage *image, INT x,
@@ -5805,6 +5769,15 @@ GpStatus WINGDIPAPI GdipMeasureString(GpGraphics *graphics,
 
     if(!graphics || !string || !font || !rect || !bounds)
         return InvalidParameter;
+
+    if (length == 1 && string[0] == '\n')
+    {
+        /* Proton hack for SpriteFontX class used by TouHou Makuka Sai.
+         * Returned size is passed to Bitmap constructor, but we currently measure "\n" as zero size. */
+        char const *sgi = getenv("SteamGameId");
+        if (sgi && (!strcmp(sgi, "882710") || !strcmp(sgi, "1031480")))
+            string = L" ";
+    }
 
     if(!graphics->hdc)
     {

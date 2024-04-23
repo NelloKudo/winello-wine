@@ -42,12 +42,25 @@ NTSYSAPI int ntdll_wcsnicmp( const WCHAR *str1, const WCHAR *str2, int n );
 
 /* exception handling */
 
-#include <setjmp.h>
+#ifdef __i386__
+typedef struct { int reg[16]; } __wine_jmp_buf;
+#elif defined(__x86_64__)
+typedef struct { DECLSPEC_ALIGN(16) struct { unsigned __int64 Part[2]; } reg[16]; } __wine_jmp_buf;
+#elif defined(__arm__)
+typedef struct { int reg[28]; } __wine_jmp_buf;
+#elif defined(__aarch64__)
+typedef struct { __int64 reg[24]; } __wine_jmp_buf;
+#else
+typedef struct { int reg; } __wine_jmp_buf;
+#endif
 
-NTSYSAPI void ntdll_set_exception_jmp_buf( jmp_buf jmp );
+NTSYSAPI int __attribute__ ((__nothrow__,__returns_twice__)) __wine_setjmpex( __wine_jmp_buf *buf,
+                                                                              EXCEPTION_REGISTRATION_RECORD *frame );
+NTSYSAPI void DECLSPEC_NORETURN __wine_longjmp( __wine_jmp_buf *buf, int retval );
+NTSYSAPI void ntdll_set_exception_jmp_buf( __wine_jmp_buf *jmp );
 
 #define __TRY \
-    do { jmp_buf __jmp; \
+    do { __wine_jmp_buf __jmp; \
          int __first = 1; \
          for (;;) if (!__first) \
          { \
@@ -58,14 +71,14 @@ NTSYSAPI void ntdll_set_exception_jmp_buf( jmp_buf jmp );
              ntdll_set_exception_jmp_buf( NULL ); \
              break; \
          } else { \
-             if (setjmp( __jmp )) { \
+             if (__wine_setjmpex( &__jmp, NULL )) { \
                  do {
 
 #define __ENDTRY \
                  } while (0); \
                  break; \
              } \
-             ntdll_set_exception_jmp_buf( __jmp ); \
+             ntdll_set_exception_jmp_buf( &__jmp ); \
              __first = 0; \
          } \
     } while (0);

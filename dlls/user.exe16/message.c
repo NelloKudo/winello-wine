@@ -22,8 +22,6 @@
 #include <stdarg.h>
 #include <string.h>
 
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
 #include "wine/winuser16.h"
 #include "wownt32.h"
 #include "winerror.h"
@@ -2583,31 +2581,28 @@ HWND create_window16( CREATESTRUCTW *cs, LPCWSTR className, HINSTANCE instance, 
 }
 
 
-static NTSTATUS WINAPI User16CallFreeIcon( void *args, ULONG size )
+static void WINAPI User16CallFreeIcon( ULONG *param, ULONG size )
 {
-    ULONG *param = args;
     GlobalFree16( LOWORD(*param) );
-    return STATUS_SUCCESS;
 }
 
 
-static NTSTATUS WINAPI User16ThunkLock( void *args, ULONG size )
+static DWORD WINAPI User16ThunkLock( DWORD *param, ULONG size )
 {
-    DWORD *param = args;
     if (size != sizeof(DWORD))
     {
         DWORD lock;
         ReleaseThunkLock( &lock );
-        return NtCallbackReturn( &lock, sizeof(lock), STATUS_SUCCESS );
+        return lock;
     }
     RestoreThunkLock( *param );
-    return STATUS_SUCCESS;
+    return 0;
 }
 
 
 void register_wow_handlers(void)
 {
-    KERNEL_CALLBACK_PROC *callback_table = NtCurrentTeb()->Peb->KernelCallbackTable;
+    void **callback_table = NtCurrentTeb()->Peb->KernelCallbackTable;
     static const struct wow_handlers16 handlers16 =
     {
         button_proc16,

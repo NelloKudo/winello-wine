@@ -223,7 +223,7 @@
 @ stub NtGdiDdDDIDispMgrSourceOperation
 @ stub NtGdiDdDDIDispMgrTargetOperation
 @ stub NtGdiDdDDIEnumAdapters
-@ stdcall -syscall NtGdiDdDDIEnumAdapters2(ptr)
+@ stub NtGdiDdDDIEnumAdapters2
 @ stdcall -syscall NtGdiDdDDIEscape(ptr)
 @ stub NtGdiDdDDIEvict
 @ stub NtGdiDdDDIExtractBundleObject
@@ -999,7 +999,7 @@
 @ stub NtUserGetThreadState
 @ stdcall -syscall NtUserGetTitleBarInfo(long ptr)
 @ stub NtUserGetTopLevelWindow
-@ stub NtUserGetTouchInputInfo
+@ stdcall -syscall NtUserGetTouchInputInfo(ptr long ptr long)
 @ stub NtUserGetTouchValidationStatus
 @ stub NtUserGetUniformSpaceMapping
 @ stdcall -syscall NtUserGetUpdateRect(long ptr long)
@@ -1056,7 +1056,7 @@
 @ stub NtUserIsNonClientDpiScalingEnabled
 @ stub NtUserIsResizeLayoutSynchronizationEnabled
 @ stub NtUserIsTopLevelWindow
-@ stub NtUserIsTouchWindow
+@ stdcall -syscall NtUserIsTouchWindow(long ptr)
 @ stub NtUserIsWindowBroadcastingDpiToChildren
 @ stub NtUserIsWindowGDIScaledDpiMessageEnabled
 @ stdcall -syscall NtUserKillTimer(long long)
@@ -1270,7 +1270,7 @@
 @ stub NtUserSlicerControl
 @ stub NtUserSoundSentry
 @ stub NtUserStopAndEndInertia
-@ stdcall -syscall NtUserSwitchDesktop(long)
+@ stub NtUserSwitchDesktop
 @ stdcall -syscall NtUserSystemParametersInfo(long long ptr long)
 @ stdcall -syscall NtUserSystemParametersInfoForDpi(long long ptr long long)
 @ stub NtUserTestForInteractiveUser
@@ -1322,3 +1322,4 @@
 
 @ stdcall -syscall __wine_get_icm_profile(long long ptr ptr)
 @ stdcall -syscall __wine_get_file_outline_text_metric(wstr ptr ptr ptr)
+@ stdcall -syscall __wine_send_input(long ptr ptr)

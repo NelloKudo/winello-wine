@@ -866,10 +866,18 @@ static TOPOID topology_generate_id(void)
     return next_topology_id;
 }
 
-HRESULT create_topology(TOPOID id, IMFTopology **topology)
+/***********************************************************************
+ *      MFCreateTopology (mf.@)
+ */
+HRESULT WINAPI MFCreateTopology(IMFTopology **topology)
 {
     struct topology *object;
     HRESULT hr;
+
+    TRACE("%p.\n", topology);
+
+    if (!topology)
+        return E_POINTER;
 
     if (!(object = calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
@@ -884,24 +892,11 @@ HRESULT create_topology(TOPOID id, IMFTopology **topology)
         return hr;
     }
 
-    object->id = id;
+    object->id = topology_generate_id();
 
     *topology = &object->IMFTopology_iface;
 
     return S_OK;
-}
-
-/***********************************************************************
- *      MFCreateTopology (mf.@)
- */
-HRESULT WINAPI MFCreateTopology(IMFTopology **topology)
-{
-    TRACE("%p.\n", topology);
-
-    if (!topology)
-        return E_POINTER;
-
-    return create_topology(topology_generate_id(), topology);
 }
 
 static HRESULT WINAPI topology_node_QueryInterface(IMFTopologyNode *iface, REFIID riid, void **out)

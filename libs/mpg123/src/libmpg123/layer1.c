@@ -10,7 +10,7 @@
 
 #include "mpg123lib_intern.h"
 #include "getbits.h"
-#include "../common/debug.h"
+#include "debug.h"
 
 /*
 	Allocation value is not allowed to be 15. Initially, libmad showed me the

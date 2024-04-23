@@ -51,7 +51,6 @@ static NTSTATUS (WINAPI *pNtWow64ReadVirtualMemory64)(HANDLE,ULONG64,void*,ULONG
 static NTSTATUS (WINAPI *pNtWow64WriteVirtualMemory64)(HANDLE,ULONG64,const void *,ULONG64,ULONG64*);
 #endif
 
-static BOOL is_win64 = sizeof(void *) > sizeof(int);
 static BOOL is_wow64;
 static BOOL old_wow64;  /* Wine old-style wow64 */
 static void *code_mem;
@@ -72,11 +71,6 @@ static USHORT native_machine = IMAGE_FILE_MACHINE_ARM64;
 static USHORT current_machine;
 static USHORT native_machine;
 #endif
-
-static BOOL is_machine_32bit( USHORT machine )
-{
-    return machine == IMAGE_FILE_MACHINE_I386 || machine == IMAGE_FILE_MACHINE_ARMNT;
-}
 
 static void init(void)
 {
@@ -124,19 +118,6 @@ static void init(void)
 #endif
 #undef GET_PROC
 
-    if (pNtQuerySystemInformationEx)
-    {
-        SYSTEM_SUPPORTED_PROCESSOR_ARCHITECTURES_INFORMATION machines[8];
-        HANDLE process = GetCurrentProcess();
-        NTSTATUS status = pNtQuerySystemInformationEx( SystemSupportedProcessorArchitectures, &process,
-                                                       sizeof(process), machines, sizeof(machines), NULL );
-        if (!status)
-            for (int i = 0; machines[i].Machine; i++)
-                trace( "machine %04x kernel %u user %u native %u process %u wow64 %u\n",
-                       machines[i].Machine, machines[i].KernelMode, machines[i].UserMode,
-                       machines[i].Native, machines[i].Process, machines[i].WoW64Container );
-    }
-
     if (pRtlGetNativeSystemInformation)
     {
         SYSTEM_CPU_INFORMATION info;
@@ -154,28 +135,8 @@ static void init(void)
         }
     }
 
-    trace( "current %04x native %04x\n", current_machine, native_machine );
-
     if (native_machine == IMAGE_FILE_MACHINE_AMD64)
         code_mem = VirtualAlloc( NULL, 65536, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE );
-}
-
-static BOOL create_process_machine( char *cmdline, DWORD flags, USHORT machine, PROCESS_INFORMATION *pi )
-{
-    struct _PROC_THREAD_ATTRIBUTE_LIST *list;
-    STARTUPINFOEXA si = {{ sizeof(si) }};
-    SIZE_T size = 1024;
-    BOOL ret;
-
-    si.lpAttributeList = list = malloc( size );
-    InitializeProcThreadAttributeList( list, 1, 0, &size );
-    UpdateProcThreadAttribute( list, 0, PROC_THREAD_ATTRIBUTE_MACHINE_TYPE,
-                               &machine, sizeof(machine), NULL, NULL );
-    ret = CreateProcessA( NULL, cmdline, NULL, NULL, FALSE,
-                          EXTENDED_STARTUPINFO_PRESENT | flags, NULL, NULL, &si.StartupInfo, pi );
-    DeleteProcThreadAttributeList( list );
-    free( list );
-    return ret;
 }
 
 static void test_process_architecture( HANDLE process, USHORT expect_machine, USHORT expect_native )
@@ -202,9 +163,7 @@ static void test_process_architecture( HANDLE process, USHORT expect_machine, US
         else
             ok( machines[i].Machine != expect_native, "wrong machine %x\n", machines[i].Machine);
 
-        if (machines[i].WoW64Container)
-            ok( is_machine_32bit( machines[i].Machine ) && !is_machine_32bit( native_machine ),
-                "wrong wow64 %x\n", machines[i].Machine);
+        /* FIXME: test other fields */
     }
     ok( !*(DWORD *)&machines[i], "missing terminating null\n" );
 
@@ -227,74 +186,14 @@ static void test_process_architecture( HANDLE process, USHORT expect_machine, US
     }
 }
 
-static void test_process_machine( HANDLE process, HANDLE thread,
-                                  USHORT expect_machine, USHORT expect_image )
-{
-    PROCESS_BASIC_INFORMATION basic;
-    SECTION_IMAGE_INFORMATION image;
-    IMAGE_DOS_HEADER dos;
-    IMAGE_NT_HEADERS nt;
-    PEB peb;
-    ULONG len;
-    SIZE_T size;
-    NTSTATUS status;
-    void *entry_point = NULL;
-    void *win32_entry = NULL;
-
-    status = NtQueryInformationProcess( process, ProcessBasicInformation, &basic, sizeof(basic), &len );
-    ok( !status, "ProcessBasicInformation failed %lx\n", status );
-    if (ReadProcessMemory( process, basic.PebBaseAddress, &peb, sizeof(peb), &size ) &&
-        ReadProcessMemory( process, peb.ImageBaseAddress, &dos, sizeof(dos), &size ) &&
-        ReadProcessMemory( process, (char *)peb.ImageBaseAddress + dos.e_lfanew, &nt, sizeof(nt), &size ))
-    {
-        ok( nt.FileHeader.Machine == expect_machine, "wrong nt machine %x / %x\n",
-            nt.FileHeader.Machine, expect_machine );
-        entry_point = (char *)peb.ImageBaseAddress + nt.OptionalHeader.AddressOfEntryPoint;
-    }
-
-    status = NtQueryInformationProcess( process, ProcessImageInformation, &image, sizeof(image), &len );
-    ok( !status, "ProcessImageInformation failed %lx\n", status );
-    ok( image.Machine == expect_image, "wrong image info %x / %x\n", image.Machine, expect_image );
-
-    status = NtQueryInformationThread( thread, ThreadQuerySetWin32StartAddress,
-                                       &win32_entry, sizeof(win32_entry), &len );
-    ok( !status, "ThreadQuerySetWin32StartAddress failed %lx\n", status );
-
-    if (!entry_point) return;
-
-    if (image.Machine == expect_machine)
-    {
-        ok( image.TransferAddress == entry_point, "wrong entry %p / %p\n",
-            image.TransferAddress, entry_point );
-        ok( win32_entry == entry_point, "wrong win32 entry %p / %p\n",
-            win32_entry, entry_point );
-    }
-    else
-    {
-        /* image.TransferAddress is the ARM64 entry, entry_point is the x86-64 one,
-           win32_entry is the redirected x86-64 -> ARM64EC one */
-        ok( image.TransferAddress != entry_point, "wrong entry %p\n", image.TransferAddress );
-        ok( image.TransferAddress != win32_entry, "wrong entry %p\n", image.TransferAddress );
-        ok( win32_entry != entry_point, "wrong win32 entry %p\n", win32_entry );
-    }
-}
-
 static void test_query_architectures(void)
 {
-    static char cmd_sysnative[] = "C:\\windows\\sysnative\\cmd.exe /c exit";
-    static char cmd_system32[] = "C:\\windows\\system32\\cmd.exe /c exit";
-    static char cmd_syswow64[] = "C:\\windows\\syswow64\\cmd.exe /c exit";
     SYSTEM_SUPPORTED_PROCESSOR_ARCHITECTURES_INFORMATION machines[8];
     PROCESS_INFORMATION pi;
     STARTUPINFOA si = { sizeof(si) };
     NTSTATUS status;
     HANDLE process;
-    ULONG i, len;
-#ifdef __arm64ec__
-    BOOL is_arm64ec = TRUE;
-#else
-    BOOL is_arm64ec = FALSE;
-#endif
+    ULONG len;
 
     if (!pNtQuerySystemInformationEx) return;
 
@@ -326,54 +225,24 @@ static void test_query_architectures(void)
                                           machines, sizeof(machines), &len );
     ok( status == STATUS_INVALID_PARAMETER, "failed %lx\n", status );
 
-    winetest_push_context( "current" );
-    test_process_architecture( GetCurrentProcess(), is_win64 ? native_machine : current_machine,
-                               native_machine );
-    test_process_machine( GetCurrentProcess(), GetCurrentThread(), current_machine,
-                          is_arm64ec ? native_machine : current_machine );
-    winetest_pop_context();
-
-    winetest_push_context( "zero" );
+    test_process_architecture( GetCurrentProcess(), current_machine, native_machine );
     test_process_architecture( 0, 0, native_machine );
-    winetest_pop_context();
 
-    if (CreateProcessA( NULL, is_win64 ? cmd_system32 : cmd_sysnative, NULL, NULL,
+    if (CreateProcessA( "C:\\Program Files\\Internet Explorer\\iexplore.exe", NULL, NULL, NULL,
                         FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi ))
     {
-        winetest_push_context( "system32" );
         test_process_architecture( pi.hProcess, native_machine, native_machine );
-        test_process_machine( pi.hProcess, pi.hThread,
-                              is_win64 ? current_machine : native_machine, native_machine );
         TerminateProcess( pi.hProcess, 0 );
         CloseHandle( pi.hProcess );
         CloseHandle( pi.hThread );
-        winetest_pop_context();
     }
-    if (CreateProcessA( NULL, is_win64 ? cmd_syswow64 : cmd_system32, NULL, NULL,
+    if (CreateProcessA( "C:\\Program Files (x86)\\Internet Explorer\\iexplore.exe", NULL, NULL, NULL,
                         FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi ))
     {
-        winetest_push_context( "syswow64" );
         test_process_architecture( pi.hProcess, IMAGE_FILE_MACHINE_I386, native_machine );
-        test_process_machine( pi.hProcess, pi.hThread, IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_I386 );
         TerminateProcess( pi.hProcess, 0 );
         CloseHandle( pi.hProcess );
         CloseHandle( pi.hThread );
-        winetest_pop_context();
-    }
-    if (is_win64 && native_machine == IMAGE_FILE_MACHINE_ARM64)
-    {
-        USHORT machine = IMAGE_FILE_MACHINE_ARM64 + IMAGE_FILE_MACHINE_AMD64 - current_machine;
-
-        if (create_process_machine( cmd_system32, CREATE_SUSPENDED, machine, &pi ))
-        {
-            winetest_push_context( "%04x", machine );
-            test_process_architecture( pi.hProcess, native_machine, native_machine );
-            test_process_machine( pi.hProcess, pi.hThread, machine, native_machine );
-            TerminateProcess( pi.hProcess, 0 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( pi.hThread );
-            winetest_pop_context();
-        }
     }
 
     if (pRtlWow64GetCurrentMachine)
@@ -383,21 +252,27 @@ static void test_query_architectures(void)
     }
     if (pRtlWow64IsWowGuestMachineSupported)
     {
-        static const WORD machines[] = { IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_ARMNT,
-                                         IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_ARM64, 0xdead };
-
-        for (i = 0; i < ARRAY_SIZE(machines); i++)
-        {
-            BOOLEAN ret = 0xcc;
-            status = pRtlWow64IsWowGuestMachineSupported( machines[i], &ret );
-            ok( !status, "failed %lx\n", status );
-            if (is_machine_32bit( machines[i] ) && !is_machine_32bit( native_machine ))
-                ok( ret || machines[i] == IMAGE_FILE_MACHINE_ARMNT ||
-                    broken(current_machine == IMAGE_FILE_MACHINE_I386), /* win10-1607 wow64 */
-                    "%04x: got %u\n", machines[i], ret );
-            else
-                ok( !ret, "%04x: got %u\n", machines[i], ret );
-        }
+        BOOLEAN ret = 0xcc;
+        status = pRtlWow64IsWowGuestMachineSupported( IMAGE_FILE_MACHINE_I386, &ret );
+        ok( !status, "failed %lx\n", status );
+        ok( ret == (native_machine == IMAGE_FILE_MACHINE_AMD64 ||
+                    native_machine == IMAGE_FILE_MACHINE_ARM64), "wrong result %u\n", ret );
+        ret = 0xcc;
+        status = pRtlWow64IsWowGuestMachineSupported( IMAGE_FILE_MACHINE_ARMNT, &ret );
+        ok( !status, "failed %lx\n", status );
+        ok( !ret || native_machine == IMAGE_FILE_MACHINE_ARM64, "wrong result %u\n", ret );
+        ret = 0xcc;
+        status = pRtlWow64IsWowGuestMachineSupported( IMAGE_FILE_MACHINE_AMD64, &ret );
+        ok( !status, "failed %lx\n", status );
+        ok( !ret || native_machine == IMAGE_FILE_MACHINE_ARM64, "wrong result %u\n", ret );
+        ret = 0xcc;
+        status = pRtlWow64IsWowGuestMachineSupported( IMAGE_FILE_MACHINE_ARM64, &ret );
+        ok( !status, "failed %lx\n", status );
+        ok( !ret, "wrong result %u\n", ret );
+        ret = 0xcc;
+        status = pRtlWow64IsWowGuestMachineSupported( 0xdead, &ret );
+        ok( !status, "failed %lx\n", status );
+        ok( !ret, "wrong result %u\n", ret );
     }
 }
 
@@ -1049,11 +924,7 @@ static void test_selectors(void)
     if (!pRtlWow64GetThreadContext || pRtlWow64GetThreadContext( GetCurrentThread(), &context ))
     {
         /* hardcoded values */
-#ifdef __arm64ec__
-        context.SegCs = 0x23;
-        context.SegSs = 0x2b;
-        context.SegFs = 0x53;
-#elif defined __x86_64__
+#ifdef __x86_64__
         context.SegCs = 0x23;
         __asm__( "movw %%fs,%0" : "=m" (context.SegFs) );
         __asm__( "movw %%ss,%0" : "=m" (context.SegSs) );
@@ -1569,7 +1440,7 @@ static const BYTE call_func64_code[] =
     0xcb,                               /* lret */
 };
 
-static NTSTATUS call_func64( ULONG64 func64, int nb_args, ULONG64 *args )
+NTSTATUS call_func64( ULONG64 func64, int nb_args, ULONG64 *args, void *code_mem )
 {
     NTSTATUS (WINAPI *func)( ULONG64 func64, int nb_args, ULONG64 *args ) = code_mem;
 
@@ -1700,7 +1571,6 @@ static void check_module( ULONG64 base, const WCHAR *name )
     else
         CHECK_MODULE(wow64cpu);
 #undef CHECK_MODULE
-    todo_wine_if( !wcscmp( name, L"win32u.dll" ))
     ok( 0, "unknown module %s %s found\n", wine_dbgstr_longlong(base), wine_dbgstr_w(name));
 }
 
@@ -1952,7 +1822,7 @@ static void test_init_block(void)
             CHECK_FUNC( init_block[14], "EtwpNotificationThread" );
             ok( init_block[15] == (ULONG_PTR)ntdll, "got %p for ntdll %p\n",
                 (void *)(ULONG_PTR)init_block[15], ntdll );
-            /* CHECK_FUNC( init_block[16], "LdrSystemDllInitBlock" ); not always present */
+            CHECK_FUNC( init_block[16], "LdrSystemDllInitBlock" );
             size = 17 * sizeof(*init_block);
             break;
         case 0x70:  /* win8 */
@@ -2070,7 +1940,7 @@ static void test_iosb(void)
     iosb64.Information = 0xdeadbeef;
 
     args[0] = (LONG_PTR)server;
-    status = call_func64( func, ARRAY_SIZE(args), args );
+    status = call_func64( func, ARRAY_SIZE(args), args, code_mem );
     ok( status == STATUS_PENDING, "NtFsControlFile returned %lx\n", status );
     ok( iosb32.Status == 0x55555555, "status changed to %lx\n", iosb32.Status );
     ok( iosb64.Pointer == PtrToUlong(&iosb32), "status changed to %lx\n", iosb64.Status );
@@ -2095,7 +1965,7 @@ static void test_iosb(void)
     args[8] = (ULONG_PTR)&id;
     args[9] = sizeof(id);
 
-    status = call_func64( func, ARRAY_SIZE(args), args );
+    status = call_func64( func, ARRAY_SIZE(args), args, code_mem );
     ok( status == STATUS_PENDING || status == STATUS_SUCCESS, "NtFsControlFile returned %lx\n", status );
     todo_wine
     {
@@ -2125,7 +1995,7 @@ static void test_iosb(void)
     id = 0xdeadbeef;
 
     args[0] = (LONG_PTR)server;
-    status = call_func64( func, ARRAY_SIZE(args), args );
+    status = call_func64( func, ARRAY_SIZE(args), args, code_mem );
     ok( status == STATUS_SUCCESS, "NtFsControlFile returned %lx\n", status );
     ok( iosb32.Status == 0x55555555, "status changed to %lx\n", iosb32.Status );
     ok( iosb32.Information == 0x55555555, "info changed to %Ix\n", iosb32.Information );
@@ -2148,7 +2018,7 @@ static NTSTATUS invoke_syscall( const char *name, ULONG args32[] )
     else
         win_skip( "syscall thunk %s not recognized\n", name );
 
-    return call_func64( func, ARRAY_SIZE(args64), args64 );
+    return call_func64( func, ARRAY_SIZE(args64), args64, code_mem );
 }
 
 static void test_syscalls(void)
@@ -2254,14 +2124,14 @@ static void test_cpu_area(void)
         ULONG64 context, context_ex;
         ULONG64 args[] = { (ULONG_PTR)&machine, (ULONG_PTR)&context, (ULONG_PTR)&context_ex };
 
-        status = call_func64( ptr, ARRAY_SIZE(args), args );
+        status = call_func64( ptr, ARRAY_SIZE(args), args, code_mem );
         ok( !status, "RtlWow64GetCpuAreaInfo failed %lx\n", status );
         ok( machine == IMAGE_FILE_MACHINE_I386, "wrong machine %x\n", machine );
         ok( context == teb64->TlsSlots[WOW64_TLS_CPURESERVED] + 4, "wrong context %s / %s\n",
             wine_dbgstr_longlong(context), wine_dbgstr_longlong(teb64->TlsSlots[WOW64_TLS_CPURESERVED]) );
         ok( !context_ex, "got context_ex %s\n", wine_dbgstr_longlong(context_ex) );
         args[0] = args[1] = args[2] = 0;
-        status = call_func64( ptr, ARRAY_SIZE(args), args );
+        status = call_func64( ptr, ARRAY_SIZE(args), args, code_mem );
         ok( !status, "RtlWow64GetCpuAreaInfo failed %lx\n", status );
     }
     else win_skip( "RtlWow64GetCpuAreaInfo not supported\n" );
@@ -2304,26 +2174,6 @@ static void test_exception_dispatcher(void)
 
 #endif  /* _WIN64 */
 
-static void test_arm64ec(void)
-{
-#ifdef __aarch64__
-    PROCESS_INFORMATION pi;
-    char cmdline[MAX_PATH];
-    char **argv;
-
-    trace( "restarting test as arm64ec\n" );
-
-    winetest_get_mainargs( &argv );
-    sprintf( cmdline, "%s %s", argv[0], argv[1] );
-    if (create_process_machine( cmdline, 0, IMAGE_FILE_MACHINE_AMD64, &pi ))
-    {
-        wait_child_process( pi.hProcess );
-        CloseHandle( pi.hProcess );
-        CloseHandle( pi.hThread );
-    }
-    else skip( "could not start arm64ec process: %lu\n", GetLastError() );
-#endif
-}
 
 START_TEST(wow64)
 {
@@ -2343,5 +2193,4 @@ START_TEST(wow64)
 #endif
     test_cpu_area();
     test_exception_dispatcher();
-    test_arm64ec();
 }

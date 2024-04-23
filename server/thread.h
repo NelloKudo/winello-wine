@@ -51,7 +51,6 @@ struct thread
     struct object          obj;           /* object header */
     struct list            entry;         /* entry in system-wide thread list */
     struct list            proc_entry;    /* entry in per-process thread list */
-    struct list            desktop_entry; /* entry in per-desktop thread list */
     struct process        *process;
     thread_id_t            id;            /* thread id */
     struct list            mutex_list;    /* list of currently owned mutexes */
@@ -95,7 +94,11 @@ struct thread
     struct list            kernel_object; /* list of kernel object pointers */
     data_size_t            desc_len;      /* thread description length in bytes */
     WCHAR                 *desc;          /* thread description string */
-    struct timeout_user   *exit_poll;     /* poll if the thread/process has exited already */
+    struct object         *locked_completion; /* completion port wait object successfully waited by the thread */
+    struct object         *queue_shared_mapping; /* thread queue shared memory mapping */
+    queue_shm_t           *queue_shared;  /* thread queue shared memory ptr */
+    struct object         *input_shared_mapping; /* thread input shared memory mapping */
+    input_shm_t           *input_shared;  /* thread input shared memory ptr */
 };
 
 extern struct thread *current;
@@ -125,6 +128,7 @@ extern void thread_cancel_apc( struct thread *thread, struct object *owner, enum
 extern int thread_add_inflight_fd( struct thread *thread, int client, int server );
 extern int thread_get_inflight_fd( struct thread *thread, int client );
 extern struct token *thread_get_impersonation_token( struct thread *thread );
+extern int set_thread_priority( struct thread *thread, int priority_class, int priority );
 extern int set_thread_affinity( struct thread *thread, affinity_t affinity );
 extern int suspend_thread( struct thread *thread );
 extern int resume_thread( struct thread *thread );
@@ -147,10 +151,5 @@ static inline void clear_error(void)             { set_error(0); }
 static inline void set_win32_error( unsigned int err ) { set_error( 0xc0010000 | err ); }
 
 static inline thread_id_t get_thread_id( struct thread *thread ) { return thread->id; }
-
-/* scheduler functions */
-
-extern void init_scheduler( void );
-extern void set_scheduler_priority( struct thread *thread );
 
 #endif  /* __WINE_SERVER_THREAD_H */

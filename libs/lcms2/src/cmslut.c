@@ -475,9 +475,6 @@ cmsUInt32Number CubeSize(const cmsUInt32Number Dims[], cmsUInt32Number b)
         if (rv > UINT_MAX / dim) return 0;
     }
 
-    // Again, prevent overflow
-    if (rv > UINT_MAX / 15) return 0;
-
     return rv;
 }
 
@@ -817,13 +814,7 @@ cmsBool CMSEXPORT cmsStageSampleCLutFloat(cmsStage* mpe, cmsSAMPLERFLOAT Sampler
     cmsUInt32Number nInputs, nOutputs;
     cmsUInt32Number* nSamples;
     cmsFloat32Number In[MAX_INPUT_DIMENSIONS+1], Out[MAX_STAGE_CHANNELS];
-    _cmsStageCLutData* clut;
-
-    if (mpe == NULL) return FALSE;
-
-    clut = (_cmsStageCLutData*)mpe->Data;
-
-    if (clut == NULL) return FALSE;
+    _cmsStageCLutData* clut = (_cmsStageCLutData*) mpe->Data;
 
     nSamples = clut->Params ->nSamples;
     nInputs  = clut->Params ->nInputs;
@@ -1847,3 +1838,5 @@ cmsBool CMSEXPORT cmsPipelineEvalReverseFloat(cmsFloat32Number Target[],
 
     return TRUE;
 }
+
+

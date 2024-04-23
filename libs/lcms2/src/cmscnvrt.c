@@ -715,16 +715,6 @@ int BlackPreservingGrayOnlySampler(CMSREGISTER const cmsUInt16Number In[], CMSRE
     return TRUE;
 }
 
-
-// Check whatever the profile is a CMYK->CMYK devicelink
-static
-cmsBool is_cmyk_devicelink(cmsHPROFILE hProfile)
-{
-    return cmsGetDeviceClass(hProfile) == cmsSigLinkClass &&
-            cmsGetColorSpace(hProfile) == cmsSigCmykData &&
-            cmsGetColorSpace(hProfile) == cmsSigCmykData;
-}
-
 // This is the entry for black-preserving K-only intents, which are non-ICC
 static
 cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
@@ -757,15 +747,13 @@ cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
     lastProfilePos = nProfiles - 1;
     hLastProfile = hProfiles[lastProfilePos];
 
-    // Skip CMYK->CMYK devicelinks on ending
-    while (is_cmyk_devicelink(hLastProfile))
+    while (lastProfilePos > 1)
     {
-        if (lastProfilePos < 2)
-            break;
-
         hLastProfile = hProfiles[--lastProfilePos];
+        if (cmsGetColorSpace(hLastProfile) != cmsSigCmykData ||
+            cmsGetDeviceClass(hLastProfile) != cmsSigLinkClass)
+            break;
     }
-
 
     preservationProfilesCount = lastProfilePos + 1;
 
@@ -783,7 +771,7 @@ cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
 
     // Create a LUT holding normal ICC transform
     bp.cmyk2cmyk = DefaultICCintents(ContextID,
-        preservationProfilesCount,
+                                     preservationProfilesCount,
         ICCIntents,
         hProfiles,
         BPC,
@@ -795,7 +783,7 @@ cmsPipeline*  BlackPreservingKOnlyIntents(cmsContext     ContextID,
     // Now, compute the tone curve
     bp.KTone = _cmsBuildKToneCurve(ContextID,
         4096,
-        preservationProfilesCount,
+                                    preservationProfilesCount,
         ICCIntents,
         hProfiles,
         BPC,
@@ -985,14 +973,13 @@ cmsPipeline* BlackPreservingKPlaneIntents(cmsContext     ContextID,
     lastProfilePos = nProfiles - 1;
     hLastProfile = hProfiles[lastProfilePos];
 
-    // Skip CMYK->CMYK devicelinks on ending
-    while (is_cmyk_devicelink(hLastProfile))
-    {
-        if (lastProfilePos < 2)
-            break;
-
+    while (lastProfilePos > 1)
+    {   
         hLastProfile = hProfiles[--lastProfilePos];
-    }
+        if (cmsGetColorSpace(hLastProfile) != cmsSigCmykData ||
+            cmsGetDeviceClass(hLastProfile) != cmsSigLinkClass)
+            break;        
+    } 
 
     preservationProfilesCount = lastProfilePos + 1;
 
@@ -1161,6 +1148,20 @@ cmsUInt32Number CMSEXPORT cmsGetSupportedIntentsTHR(cmsContext ContextID, cmsUIn
     cmsIntentsList* pt;
     cmsUInt32Number nIntents;
 
+
+    for (nIntents=0, pt = ctx->Intents; pt != NULL; pt = pt -> Next)
+    {
+        if (nIntents < nMax) {
+            if (Codes != NULL)
+                Codes[nIntents] = pt ->Intent;
+
+            if (Descriptions != NULL)
+                Descriptions[nIntents] = pt ->Description;
+        }
+
+        nIntents++;
+    }
+
     for (nIntents=0, pt = DefaultIntents; pt != NULL; pt = pt -> Next)
     {
         if (nIntents < nMax) {
@@ -1173,20 +1174,6 @@ cmsUInt32Number CMSEXPORT cmsGetSupportedIntentsTHR(cmsContext ContextID, cmsUIn
 
         nIntents++;
     }
-
-    for (pt = ctx->Intents; pt != NULL; pt = pt -> Next)
-    {
-        if (nIntents < nMax) {
-            if (Codes != NULL)
-                Codes[nIntents] = pt ->Intent;
-
-            if (Descriptions != NULL)
-                Descriptions[nIntents] = pt ->Description;
-        }
-
-        nIntents++;
-    }
-
     return nIntents;
 }
 
@@ -1224,3 +1211,4 @@ cmsBool  _cmsRegisterRenderingIntentPlugin(cmsContext id, cmsPluginBase* Data)
 
     return TRUE;
 }
+

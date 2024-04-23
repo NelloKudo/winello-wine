@@ -2028,7 +2028,7 @@ UINT WINAPI MsiEnumComponentCostsW( MSIHANDLE handle, const WCHAR *component, DW
     GetWindowsDirectoryW( path, MAX_PATH );
     if (component && component[0])
     {
-        if (msi_is_global_assembly( comp )) *temp = comp->cost;
+        if (msi_is_global_assembly( comp )) *temp = comp->Cost;
         if (!comp->Enabled || !comp->KeyPath)
         {
             *cost = 0;
@@ -2037,14 +2037,14 @@ UINT WINAPI MsiEnumComponentCostsW( MSIHANDLE handle, const WCHAR *component, DW
         }
         else if ((file = msi_get_loaded_file( package, comp->KeyPath )))
         {
-            *cost = comp->cost;
+            *cost = max( 8, comp->Cost / 512 );
             *buflen = set_drive( drive, file->TargetPath[0] );
             r = ERROR_SUCCESS;
         }
     }
     else if (IStorage_Stat( package->db->storage, &stat, STATFLAG_NONAME ) == S_OK)
     {
-        *temp = cost_from_size( stat.cbSize.QuadPart );
+        *temp = max( 8, stat.cbSize.QuadPart / 512 );
         *buflen = set_drive( drive, path[0] );
         r = ERROR_SUCCESS;
     }

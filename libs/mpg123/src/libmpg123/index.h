@@ -21,7 +21,7 @@
 */
 
 #include "config.h"
-#include "../compat/compat.h"
+#include "compat.h"
 
 struct frame_index
 {

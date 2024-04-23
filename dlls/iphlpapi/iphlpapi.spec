@@ -73,7 +73,7 @@
 @ stdcall GetAdaptersAddresses( long long ptr ptr ptr )
 @ stdcall GetAdaptersInfo( ptr ptr )
 #@ stub GetAnycastIpAddressEntry
-@ stdcall GetAnycastIpAddressTable( long ptr )
+#@ stub GetAnycastIpAddressTable
 @ stdcall GetBestInterface( long ptr )
 @ stdcall GetBestInterfaceEx( ptr ptr )
 @ stub GetBestInterfaceFromStack

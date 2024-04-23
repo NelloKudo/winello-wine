@@ -279,11 +279,8 @@ static BOOL dump_value(unsigned int hive_off, unsigned int off)
         }
         break;
     case REG_DWORD:
-        assert(data_size == sizeof(DWORD) || !data_size);
-        if (data_size)
-            printf("dword:%08x", *(unsigned int *)data);
-        else
-            printf("hex(4):");
+        assert(data_size == sizeof(DWORD));
+        printf("dword:%08x", *(unsigned int *)data);
         break;
     case REG_MULTI_SZ:
         printf("str(7):\"");

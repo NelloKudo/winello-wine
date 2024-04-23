@@ -364,7 +364,12 @@ cmsBool CMSEXPORT  _cmsWriteXYZNumber(cmsIOHANDLER* io, const cmsCIEXYZ* XYZ)
 // from Fixed point 8.8 to double
 cmsFloat64Number CMSEXPORT _cms8Fixed8toDouble(cmsUInt16Number fixed8)
 {
-    return fixed8 / 256.0;
+       cmsUInt8Number  msb, lsb;
+
+       lsb = (cmsUInt8Number) (fixed8 & 0xff);
+       msb = (cmsUInt8Number) (((cmsUInt16Number) fixed8 >> 8) & 0xff);
+
+       return (cmsFloat64Number) ((cmsFloat64Number) msb + ((cmsFloat64Number) lsb / 256.0));
 }
 
 cmsUInt16Number CMSEXPORT _cmsDoubleTo8Fixed8(cmsFloat64Number val)
@@ -376,7 +381,19 @@ cmsUInt16Number CMSEXPORT _cmsDoubleTo8Fixed8(cmsFloat64Number val)
 // from Fixed point 15.16 to double
 cmsFloat64Number CMSEXPORT _cms15Fixed16toDouble(cmsS15Fixed16Number fix32)
 {
-    return fix32 / 65536.0;
+    cmsFloat64Number floater, sign, mid;
+    int Whole, FracPart;
+
+    sign  = (fix32 < 0 ? -1 : 1);
+    fix32 = abs(fix32);
+
+    Whole     = (cmsUInt16Number)(fix32 >> 16) & 0xffff;
+    FracPart  = (cmsUInt16Number)(fix32 & 0xffff);
+
+    mid     = (cmsFloat64Number) FracPart / 65536.0;
+    floater = (cmsFloat64Number) Whole + mid;
+
+    return sign * floater;
 }
 
 // from double to Fixed point 15.16

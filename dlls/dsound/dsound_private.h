@@ -93,7 +93,6 @@ struct DirectSoundDevice
     int                         lfe_channel;
     float *tmp_buffer, *cp_buffer, *dsp_buffer;
     DWORD                       tmp_buffer_len, cp_buffer_len, dsp_buffer_len;
-    CO_MTA_USAGE_COOKIE         mta_cookie;
 
     DSVOLUMEPAN                 volpan;
 
@@ -216,7 +215,6 @@ HRESULT IKsPrivatePropertySetImpl_Create(REFIID riid, void **ppv);
 HRESULT DSOUND_Create(REFIID riid, void **ppv);
 HRESULT DSOUND_Create8(REFIID riid, void **ppv);
 HRESULT IDirectSoundImpl_Create(IUnknown *outer_unk, REFIID riid, void **ppv, BOOL has_ds8);
-void DSOUND_ParseSpeakerConfig(DirectSoundDevice *device);
 
 /* primary.c */
 

@@ -216,36 +216,6 @@ static VkPrimitiveTopology vk_topology_from_wined3d(enum wined3d_primitive_type 
     }
 }
 
-static VkPrimitiveTopology vk_topology_class_from_wined3d(enum wined3d_primitive_type t)
-{
-    switch (t)
-    {
-        case WINED3D_PT_POINTLIST:
-            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-
-        case WINED3D_PT_LINELIST:
-        case WINED3D_PT_LINELIST_ADJ:
-        case WINED3D_PT_LINESTRIP:
-        case WINED3D_PT_LINESTRIP_ADJ:
-            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-
-        case WINED3D_PT_TRIANGLEFAN:
-        case WINED3D_PT_TRIANGLELIST:
-        case WINED3D_PT_TRIANGLELIST_ADJ:
-        case WINED3D_PT_TRIANGLESTRIP:
-        case WINED3D_PT_TRIANGLESTRIP_ADJ:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-        case WINED3D_PT_PATCH:
-            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-
-        default:
-            FIXME("Unhandled primitive type %s.\n", debug_d3dprimitivetype(t));
-        case WINED3D_PT_UNDEFINED:
-            return ~0u;
-    }
-}
-
 static VkStencilOp vk_stencil_op_from_wined3d(enum wined3d_stencil_op op)
 {
     switch (op)
@@ -460,7 +430,7 @@ static bool wined3d_context_vk_create_slab_bo(struct wined3d_context_vk *context
     }
     else
     {
-        if (!(slab = calloc(1, sizeof(*slab))))
+        if (!(slab = heap_alloc_zero(sizeof(*slab))))
         {
             wined3d_device_vk_allocator_unlock(device_vk);
             ERR("Failed to allocate bo slab.\n");
@@ -471,7 +441,7 @@ static bool wined3d_context_vk_create_slab_bo(struct wined3d_context_vk *context
         {
             wined3d_device_vk_allocator_unlock(device_vk);
             ERR("Failed to add slab to available tree.\n");
-            free(slab);
+            heap_free(slab);
             return false;
         }
 
@@ -481,7 +451,7 @@ static bool wined3d_context_vk_create_slab_bo(struct wined3d_context_vk *context
             wined3d_device_vk_allocator_unlock(device_vk);
             ERR("Failed to create slab bo.\n");
             wine_rb_remove(&context_vk->bo_slab_available, &slab->entry);
-            free(slab);
+            heap_free(slab);
             return false;
         }
         slab->map = ~0u;
@@ -1307,7 +1277,7 @@ static void wined3d_context_vk_destroy_bo_slab(struct wine_rb_entry *entry, void
     {
         next = slab->next;
         wined3d_context_vk_destroy_bo(context_vk, &slab->bo);
-        free(slab);
+        heap_free(slab);
         slab = next;
     }
 }
@@ -1324,7 +1294,7 @@ static void wined3d_context_vk_destroy_graphics_pipeline(struct wine_rb_entry *e
     device_vk = wined3d_device_vk(context_vk->c.device);
 
     VK_CALL(vkDestroyPipeline(device_vk->vk_device, pipeline_vk->vk_pipeline, NULL));
-    free(pipeline_vk);
+    heap_free(pipeline_vk);
 }
 
 static void wined3d_context_vk_destroy_pipeline_layout(struct wine_rb_entry *entry, void *ctx)
@@ -1340,8 +1310,8 @@ static void wined3d_context_vk_destroy_pipeline_layout(struct wine_rb_entry *ent
 
     VK_CALL(vkDestroyPipelineLayout(device_vk->vk_device, layout->vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device_vk->vk_device, layout->vk_set_layout, NULL));
-    free(layout->key.bindings);
-    free(layout);
+    heap_free(layout->key.bindings);
+    heap_free(layout);
 }
 
 static void wined3d_render_pass_key_vk_init(struct wined3d_render_pass_key_vk *key,
@@ -1541,12 +1511,12 @@ VkRenderPass wined3d_context_vk_get_render_pass(struct wined3d_context_vk *conte
     if ((entry = wine_rb_get(&context_vk->render_passes, &key)))
         return WINE_RB_ENTRY_VALUE(entry, struct wined3d_render_pass_vk, entry)->vk_render_pass;
 
-    if (!(pass = malloc(sizeof(*pass))))
+    if (!(pass = heap_alloc(sizeof(*pass))))
         return VK_NULL_HANDLE;
 
     if (!wined3d_render_pass_vk_init(pass, context_vk, &key))
     {
-        free(pass);
+        heap_free(pass);
         return VK_NULL_HANDLE;
     }
 
@@ -1554,7 +1524,7 @@ VkRenderPass wined3d_context_vk_get_render_pass(struct wined3d_context_vk *conte
     {
         ERR("Failed to insert render pass.\n");
         wined3d_render_pass_vk_cleanup(pass, context_vk);
-        free(pass);
+        heap_free(pass);
         return VK_NULL_HANDLE;
     }
 
@@ -1601,12 +1571,12 @@ static void wined3d_context_vk_destroy_render_pass(struct wine_rb_entry *entry, 
             struct wined3d_render_pass_vk, entry);
 
     wined3d_render_pass_vk_cleanup(pass, ctx);
-    free(pass);
+    heap_free(pass);
 }
 
 static void wined3d_shader_descriptor_writes_vk_cleanup(struct wined3d_shader_descriptor_writes_vk *writes)
 {
-    free(writes->writes);
+    heap_free(writes->writes);
 }
 
 static void wined3d_context_vk_destroy_query_pools(struct wined3d_context_vk *context_vk, struct list *free_pools)
@@ -1616,7 +1586,7 @@ static void wined3d_context_vk_destroy_query_pools(struct wined3d_context_vk *co
     LIST_FOR_EACH_ENTRY_SAFE(pool_vk, entry, free_pools, struct wined3d_query_pool_vk, entry)
     {
         wined3d_query_pool_vk_cleanup(pool_vk, context_vk);
-        free(pool_vk);
+        heap_free(pool_vk);
     }
 }
 
@@ -1665,11 +1635,11 @@ bool wined3d_context_vk_allocate_query(struct wined3d_context_vk *context_vk,
         list_init(&pool_vk->entry);
     }
 
-    if (!(pool_vk = calloc(1, sizeof(*pool_vk))))
+    if (!(pool_vk = heap_alloc_zero(sizeof(*pool_vk))))
         return false;
     if (!wined3d_query_pool_vk_init(pool_vk, context_vk, type, free_pools))
     {
-        free(pool_vk);
+        heap_free(pool_vk);
         return false;
     }
 
@@ -1711,7 +1681,7 @@ bool wined3d_context_vk_allocate_query(struct wined3d_context_vk *context_vk,
     if (!wined3d_query_pool_vk_allocate_query(pool_vk, &idx))
     {
         wined3d_query_pool_vk_cleanup(pool_vk, context_vk);
-        free(pool_vk);
+        heap_free(pool_vk);
         return false;
     }
 
@@ -1740,11 +1710,11 @@ void wined3d_context_vk_cleanup(struct wined3d_context_vk *context_vk)
     for (i = 0; i < context_vk->completed.buffer_count; ++i)
         free_command_buffer(context_vk, &context_vk->completed.buffers[i]);
 
-    free(context_vk->compute.bindings.bindings);
-    free(context_vk->graphics.bindings.bindings);
+    heap_free(context_vk->compute.bindings.bindings);
+    heap_free(context_vk->graphics.bindings.bindings);
     for (i = 0; i < context_vk->vk_descriptor_pool_count; ++i)
         VK_CALL(vkDestroyDescriptorPool(device_vk->vk_device, context_vk->vk_descriptor_pools[i], NULL));
-    free(context_vk->vk_descriptor_pools);
+    heap_free(context_vk->vk_descriptor_pools);
     if (context_vk->vk_framebuffer)
         VK_CALL(vkDestroyFramebuffer(device_vk->vk_device, context_vk->vk_framebuffer, NULL));
     if (context_vk->vk_so_counter_bo.vk_buffer)
@@ -1759,9 +1729,9 @@ void wined3d_context_vk_cleanup(struct wined3d_context_vk *context_vk)
     wined3d_context_vk_destroy_query_pools(context_vk, &context_vk->free_pipeline_statistics_query_pools);
     wined3d_context_vk_destroy_query_pools(context_vk, &context_vk->free_stream_output_statistics_query_pools);
     wine_rb_destroy(&context_vk->bo_slab_available, wined3d_context_vk_destroy_bo_slab, context_vk);
-    free(context_vk->submitted.buffers);
-    free(context_vk->completed.buffers);
-    free(context_vk->retired.objects);
+    heap_free(context_vk->submitted.buffers);
+    heap_free(context_vk->completed.buffers);
+    heap_free(context_vk->retired.objects);
 
     wined3d_shader_descriptor_writes_vk_cleanup(&context_vk->descriptor_writes);
     wine_rb_destroy(&context_vk->graphics_pipelines, wined3d_context_vk_destroy_graphics_pipeline, context_vk);
@@ -1905,18 +1875,10 @@ void wined3d_context_vk_submit_command_buffer(struct wined3d_context_vk *context
     context_vk->c.update_compute_shader_resource_bindings = 1;
     context_vk->c.update_unordered_access_view_bindings = 1;
     context_vk->c.update_compute_unordered_access_view_bindings = 1;
-    context_vk->c.update_primitive_type = 1;
-    context_vk->c.update_patch_vertex_count = 1;
-    context_vk->c.update_multisample_state = 1;
     context_invalidate_state(&context_vk->c, STATE_STREAMSRC);
     context_invalidate_state(&context_vk->c, STATE_INDEXBUFFER);
-    context_invalidate_state(&context_vk->c, STATE_BLEND);
     context_invalidate_state(&context_vk->c, STATE_BLEND_FACTOR);
-    context_invalidate_state(&context_vk->c, STATE_DEPTH_STENCIL);
-    context_invalidate_state(&context_vk->c, STATE_RASTERIZER);
     context_invalidate_state(&context_vk->c, STATE_STENCIL_REF);
-    context_invalidate_state(&context_vk->c, STATE_VIEWPORT);
-    context_invalidate_state(&context_vk->c, STATE_SCISSORRECT);
 
     VK_CALL(vkEndCommandBuffer(buffer->vk_command_buffer));
 
@@ -2075,6 +2037,11 @@ static int wined3d_graphics_pipeline_vk_compare(const void *key, const struct wi
     if ((ret = wined3d_uint32_compare(a->ts_desc.patchControlPoints, b->ts_desc.patchControlPoints)))
         return ret;
 
+    if ((ret = memcmp(a->viewports, b->viewports, sizeof(a->viewports))))
+        return ret;
+    if ((ret = memcmp(a->scissors, b->scissors, sizeof(a->scissors))))
+        return ret;
+
     if ((ret = memcmp(&a->rs_desc, &b->rs_desc, sizeof(a->rs_desc))))
         return ret;
 
@@ -2118,57 +2085,15 @@ static int wined3d_bo_slab_vk_compare(const void *key, const struct wine_rb_entr
 
 static void wined3d_context_vk_init_graphics_pipeline_key(struct wined3d_context_vk *context_vk)
 {
-    const struct wined3d_vk_info *vk_info = context_vk->vk_info;
-    VkDynamicState *dynamic_states = context_vk->dynamic_states;
     struct wined3d_graphics_pipeline_key_vk *key;
     VkPipelineShaderStageCreateInfo *stage;
-    uint32_t dynamic_state_count = 0;
     unsigned int i;
 
-    dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_BLEND_CONSTANTS;
-    dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_STENCIL_REFERENCE;
-    dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_VIEWPORT;
-    dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_SCISSOR;
-
-    if (vk_info->supported[WINED3D_VK_EXT_EXTENDED_DYNAMIC_STATE])
+    static const VkDynamicState dynamic_states[] =
     {
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_STENCIL_OP_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_STENCIL_WRITE_MASK;
-    }
-    if (vk_info->dynamic_state2)
-    {
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT;
-        if (!(context_vk->c.d3d_info->wined3d_creation_flags & WINED3D_NO_PRIMITIVE_RESTART))
-            dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT;
-    }
-    if (vk_info->dynamic_patch_vertex_count)
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_PATCH_CONTROL_POINTS_EXT;
-    if (vk_info->dynamic_multisample_state)
-    {
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_ALPHA_TO_COVERAGE_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_RASTERIZATION_SAMPLES_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_SAMPLE_MASK_EXT;
-    }
-    if (vk_info->dynamic_blend_state)
-    {
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT;
-    }
-    if (vk_info->dynamic_rasterizer_state)
-    {
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_CLAMP_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_CULL_MODE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_FRONT_FACE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE_EXT;
-        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_BIAS;
-    }
+        VK_DYNAMIC_STATE_BLEND_CONSTANTS,
+        VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+    };
 
     key = &context_vk->graphics.pipeline_key_vk;
     memset(key, 0, sizeof(*key));
@@ -2192,16 +2117,14 @@ static void wined3d_context_vk_init_graphics_pipeline_key(struct wined3d_context
     key->ts_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
 
     key->vp_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    key->vp_desc.viewportCount = (context_vk->vk_info->multiple_viewports ? WINED3D_MAX_VIEWPORTS : 1);
-    key->vp_desc.scissorCount = key->vp_desc.viewportCount;
+    key->vp_desc.pViewports = key->viewports;
+    key->vp_desc.pScissors = key->scissors;
 
     key->rs_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     key->rs_desc.lineWidth = 1.0f;
 
     key->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     key->ms_desc.pSampleMask = &key->sample_mask;
-    /* This has to be initialized to a nonzero value even if it's dynamic. */
-    key->ms_desc.rasterizationSamples = 1;
 
     key->ds_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     key->ds_desc.maxDepthBounds = 1.0f;
@@ -2215,7 +2138,7 @@ static void wined3d_context_vk_init_graphics_pipeline_key(struct wined3d_context
     key->blend_desc.blendConstants[3] = 1.0f;
 
     key->dynamic_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    key->dynamic_desc.dynamicStateCount = dynamic_state_count;
+    key->dynamic_desc.dynamicStateCount = ARRAY_SIZE(dynamic_states);
     key->dynamic_desc.pDynamicStates = dynamic_states;
 
     key->pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -2232,9 +2155,11 @@ static void wined3d_context_vk_init_graphics_pipeline_key(struct wined3d_context
     key->pipeline_desc.basePipelineIndex = -1;
 }
 
-static void rasterizer_state_from_wined3d(VkPipelineRasterizationStateCreateInfo *desc,
-        const struct wined3d_state *state, const struct wined3d_d3d_info *d3d_info)
+static void wined3d_context_vk_update_rasterisation_state(const struct wined3d_context_vk *context_vk,
+        const struct wined3d_state *state, struct wined3d_graphics_pipeline_key_vk *key)
 {
+    const struct wined3d_d3d_info *d3d_info = context_vk->c.d3d_info;
+    VkPipelineRasterizationStateCreateInfo *desc = &key->rs_desc;
     const struct wined3d_rasterizer_state_desc *r;
     float scale_bias;
     union
@@ -2299,58 +2224,6 @@ static void rasterizer_state_from_wined3d(VkPipelineRasterizationStateCreateInfo
     desc->depthBiasClamp = r->depth_bias_clamp;
 }
 
-static void wined3d_context_vk_set_dynamic_rasterizer_state(const struct wined3d_context_vk *context_vk,
-        VkCommandBuffer vk_command_buffer, const struct wined3d_vk_info *vk_info, const struct wined3d_state *state)
-{
-    VkPipelineRasterizationStateCreateInfo desc;
-
-    rasterizer_state_from_wined3d(&desc, state, context_vk->c.d3d_info);
-
-    VK_CALL(vkCmdSetRasterizerDiscardEnableEXT(vk_command_buffer, desc.rasterizerDiscardEnable));
-    VK_CALL(vkCmdSetDepthClampEnableEXT(vk_command_buffer, desc.depthClampEnable));
-    VK_CALL(vkCmdSetCullModeEXT(vk_command_buffer, desc.cullMode));
-    VK_CALL(vkCmdSetFrontFaceEXT(vk_command_buffer, desc.frontFace));
-    VK_CALL(vkCmdSetDepthBiasEnableEXT(vk_command_buffer, desc.depthBiasEnable));
-
-    if (desc.depthBiasEnable)
-        VK_CALL(vkCmdSetDepthBias(vk_command_buffer, desc.depthBiasConstantFactor,
-                desc.depthBiasClamp, desc.depthBiasSlopeFactor));
-}
-
-static void blend_equation_from_wined3d(const struct wined3d_context_vk *context_vk, VkColorBlendEquationEXT *eq,
-        const struct wined3d_rendertarget_blend_state_desc *rt, const struct wined3d_rendertarget_view *rtv)
-{
-    enum wined3d_blend src_blend, dst_blend;
-    const struct wined3d_format *rt_format;
-
-    if (rtv)
-        rt_format = rtv->format;
-    else
-        rt_format = wined3d_get_format(context_vk->c.device->adapter, WINED3DFMT_NULL, 0);
-
-    src_blend = rt->src;
-    dst_blend = rt->dst;
-    if (src_blend == WINED3D_BLEND_BOTHSRCALPHA)
-    {
-        src_blend = WINED3D_BLEND_SRCALPHA;
-        dst_blend = WINED3D_BLEND_INVSRCALPHA;
-    }
-    else if (src_blend == WINED3D_BLEND_BOTHINVSRCALPHA)
-    {
-        src_blend = WINED3D_BLEND_INVSRCALPHA;
-        dst_blend = WINED3D_BLEND_SRCALPHA;
-    }
-    eq->srcColorBlendFactor = vk_blend_factor_from_wined3d(src_blend, rt_format, false);
-    eq->dstColorBlendFactor = vk_blend_factor_from_wined3d(dst_blend, rt_format, false);
-    eq->colorBlendOp = vk_blend_op_from_wined3d(rt->op);
-
-    src_blend = rt->src_alpha;
-    dst_blend = rt->dst_alpha;
-    eq->srcAlphaBlendFactor = vk_blend_factor_from_wined3d(src_blend, rt_format, true);
-    eq->dstAlphaBlendFactor = vk_blend_factor_from_wined3d(dst_blend, rt_format, true);
-    eq->alphaBlendOp = vk_blend_op_from_wined3d(rt->op_alpha);
-}
-
 static void wined3d_context_vk_update_blend_state(const struct wined3d_context_vk *context_vk,
         const struct wined3d_state *state, struct wined3d_graphics_pipeline_key_vk *key)
 {
@@ -2378,57 +2251,43 @@ static void wined3d_context_vk_update_blend_state(const struct wined3d_context_v
     for (i = 0; i < context_vk->rt_count; ++i)
     {
         const struct wined3d_rendertarget_blend_state_desc *rt = &b->rt[b->independent ? i : 0];
+        const struct wined3d_rendertarget_view *rtv = state->fb.render_targets[i];
         VkPipelineColorBlendAttachmentState *a = &key->blend_attachments[i];
+        enum wined3d_blend src_blend, dst_blend;
+        const struct wined3d_format *rt_format;
 
         a->colorWriteMask = vk_colour_write_mask_from_wined3d(rt->writemask);
         if (!rt->enable)
             continue;
 
+        if (rtv)
+            rt_format = rtv->format;
+        else
+            rt_format = wined3d_get_format(context_vk->c.device->adapter, WINED3DFMT_NULL, 0);
         a->blendEnable = VK_TRUE;
 
-        blend_equation_from_wined3d(context_vk,
-                (VkColorBlendEquationEXT *)&a->srcColorBlendFactor, rt, state->fb.render_targets[i]);
+        src_blend = rt->src;
+        dst_blend = rt->dst;
+        if (src_blend == WINED3D_BLEND_BOTHSRCALPHA)
+        {
+            src_blend = WINED3D_BLEND_SRCALPHA;
+            dst_blend = WINED3D_BLEND_INVSRCALPHA;
+        }
+        else if (src_blend == WINED3D_BLEND_BOTHINVSRCALPHA)
+        {
+            src_blend = WINED3D_BLEND_INVSRCALPHA;
+            dst_blend = WINED3D_BLEND_SRCALPHA;
+        }
+        a->srcColorBlendFactor = vk_blend_factor_from_wined3d(src_blend, rt_format, FALSE);
+        a->dstColorBlendFactor = vk_blend_factor_from_wined3d(dst_blend, rt_format, FALSE);
+        a->colorBlendOp = vk_blend_op_from_wined3d(rt->op);
+
+        src_blend = rt->src_alpha;
+        dst_blend = rt->dst_alpha;
+        a->srcAlphaBlendFactor = vk_blend_factor_from_wined3d(src_blend, rt_format, TRUE);
+        a->dstAlphaBlendFactor = vk_blend_factor_from_wined3d(dst_blend, rt_format, TRUE);
+        a->alphaBlendOp = vk_blend_op_from_wined3d(rt->op_alpha);
     }
-}
-
-static void wined3d_context_vk_set_dynamic_blend_state(const struct wined3d_context_vk *context_vk,
-        VkCommandBuffer vk_command_buffer, const struct wined3d_vk_info *vk_info, const struct wined3d_state *state)
-{
-    VkColorBlendEquationEXT equations[WINED3D_MAX_RENDER_TARGETS] = {{0}};
-    VkColorComponentFlags write_mask[WINED3D_MAX_RENDER_TARGETS];
-    unsigned int rt_count = context_vk->rt_count;
-    VkBool32 enable[WINED3D_MAX_RENDER_TARGETS];
-    const struct wined3d_blend_state_desc *b;
-
-    if (!state->blend_state)
-    {
-        static const VkBool32 default_enable[WINED3D_MAX_RENDER_TARGETS];
-#define X (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
-        static const VkColorComponentFlags default_write_mask[WINED3D_MAX_RENDER_TARGETS] = {X, X, X, X, X, X, X, X};
-#undef X
-
-        VK_CALL(vkCmdSetColorBlendEnableEXT(vk_command_buffer, 0, rt_count, default_enable));
-        VK_CALL(vkCmdSetColorWriteMaskEXT(vk_command_buffer, 0, rt_count, default_write_mask));
-        return;
-    }
-
-    b = &state->blend_state->desc;
-    for (unsigned int i = 0; i < rt_count; ++i)
-    {
-        const struct wined3d_rendertarget_blend_state_desc *rt = &b->rt[b->independent ? i : 0];
-
-        write_mask[i] = vk_colour_write_mask_from_wined3d(rt->writemask);
-        enable[i] = rt->enable;
-
-        if (!rt->enable)
-            continue;
-
-        blend_equation_from_wined3d(context_vk, &equations[i], rt, state->fb.render_targets[i]);
-    }
-
-    VK_CALL(vkCmdSetColorBlendEnableEXT(vk_command_buffer, 0, rt_count, enable));
-    VK_CALL(vkCmdSetColorWriteMaskEXT(vk_command_buffer, 0, rt_count, write_mask));
-    VK_CALL(vkCmdSetColorBlendEquationEXT(vk_command_buffer, 0, rt_count, equations));
 }
 
 static VkFormat vk_format_from_component_type(enum wined3d_component_type component_type)
@@ -2451,7 +2310,6 @@ static bool wined3d_context_vk_update_graphics_pipeline_key(struct wined3d_conte
 {
     unsigned int i, attribute_count, binding_count, divisor_count, stage_count;
     const struct wined3d_d3d_info *d3d_info = context_vk->c.d3d_info;
-    const struct wined3d_vk_info *vk_info = context_vk->vk_info;
     struct wined3d_graphics_pipeline_key_vk *key;
     VkPipelineShaderStageCreateInfo *stage;
     struct wined3d_stream_info stream_info;
@@ -2579,46 +2437,100 @@ static bool wined3d_context_vk_update_graphics_pipeline_key(struct wined3d_conte
         update = true;
     }
 
-    if (vk_info->dynamic_state2)
+    vk_topology = vk_topology_from_wined3d(state->primitive_type);
+    if (key->ia_desc.topology != vk_topology)
     {
-        vk_topology = vk_topology_class_from_wined3d(state->primitive_type);
-        if (key->ia_desc.topology != vk_topology)
-        {
-            key->ia_desc.topology = vk_topology;
-            update = true;
-        }
-    }
-    else
-    {
-        vk_topology = vk_topology_from_wined3d(state->primitive_type);
-        if (key->ia_desc.topology != vk_topology)
-        {
-            key->ia_desc.topology = vk_topology;
-            key->ia_desc.primitiveRestartEnable = !(d3d_info->wined3d_creation_flags & WINED3D_NO_PRIMITIVE_RESTART)
-                    && !wined3d_primitive_type_is_list(state->primitive_type);
+        key->ia_desc.topology = vk_topology;
+        key->ia_desc.primitiveRestartEnable = !(d3d_info->wined3d_creation_flags & WINED3D_NO_PRIMITIVE_RESTART)
+                && !wined3d_primitive_type_is_list(state->primitive_type);
 
-            update = true;
-        }
+        update = true;
     }
 
-    if (!vk_info->dynamic_patch_vertex_count && key->ts_desc.patchControlPoints != state->patch_vertex_count)
+    if (key->ts_desc.patchControlPoints != state->patch_vertex_count)
     {
         key->ts_desc.patchControlPoints = state->patch_vertex_count;
 
         update = true;
     }
 
-    if (!vk_info->dynamic_rasterizer_state && (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_RASTERIZER)
-            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_SHADER(WINED3D_SHADER_TYPE_GEOMETRY))))
+    if (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_VIEWPORT)
+            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_SCISSORRECT)
+            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_RASTERIZER))
     {
-        rasterizer_state_from_wined3d(&key->rs_desc, state, d3d_info);
+        key->vp_desc.viewportCount = (context_vk->vk_info->multiple_viewports ? WINED3D_MAX_VIEWPORTS : 1);
+        key->vp_desc.scissorCount = key->vp_desc.viewportCount;
+
+        for (i = 0; i < key->vp_desc.viewportCount; ++i)
+        {
+            const struct wined3d_viewport *src_viewport = &state->viewports[i];
+            VkViewport *viewport = &key->viewports[i];
+            VkRect2D *scissor = &key->scissors[i];
+
+            if (i >= state->viewport_count)
+            {
+                viewport->x = 0.0f;
+                viewport->y = 0.0f;
+                viewport->width = 1.0f;
+                viewport->height = 1.0f;
+                viewport->minDepth = 0.0f;
+                viewport->maxDepth = 0.0f;
+
+                memset(scissor, 0, sizeof(*scissor));
+                continue;
+            }
+
+            viewport->x = src_viewport->x;
+            viewport->y = src_viewport->y;
+            viewport->width = src_viewport->width;
+            viewport->height = src_viewport->height;
+            viewport->minDepth = src_viewport->min_z;
+            viewport->maxDepth = src_viewport->max_z;
+
+            if (state->rasterizer_state && state->rasterizer_state->desc.scissor)
+            {
+                const RECT *r = &state->scissor_rects[i];
+
+                if (i >= state->scissor_rect_count)
+                {
+                    memset(scissor, 0, sizeof(*scissor));
+                    continue;
+                }
+
+                scissor->offset.x = r->left;
+                scissor->offset.y = r->top;
+                scissor->extent.width =  r->right - r->left;
+                scissor->extent.height = r->bottom - r->top;
+            }
+            else
+            {
+                scissor->offset.x = viewport->x;
+                scissor->offset.y = viewport->y;
+                scissor->extent.width = viewport->width;
+                scissor->extent.height = viewport->height;
+            }
+            /* Scissor offsets need to be non-negative (VUID-VkPipelineViewportStateCreateInfo-x-02821) */
+            if (scissor->offset.x < 0)
+                scissor->offset.x = 0;
+            if (scissor->offset.y < 0)
+                scissor->offset.y = 0;
+            viewport->y += viewport->height;
+            viewport->height = -viewport->height;
+        }
 
         update = true;
     }
 
-    if (!vk_info->dynamic_multisample_state
-            && (key->ms_desc.rasterizationSamples != context_vk->sample_count
-            || isStateDirty(&context_vk->c, STATE_BLEND) || isStateDirty(&context_vk->c, STATE_SAMPLE_MASK)))
+    if (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_RASTERIZER)
+            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_SHADER(WINED3D_SHADER_TYPE_GEOMETRY)))
+    {
+        wined3d_context_vk_update_rasterisation_state(context_vk, state, key);
+
+        update = true;
+    }
+
+    if (key->ms_desc.rasterizationSamples != context_vk->sample_count
+            || isStateDirty(&context_vk->c, STATE_BLEND) || isStateDirty(&context_vk->c, STATE_SAMPLE_MASK))
     {
         key->ms_desc.rasterizationSamples = context_vk->sample_count;
         key->ms_desc.alphaToCoverageEnable = state->blend_state && state->blend_state->desc.alpha_to_coverage;
@@ -2627,9 +2539,8 @@ static bool wined3d_context_vk_update_graphics_pipeline_key(struct wined3d_conte
         update = true;
     }
 
-    if (!vk_info->supported[WINED3D_VK_EXT_EXTENDED_DYNAMIC_STATE]
-            && (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_DEPTH_STENCIL)
-                    || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_FRAMEBUFFER)))
+    if (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_DEPTH_STENCIL)
+            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_FRAMEBUFFER))
     {
         const struct wined3d_depth_stencil_state *d = state->depth_stencil_state;
 
@@ -2672,9 +2583,8 @@ static bool wined3d_context_vk_update_graphics_pipeline_key(struct wined3d_conte
         update = true;
     }
 
-    if (!vk_info->dynamic_blend_state
-            && (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_BLEND)
-            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_FRAMEBUFFER)))
+    if (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_BLEND)
+            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_FRAMEBUFFER))
     {
         wined3d_context_vk_update_blend_state(context_vk, state, key);
 
@@ -3415,12 +3325,12 @@ struct wined3d_pipeline_layout_vk *wined3d_context_vk_get_pipeline_layout(
     if ((entry = wine_rb_get(&context_vk->pipeline_layouts, &key)))
         return WINE_RB_ENTRY_VALUE(entry, struct wined3d_pipeline_layout_vk, entry);
 
-    if (!(layout = malloc(sizeof(*layout))))
+    if (!(layout = heap_alloc(sizeof(*layout))))
         return NULL;
 
-    if (!(layout->key.bindings = malloc(sizeof(*layout->key.bindings) * key.binding_count)))
+    if (!(layout->key.bindings = heap_alloc(sizeof(*layout->key.bindings) * key.binding_count)))
     {
-        free(layout);
+        heap_free(layout);
         return NULL;
     }
     memcpy(layout->key.bindings, key.bindings, sizeof(*layout->key.bindings) * key.binding_count);
@@ -3459,8 +3369,8 @@ struct wined3d_pipeline_layout_vk *wined3d_context_vk_get_pipeline_layout(
     return layout;
 
 fail:
-    free(layout->key.bindings);
-    free(layout);
+    heap_free(layout->key.bindings);
+    heap_free(layout);
     return NULL;
 }
 
@@ -3477,7 +3387,7 @@ static VkPipeline wined3d_context_vk_get_graphics_pipeline(struct wined3d_contex
     if ((entry = wine_rb_get(&context_vk->graphics_pipelines, key)))
         return WINE_RB_ENTRY_VALUE(entry, struct wined3d_graphics_pipeline_vk, entry)->vk_pipeline;
 
-    if (!(pipeline_vk = malloc(sizeof(*pipeline_vk))))
+    if (!(pipeline_vk = heap_alloc(sizeof(*pipeline_vk))))
         return VK_NULL_HANDLE;
     pipeline_vk->key = *key;
 
@@ -3485,7 +3395,7 @@ static VkPipeline wined3d_context_vk_get_graphics_pipeline(struct wined3d_contex
             VK_NULL_HANDLE, 1, &key->pipeline_desc, NULL, &pipeline_vk->vk_pipeline))) < 0)
     {
         WARN("Failed to create graphics pipeline, vr %s.\n", wined3d_debug_vkresult(vr));
-        free(pipeline_vk);
+        heap_free(pipeline_vk);
         return VK_NULL_HANDLE;
     }
 
@@ -3683,7 +3593,6 @@ VkCommandBuffer wined3d_context_vk_apply_draw_state(struct wined3d_context_vk *c
         const struct wined3d_state *state, struct wined3d_buffer_vk *indirect_vk, bool indexed)
 {
     struct wined3d_device_vk *device_vk = wined3d_device_vk(context_vk->c.device);
-    const struct wined3d_d3d_info *d3d_info = context_vk->c.d3d_info;
     const struct wined3d_vk_info *vk_info = context_vk->vk_info;
     const struct wined3d_blend_state *b = state->blend_state;
     bool dual_source_blend = b && b->dual_source;
@@ -3758,7 +3667,7 @@ VkCommandBuffer wined3d_context_vk_apply_draw_state(struct wined3d_context_vk *c
         context_vk->sample_count = VK_SAMPLE_COUNT_1_BIT;
     if (context_vk->c.shader_update_mask & ~(1u << WINED3D_SHADER_TYPE_COMPUTE))
     {
-        device_vk->d.shader_backend->shader_apply_draw_state(device_vk->d.shader_priv, &context_vk->c, state);
+        device_vk->d.shader_backend->shader_select(device_vk->d.shader_priv, &context_vk->c, state);
         if (!context_vk->graphics.vk_pipeline_layout)
         {
             ERR("No pipeline layout set.\n");
@@ -3884,152 +3793,6 @@ VkCommandBuffer wined3d_context_vk_apply_draw_state(struct wined3d_context_vk *c
     if (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_BLEND_FACTOR))
         VK_CALL(vkCmdSetBlendConstants(vk_command_buffer, &state->blend_factor.r));
 
-    if (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_VIEWPORT)
-            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_SCISSORRECT)
-            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_RASTERIZER))
-    {
-        unsigned int viewport_count = (context_vk->vk_info->multiple_viewports ? WINED3D_MAX_VIEWPORTS : 1);
-        VkViewport viewports[WINED3D_MAX_VIEWPORTS];
-        VkRect2D scissors[WINED3D_MAX_VIEWPORTS];
-        unsigned int i;
-
-        for (i = 0; i < viewport_count; ++i)
-        {
-            const struct wined3d_viewport *src_viewport = &state->viewports[i];
-            VkViewport *viewport = &viewports[i];
-            VkRect2D *scissor = &scissors[i];
-
-            if (i >= state->viewport_count)
-            {
-                viewport->x = 0.0f;
-                viewport->y = 0.0f;
-                viewport->width = 1.0f;
-                viewport->height = 1.0f;
-                viewport->minDepth = 0.0f;
-                viewport->maxDepth = 0.0f;
-                memset(scissor, 0, sizeof(*scissor));
-                continue;
-            }
-
-            viewport->x = src_viewport->x;
-            viewport->y = src_viewport->y;
-            viewport->width = src_viewport->width;
-            viewport->height = src_viewport->height;
-            viewport->minDepth = src_viewport->min_z;
-            viewport->maxDepth = src_viewport->max_z;
-
-            if (state->rasterizer_state && state->rasterizer_state->desc.scissor)
-            {
-                const RECT *r = &state->scissor_rects[i];
-
-                if (i >= state->scissor_rect_count)
-                {
-                    memset(scissor, 0, sizeof(*scissor));
-                    continue;
-                }
-
-                scissor->offset.x = r->left;
-                scissor->offset.y = r->top;
-                scissor->extent.width =  r->right - r->left;
-                scissor->extent.height = r->bottom - r->top;
-            }
-            else
-            {
-                scissor->offset.x = src_viewport->x;
-                scissor->offset.y = src_viewport->y;
-                scissor->extent.width = src_viewport->width;
-                scissor->extent.height = src_viewport->height;
-            }
-
-            /* Scissor offsets need to be non-negative (VUID-VkPipelineViewportStateCreateInfo-x-02821) */
-            if (scissor->offset.x < 0)
-                scissor->offset.x = 0;
-            if (scissor->offset.y < 0)
-                scissor->offset.y = 0;
-            viewport->y += viewport->height;
-            viewport->height = -viewport->height;
-        }
-
-        VK_CALL(vkCmdSetViewport(vk_command_buffer, 0, viewport_count, viewports));
-        VK_CALL(vkCmdSetScissor(vk_command_buffer, 0, viewport_count, scissors));
-    }
-
-    if (vk_info->dynamic_state2 && context_vk->c.update_primitive_type)
-    {
-        VK_CALL(vkCmdSetPrimitiveTopologyEXT(vk_command_buffer, vk_topology_from_wined3d(state->primitive_type)));
-        if (!(d3d_info->wined3d_creation_flags & WINED3D_NO_PRIMITIVE_RESTART))
-            VK_CALL(vkCmdSetPrimitiveRestartEnableEXT(vk_command_buffer,
-                    !wined3d_primitive_type_is_list(state->primitive_type)));
-        context_vk->c.update_primitive_type = 0;
-    }
-
-    if (vk_info->dynamic_patch_vertex_count && context_vk->c.update_patch_vertex_count)
-    {
-        if (state->patch_vertex_count)
-            VK_CALL(vkCmdSetPatchControlPointsEXT(vk_command_buffer, state->patch_vertex_count));
-        context_vk->c.update_patch_vertex_count = 0;
-    }
-
-    if (vk_info->dynamic_multisample_state && context_vk->c.update_multisample_state)
-    {
-        unsigned int sample_count = context_vk->sample_count;
-
-        VK_CALL(vkCmdSetAlphaToCoverageEnableEXT(vk_command_buffer,
-                state->blend_state && state->blend_state->desc.alpha_to_coverage));
-        VK_CALL(vkCmdSetRasterizationSamplesEXT(vk_command_buffer, sample_count));
-        VK_CALL(vkCmdSetSampleMaskEXT(vk_command_buffer, sample_count, &state->sample_mask));
-        context_vk->c.update_multisample_state = 0;
-    }
-
-    if (vk_info->dynamic_rasterizer_state && (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_RASTERIZER)
-            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_SHADER(WINED3D_SHADER_TYPE_GEOMETRY))))
-        wined3d_context_vk_set_dynamic_rasterizer_state(context_vk, vk_command_buffer, vk_info, state);
-
-    if (vk_info->dynamic_blend_state && (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_BLEND)
-            || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_FRAMEBUFFER)))
-        wined3d_context_vk_set_dynamic_blend_state(context_vk, vk_command_buffer, vk_info, state);
-
-    if (vk_info->supported[WINED3D_VK_EXT_EXTENDED_DYNAMIC_STATE]
-            && (wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_DEPTH_STENCIL)
-                    || wined3d_context_is_graphics_state_dirty(&context_vk->c, STATE_FRAMEBUFFER)))
-    {
-        const struct wined3d_depth_stencil_state *d = state->depth_stencil_state;
-
-        if (d)
-        {
-            VkBool32 stencil_enable = state->fb.depth_stencil && d->desc.stencil;
-
-            VK_CALL(vkCmdSetDepthTestEnableEXT(vk_command_buffer, d->desc.depth));
-            VK_CALL(vkCmdSetDepthWriteEnableEXT(vk_command_buffer, d->desc.depth_write));
-            VK_CALL(vkCmdSetDepthCompareOpEXT(vk_command_buffer, vk_compare_op_from_wined3d(d->desc.depth_func)));
-            VK_CALL(vkCmdSetStencilTestEnableEXT(vk_command_buffer, stencil_enable));
-            if (stencil_enable)
-            {
-                VK_CALL(vkCmdSetStencilOpEXT(vk_command_buffer, VK_STENCIL_FACE_FRONT_BIT,
-                        vk_stencil_op_from_wined3d(d->desc.front.fail_op),
-                        vk_stencil_op_from_wined3d(d->desc.front.pass_op),
-                        vk_stencil_op_from_wined3d(d->desc.front.depth_fail_op),
-                        vk_compare_op_from_wined3d(d->desc.front.func)));
-                VK_CALL(vkCmdSetStencilOpEXT(vk_command_buffer, VK_STENCIL_FACE_BACK_BIT,
-                        vk_stencil_op_from_wined3d(d->desc.back.fail_op),
-                        vk_stencil_op_from_wined3d(d->desc.back.pass_op),
-                        vk_stencil_op_from_wined3d(d->desc.back.depth_fail_op),
-                        vk_compare_op_from_wined3d(d->desc.back.func)));
-                VK_CALL(vkCmdSetStencilCompareMask(vk_command_buffer,
-                        VK_STENCIL_FACE_FRONT_AND_BACK, d->desc.stencil_read_mask));
-                VK_CALL(vkCmdSetStencilWriteMask(vk_command_buffer,
-                        VK_STENCIL_FACE_FRONT_AND_BACK, d->desc.stencil_write_mask));
-            }
-        }
-        else
-        {
-            VK_CALL(vkCmdSetDepthTestEnableEXT(vk_command_buffer, VK_TRUE));
-            VK_CALL(vkCmdSetDepthWriteEnableEXT(vk_command_buffer, VK_TRUE));
-            VK_CALL(vkCmdSetDepthCompareOpEXT(vk_command_buffer, VK_COMPARE_OP_LESS));
-            VK_CALL(vkCmdSetStencilTestEnableEXT(vk_command_buffer, VK_FALSE));
-        }
-    }
-
     memset(context_vk->c.dirty_graphics_states, 0, sizeof(context_vk->c.dirty_graphics_states));
     context_vk->c.shader_update_mask &= 1u << WINED3D_SHADER_TYPE_COMPUTE;
 
@@ -4050,7 +3813,7 @@ VkCommandBuffer wined3d_context_vk_apply_compute_state(struct wined3d_context_vk
 
     if (context_vk->c.shader_update_mask & (1u << WINED3D_SHADER_TYPE_COMPUTE))
     {
-        device_vk->d.shader_backend->shader_apply_compute_state(device_vk->d.shader_priv, &context_vk->c, state);
+        device_vk->d.shader_backend->shader_select_compute(device_vk->d.shader_priv, &context_vk->c, state);
         if (!context_vk->compute.vk_pipeline)
         {
             ERR("No compute pipeline set.\n");

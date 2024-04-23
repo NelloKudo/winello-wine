@@ -62,9 +62,6 @@
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
-#ifdef __FreeBSD__
-#include <sys/thr.h>
-#endif
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -162,11 +159,32 @@ void fpu_to_fpux( XMM_SAVE_AREA32 *fpux, const I386_FLOATING_SAVE_AREA *fpu )
 
 
 /***********************************************************************
+ *           validate_context_xstate
+ */
+BOOL validate_context_xstate( CONTEXT *context )
+{
+    CONTEXT_EX *context_ex;
+
+    if (!((context->ContextFlags & 0x40) && xstate_extended_features())) return TRUE;
+
+    context_ex = (CONTEXT_EX *)(context + 1);
+
+    if (context_ex->XState.Length < sizeof(XSAVE_AREA_HEADER) ||
+        context_ex->XState.Length > sizeof(XSAVE_AREA_HEADER) + xstate_features_size)
+        return FALSE;
+
+    if (((ULONG_PTR)context_ex + context_ex->XState.Offset) & 63) return FALSE;
+
+    return TRUE;
+}
+
+
+/***********************************************************************
  *           get_server_context_flags
  */
 static unsigned int get_server_context_flags( const void *context, USHORT machine )
 {
-    unsigned int flags, ret = 0;
+    unsigned int flags = 0, ret = 0;
 
     switch (machine)
     {
@@ -204,6 +222,7 @@ static unsigned int get_server_context_flags( const void *context, USHORT machin
         if (flags & CONTEXT_ARM64_DEBUG_REGISTERS) ret |= SERVER_CTX_DEBUG_REGISTERS;
         break;
     }
+    if (flags & CONTEXT_EXCEPTION_REQUEST) ret |= SERVER_CTX_EXEC_SPACE;
     return ret;
 }
 
@@ -218,11 +237,11 @@ static unsigned int get_native_context_flags( USHORT native_machine, USHORT wow_
     switch (MAKELONG( native_machine, wow_machine ))
     {
     case MAKELONG( IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_I386 ):
-        return SERVER_CTX_DEBUG_REGISTERS | SERVER_CTX_FLOATING_POINT | SERVER_CTX_YMM_REGISTERS;
+        return SERVER_CTX_DEBUG_REGISTERS | SERVER_CTX_FLOATING_POINT | SERVER_CTX_YMM_REGISTERS | SERVER_CTX_EXEC_SPACE;
     case MAKELONG( IMAGE_FILE_MACHINE_ARM64, IMAGE_FILE_MACHINE_ARMNT ):
-        return SERVER_CTX_DEBUG_REGISTERS | SERVER_CTX_FLOATING_POINT;
+        return SERVER_CTX_DEBUG_REGISTERS | SERVER_CTX_FLOATING_POINT | SERVER_CTX_EXEC_SPACE;
     default:
-        return 0;
+        return SERVER_CTX_EXEC_SPACE;
     }
 }
 
@@ -239,6 +258,21 @@ static void xstate_to_server( context_t *to, const CONTEXT_EX *xctx )
     if (xs->CompactionMask && !(xs->CompactionMask & 4)) return;
     to->flags |= SERVER_CTX_YMM_REGISTERS;
     if (xs->Mask & 4) memcpy( &to->ymm.regs.ymm_high, &xs->YmmContext, sizeof(xs->YmmContext) );
+}
+
+
+/***********************************************************************
+ *           exception_request_flags_to_server
+ *
+ * Copy exception reporting flags to the server format.
+ */
+static void exception_request_flags_to_server( context_t *to, DWORD context_flags )
+{
+    if (!(context_flags & CONTEXT_EXCEPTION_REPORTING)) return;
+    to->flags |= SERVER_CTX_EXEC_SPACE;
+    if (context_flags & CONTEXT_SERVICE_ACTIVE)        to->exec_space.space.space = EXEC_SPACE_SYSCALL;
+    else if (context_flags & CONTEXT_EXCEPTION_ACTIVE) to->exec_space.space.space = EXEC_SPACE_EXCEPTION;
+    else                                               to->exec_space.space.space = EXEC_SPACE_USERMODE;
 }
 
 
@@ -319,6 +353,7 @@ static NTSTATUS context_to_server( context_t *to, USHORT to_machine, const void 
         }
         if (flags & CONTEXT_I386_XSTATE)
             xstate_to_server( to, (const CONTEXT_EX *)(from + 1) );
+        exception_request_flags_to_server( to, flags );
         return STATUS_SUCCESS;
     }
 
@@ -377,6 +412,7 @@ static NTSTATUS context_to_server( context_t *to, USHORT to_machine, const void 
         }
         if (flags & CONTEXT_I386_XSTATE)
             xstate_to_server( to, (const CONTEXT_EX *)(from + 1) );
+        exception_request_flags_to_server( to, flags );
         return STATUS_SUCCESS;
     }
 
@@ -438,6 +474,7 @@ static NTSTATUS context_to_server( context_t *to, USHORT to_machine, const void 
         }
         if (flags & CONTEXT_AMD64_XSTATE)
             xstate_to_server( to, (const CONTEXT_EX *)(from + 1) );
+        exception_request_flags_to_server( to, flags );
         return STATUS_SUCCESS;
     }
 
@@ -503,6 +540,7 @@ static NTSTATUS context_to_server( context_t *to, USHORT to_machine, const void 
         }
         if (flags & CONTEXT_AMD64_XSTATE)
             xstate_to_server( to, (const CONTEXT_EX *)(from + 1) );
+        exception_request_flags_to_server( to, flags );
         return STATUS_SUCCESS;
     }
 
@@ -550,6 +588,7 @@ static NTSTATUS context_to_server( context_t *to, USHORT to_machine, const void 
             for (i = 0; i < ARM_MAX_WATCHPOINTS; i++) to->debug.arm_regs.wvr[i] = from->Wvr[i];
             for (i = 0; i < ARM_MAX_WATCHPOINTS; i++) to->debug.arm_regs.wcr[i] = from->Wcr[i];
         }
+        exception_request_flags_to_server( to, flags );
         return STATUS_SUCCESS;
     }
 
@@ -591,6 +630,7 @@ static NTSTATUS context_to_server( context_t *to, USHORT to_machine, const void 
             for (i = 0; i < ARM64_MAX_WATCHPOINTS; i++) to->debug.arm64_regs.wcr[i] = from->Wcr[i];
             for (i = 0; i < ARM64_MAX_WATCHPOINTS; i++) to->debug.arm64_regs.wvr[i] = from->Wvr[i];
         }
+        exception_request_flags_to_server( to, flags );
         return STATUS_SUCCESS;
     }
 
@@ -629,6 +669,20 @@ static void xstate_from_server( CONTEXT_EX *xctx, const context_t *from )
         xs->Mask |= 4;
         break;
     }
+}
+
+
+/***********************************************************************
+ *           exception_request_flags_from_server
+ *
+ * Copy exception reporting flags from the server format.
+ */
+static void exception_request_flags_from_server( DWORD *context_flags, const context_t *from )
+{
+    if (!(*context_flags & CONTEXT_EXCEPTION_REQUEST) || !(from->flags & SERVER_CTX_EXEC_SPACE)) return;
+    *context_flags = (*context_flags & ~(CONTEXT_SERVICE_ACTIVE | CONTEXT_EXCEPTION_ACTIVE)) | CONTEXT_EXCEPTION_REPORTING;
+    if (from->exec_space.space.space == EXEC_SPACE_SYSCALL)        *context_flags |= CONTEXT_SERVICE_ACTIVE;
+    else if (from->exec_space.space.space == EXEC_SPACE_EXCEPTION) *context_flags |= CONTEXT_EXCEPTION_ACTIVE;
 }
 
 
@@ -706,6 +760,7 @@ static NTSTATUS context_from_server( void *dst, const context_t *from, USHORT ma
         }
         if ((from->flags & SERVER_CTX_YMM_REGISTERS) && (to_flags & CONTEXT_I386_XSTATE))
             xstate_from_server( (CONTEXT_EX *)(to + 1), from );
+        exception_request_flags_from_server( &to->ContextFlags, from );
         return STATUS_SUCCESS;
     }
 
@@ -767,6 +822,7 @@ static NTSTATUS context_from_server( void *dst, const context_t *from, USHORT ma
         }
         if ((from->flags & SERVER_CTX_YMM_REGISTERS) && (to_flags & CONTEXT_I386_XSTATE))
             xstate_from_server( (CONTEXT_EX *)(to + 1), from );
+        exception_request_flags_from_server( &to->ContextFlags, from );
         return STATUS_SUCCESS;
     }
 
@@ -829,6 +885,7 @@ static NTSTATUS context_from_server( void *dst, const context_t *from, USHORT ma
         }
         if ((from->flags & SERVER_CTX_YMM_REGISTERS) && (to_flags & CONTEXT_AMD64_XSTATE))
             xstate_from_server( (CONTEXT_EX *)(to + 1), from );
+        exception_request_flags_from_server( &to->ContextFlags, from );
         return STATUS_SUCCESS;
     }
 
@@ -898,6 +955,7 @@ static NTSTATUS context_from_server( void *dst, const context_t *from, USHORT ma
         }
         if ((from->flags & SERVER_CTX_YMM_REGISTERS) && (to_flags & CONTEXT_AMD64_XSTATE))
             xstate_from_server( (CONTEXT_EX *)(to + 1), from );
+        exception_request_flags_from_server( &to->ContextFlags, from );
         return STATUS_SUCCESS;
     }
 
@@ -945,6 +1003,7 @@ static NTSTATUS context_from_server( void *dst, const context_t *from, USHORT ma
             for (i = 0; i < ARM_MAX_WATCHPOINTS; i++) to->Wvr[i] = from->debug.arm_regs.wvr[i];
             for (i = 0; i < ARM_MAX_WATCHPOINTS; i++) to->Wcr[i] = from->debug.arm_regs.wcr[i];
         }
+        exception_request_flags_from_server( &to->ContextFlags, from );
         return STATUS_SUCCESS;
     }
 
@@ -986,6 +1045,7 @@ static NTSTATUS context_from_server( void *dst, const context_t *from, USHORT ma
             for (i = 0; i < ARM64_MAX_WATCHPOINTS; i++) to->Wcr[i] = from->debug.arm64_regs.wcr[i];
             for (i = 0; i < ARM64_MAX_WATCHPOINTS; i++) to->Wvr[i] = from->debug.arm64_regs.wvr[i];
         }
+        exception_request_flags_from_server( &to->ContextFlags, from );
         return STATUS_SUCCESS;
     }
 
@@ -1184,24 +1244,6 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
         wow_teb->DeallocationStack = PtrToUlong( stack.DeallocationStack );
 #endif
     }
-
-#ifdef __aarch64__
-    if (is_arm64ec())
-    {
-        CHPE_V2_CPU_AREA_INFO *cpu_area;
-        const SIZE_T chpev2_stack_size = 0x40000;
-
-        /* emulator stack */
-        if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, chpev2_stack_size, chpev2_stack_size, FALSE )))
-            return status;
-
-        cpu_area = stack.DeallocationStack;
-        cpu_area->ContextAmd64 = (ARM64EC_NT_CONTEXT *)&cpu_area->EmulatorDataInline;
-        cpu_area->EmulatorStackBase  = (ULONG_PTR)stack.StackBase;
-        cpu_area->EmulatorStackLimit = (ULONG_PTR)stack.StackLimit + page_size;
-        teb->ChpeV2CpuAreaInfo = cpu_area;
-    }
-#endif
 
     /* native stack */
     if ((status = virtual_alloc_thread_stack( &stack, 0, limit, reserve_size, commit_size, TRUE )))
@@ -1464,7 +1506,7 @@ void wait_suspend( CONTEXT *context )
  *
  * Send an EXCEPTION_DEBUG_EVENT event to the debugger.
  */
-NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance )
+NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance, BOOL exception )
 {
     unsigned int ret;
     DWORD i;
@@ -1501,6 +1543,8 @@ NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_c
         select_op.wait.handles[0] = handle;
 
         contexts_to_server( server_contexts, context );
+        server_contexts[0].flags |= SERVER_CTX_EXEC_SPACE;
+        server_contexts[0].exec_space.space.space = exception ? EXEC_SPACE_EXCEPTION : EXEC_SPACE_SYSCALL;
         server_select( &select_op, offsetof( select_op_t, wait.handles[1] ), SELECT_INTERRUPTIBLE,
                        TIMEOUT_INFINITE, server_contexts, NULL );
 
@@ -1523,14 +1567,14 @@ NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_c
  */
 NTSTATUS WINAPI NtRaiseException( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance )
 {
-    NTSTATUS status = send_debug_event( rec, context, first_chance );
+    NTSTATUS status = send_debug_event( rec, context, first_chance, !(is_win64 || is_wow64() || is_old_wow64()) );
 
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
         return NtContinue( context, FALSE );
 
     if (first_chance) return call_user_exception_dispatcher( rec, context );
 
-    if (rec->ExceptionFlags & EXCEPTION_STACK_INVALID)
+    if (rec->ExceptionFlags & EH_STACK_INVALID)
         ERR_(seh)("Exception frame is not in stack limits => unable to dispatch exception.\n");
     else if (rec->ExceptionCode == STATUS_NONCONTINUABLE_EXCEPTION)
         ERR_(seh)("Process attempted to continue execution after noncontinuable exception.\n");
@@ -1578,19 +1622,40 @@ NTSTATUS WINAPI NtOpenThread( HANDLE *handle, ACCESS_MASK access,
 /******************************************************************************
  *              NtSuspendThread   (NTDLL.@)
  */
-NTSTATUS WINAPI NtSuspendThread( HANDLE handle, ULONG *count )
+NTSTATUS WINAPI NtSuspendThread( HANDLE handle, ULONG *ret_count )
 {
-    unsigned int ret;
+    BOOL self = FALSE;
+    unsigned int ret, count = 0;
+    HANDLE wait_handle = NULL;
 
     SERVER_START_REQ( suspend_thread )
     {
         req->handle = wine_server_obj_handle( handle );
-        if (!(ret = wine_server_call( req )))
+        if (!(ret = wine_server_call( req )) || ret == STATUS_PENDING)
         {
-            if (count) *count = reply->count;
+            self = reply->count & 0x80000000;
+            count = reply->count & 0x7fffffff;;
+            wait_handle = wine_server_ptr_handle( reply->wait_handle );
         }
     }
     SERVER_END_REQ;
+
+    if (self) usleep( 0 );
+
+    if (ret == STATUS_PENDING && wait_handle)
+    {
+        NtWaitForSingleObject( wait_handle, FALSE, NULL );
+
+        SERVER_START_REQ( suspend_thread )
+        {
+            req->handle = wine_server_obj_handle( handle );
+            req->waited_handle = wine_server_obj_handle( wait_handle );
+            ret = wine_server_call( req );
+        }
+        SERVER_END_REQ;
+    }
+
+    if (!ret && ret_count) *ret_count = count;
     return ret;
 }
 
@@ -1689,17 +1754,6 @@ NTSTATUS WINAPI NtQueueApcThread( HANDLE handle, PNTAPCFUNC func, ULONG_PTR arg1
 }
 
 
-/******************************************************************************
- *              NtQueueApcThreadEx  (NTDLL.@)
- */
-NTSTATUS WINAPI NtQueueApcThreadEx( HANDLE handle, HANDLE reserve_handle, PNTAPCFUNC func,
-                                    ULONG_PTR arg1, ULONG_PTR arg2, ULONG_PTR arg3 )
-{
-    FIXME( "reserve handle should be used: %p\n", reserve_handle );
-    return NtQueueApcThread( handle, func, arg1, arg2, arg3 );
-}
-
-
 /***********************************************************************
  *              set_thread_context
  */
@@ -1768,7 +1822,7 @@ NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, USHORT ma
         }
         SERVER_END_REQ;
     }
-    if (!ret && count)
+    if (!ret)
     {
         ret = context_from_server( context, &server_contexts[0], machine );
         if (!ret && count > 1) ret = context_from_server( context, &server_contexts[1], machine );
@@ -1780,7 +1834,7 @@ NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, USHORT ma
 /***********************************************************************
  *              ntdll_set_exception_jmp_buf
  */
-void ntdll_set_exception_jmp_buf( jmp_buf jmp )
+void ntdll_set_exception_jmp_buf( __wine_jmp_buf *jmp )
 {
     assert( !jmp || !ntdll_get_thread_data()->jmp_buf );
     ntdll_get_thread_data()->jmp_buf = jmp;
@@ -1878,7 +1932,7 @@ static void set_native_thread_name( HANDLE handle, const UNICODE_STRING *name )
 #ifdef linux
     unsigned int status;
     char path[64], nameA[64];
-    int unix_pid, unix_tid, len, fd;
+    int unix_pid = -1, unix_tid = -1, len, fd;
 
     SERVER_START_REQ( get_thread_times )
     {
@@ -1910,34 +1964,10 @@ static void set_native_thread_name( HANDLE handle, const UNICODE_STRING *name )
         close( fd );
     }
 #elif defined(__APPLE__)
-    char nameA[MAXTHREADNAMESIZE];
-    int len;
-    THREAD_BASIC_INFORMATION info;
-
-    if (NtQueryInformationThread( handle, ThreadBasicInformation, &info, sizeof(info), NULL ))
-        return;
-
-    if (HandleToULong( info.ClientId.UniqueProcess ) != GetCurrentProcessId())
-    {
-        static int once;
-        if (!once++) FIXME("cross-process native thread naming not supported\n");
-        return;
-    }
-
-    if (HandleToULong( info.ClientId.UniqueThread ) != GetCurrentThreadId())
-    {
-        static int once;
-        if (!once++) FIXME("setting other thread name not supported\n");
-        return;
-    }
-
-    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
-    nameA[len] = '\0';
-    pthread_setname_np( nameA );
-#elif defined(__FreeBSD__)
-    unsigned int status;
+    /* pthread_setname_np() silently fails if the name is longer than 63 characters + null terminator */
     char nameA[64];
-    int unix_pid, unix_tid, len;
+    NTSTATUS status;
+    int unix_pid, unix_tid, len, current_tid;
 
     SERVER_START_REQ( get_thread_times )
     {
@@ -1954,16 +1984,19 @@ static void set_native_thread_name( HANDLE handle, const UNICODE_STRING *name )
     if (status != STATUS_SUCCESS || unix_pid == -1 || unix_tid == -1)
         return;
 
-    if (unix_pid != getpid())
+    current_tid = mach_thread_self();
+    mach_port_deallocate(mach_task_self(), current_tid);
+
+    if (unix_tid != current_tid)
     {
         static int once;
-        if (!once++) FIXME("cross-process native thread naming not supported\n");
+        if (!once++) FIXME("setting other thread name not supported\n");
         return;
     }
 
-    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA), FALSE );
+    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
     nameA[len] = '\0';
-    thr_set_name( unix_tid, nameA );
+    pthread_setname_np(nameA);
 #else
     static int once;
     if (!once++) FIXME("not implemented on this platform\n");
@@ -2491,7 +2524,20 @@ ULONG WINAPI NtGetCurrentProcessorNumber(void)
 
 #if defined(__linux__) && defined(__NR_getcpu)
     int res = syscall(__NR_getcpu, &processor, NULL, NULL);
-    if (res != -1) return processor;
+    if (res != -1)
+    {
+        struct cpu_topology_override *override = get_cpu_topology_override();
+        unsigned int i;
+
+        if (!override)
+            return processor;
+
+        for (i = 0; i < override->cpu_count; ++i)
+            if (override->host_cpu_id[i] == processor)
+                return i;
+
+        WARN("Thread is running on processor which is not in the defined override.\n");
+    }
 #endif
 
     if (peb->NumberOfProcessors > 1)

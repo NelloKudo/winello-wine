@@ -6,6 +6,9 @@
 /* Define to the file extension for executables. */
 #undef EXEEXT
 
+/* Define to 1 if you have the <amdgpu_drm.h> header file. */
+#undef HAVE_AMDGPU_DRM_H
+
 /* Define to 1 if you have the <arpa/inet.h> header file. */
 #undef HAVE_ARPA_INET_H
 
@@ -72,6 +75,9 @@
 /* Define to 1 if you have the 'futimesat' function. */
 #undef HAVE_FUTIMESAT
 
+/* Define to 1 if you have the <gcrypt.h> header file. */
+#undef HAVE_GCRYPT_H
+
 /* Define to 1 if you have the 'getaddrinfo' function. */
 #undef HAVE_GETADDRINFO
 
@@ -89,6 +95,9 @@
 
 /* Define to 1 if you have the <gettext-po.h> header file. */
 #undef HAVE_GETTEXT_PO_H
+
+/* Define to 1 if you have the <gmp.h> header file. */
+#undef HAVE_GMP_H
 
 /* Define to 1 if you have the 'gnutls_cipher_init' function. */
 #undef HAVE_GNUTLS_CIPHER_INIT
@@ -131,9 +140,6 @@
 
 /* Define to 1 if you have the `unwind' library (-lunwind). */
 #undef HAVE_LIBUNWIND
-
-/* Define if we have the wayland-egl development environment */
-#undef HAVE_LIBWAYLAND_EGL
 
 /* Define if you have the X Shape extension */
 #undef HAVE_LIBXSHAPE
@@ -222,6 +228,9 @@
 /* Define to 1 if you have the <mach-o/loader.h> header file. */
 #undef HAVE_MACH_O_LOADER_H
 
+/* Define to 1 if you have the 'memfd_create' function. */
+#undef HAVE_MEMFD_CREATE
+
 /* Define to 1 if you have the <mntent.h> header file. */
 #undef HAVE_MNTENT_H
 
@@ -294,7 +303,7 @@
 /* Define to 1 if you have the <net/route.h> header file. */
 #undef HAVE_NET_ROUTE_H
 
-/* Define to 1 if you have the <CL/opencl.h> header file. */
+/* Define to 1 if you have the <OpenCL/opencl.h> header file. */
 #undef HAVE_OPENCL_OPENCL_H
 
 /* Define to 1 if 'numaudioengines' is a member of 'oss_sysinfo'. */
@@ -336,12 +345,6 @@
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 
-/* Define to 1 if you have the 'renameat' function. */
-#undef HAVE_RENAMEAT
-
-/* Define to 1 if you have the 'renameat2' function. */
-#undef HAVE_RENAMEAT2
-
 /* Define to 1 if the system has the type 'request_sense'. */
 #undef HAVE_REQUEST_SENSE
 
@@ -377,6 +380,9 @@
 
 /* Define to 1 if you have the <SDL.h> header file. */
 #undef HAVE_SDL_H
+
+/* Define to 1 if you have the `setpriority' function. */
+#undef HAVE_SETPRIORITY
 
 /* Define to 1 if you have the 'setproctitle' function. */
 #undef HAVE_SETPROCTITLE
@@ -431,6 +437,9 @@
 
 /* Define to 1 if 'ips_total' is a member of 'struct ip_stats'. */
 #undef HAVE_STRUCT_IP_STATS_IPS_TOTAL
+
+/* Define to 1 if 'msg_accrights' is a member of 'struct msghdr'. */
+#undef HAVE_STRUCT_MSGHDR_MSG_ACCRIGHTS
 
 /* Define to 1 if 'mt_blkno' is a member of 'struct mtget'. */
 #undef HAVE_STRUCT_MTGET_MT_BLKNO
@@ -660,6 +669,9 @@
 /* Define to 1 if you have the <valgrind/valgrind.h> header file. */
 #undef HAVE_VALGRIND_VALGRIND_H
 
+/* Define to 1 if you have the <vosk_api.h> header file. */
+#undef HAVE_VOSK_API_H
+
 /* Define to 1 if you have the <X11/extensions/shape.h> header file. */
 #undef HAVE_X11_EXTENSIONS_SHAPE_H
 
@@ -692,6 +704,9 @@
 
 /* Define to 1 if 'xcookie' is a member of 'XEvent'. */
 #undef HAVE_XEVENT_XCOOKIE
+
+/* Define to 1 if you have the <xf86drm.h> header file. */
+#undef HAVE_XF86DRM_H
 
 /* Define to 1 if 'callback' is a member of 'XICCallback'. */
 #undef HAVE_XICCALLBACK_CALLBACK
@@ -750,6 +765,12 @@
 /* Define to the soname of the libdbus-1 library. */
 #undef SONAME_LIBDBUS_1
 
+/* Define to the soname of the libdrm library. */
+#undef SONAME_LIBDRM
+
+/* Define to the soname of the libdrm_amdgpu library. */
+#undef SONAME_LIBDRM_AMDGPU
+
 /* Define to the soname of the libEGL library. */
 #undef SONAME_LIBEGL
 
@@ -759,11 +780,17 @@
 /* Define to the soname of the libfreetype library. */
 #undef SONAME_LIBFREETYPE
 
+/* Define to the soname of the libgcrypt library. */
+#undef SONAME_LIBGCRYPT
+
 /* Define to the soname of the libGL library. */
 #undef SONAME_LIBGL
 
 /* Define to the soname of the libGLESv2 library. */
 #undef SONAME_LIBGLESV2
+
+/* Define to the soname of the libgmp library. */
+#undef SONAME_LIBGMP
 
 /* Define to the soname of the libgnutls library. */
 #undef SONAME_LIBGNUTLS
@@ -780,6 +807,9 @@
 /* Define to the soname of the libnetapi library. */
 #undef SONAME_LIBNETAPI
 
+/* Define to the soname of the libodbc library. */
+#undef SONAME_LIBODBC
+
 /* Define to the soname of the libOSMesa library. */
 #undef SONAME_LIBOSMESA
 
@@ -788,6 +818,9 @@
 
 /* Define to the soname of the libv4l2 library. */
 #undef SONAME_LIBV4L2
+
+/* Define to the soname of the libvosk library. */
+#undef SONAME_LIBVOSK
 
 /* Define to the soname of the libvulkan library. */
 #undef SONAME_LIBVULKAN
@@ -845,7 +878,7 @@
 /* Define to 1 on platforms where this makes off_t a 64-bit type. */
 #undef _LARGE_FILES
 
-/* Number of bits in time_t, on hosts where this is settable. */
+/* Define to 64 to enable 64-bit time_t on Linux */
 #undef _TIME_BITS
 
 /* Define to 1 on platforms where this makes time_t a 64-bit type. */

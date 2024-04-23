@@ -97,7 +97,7 @@ static ULONG WINAPI bsc_Release(
             IBinding_Release(bsc->binding);
         if (bsc->memstream)
             IStream_Release(bsc->memstream);
-        free(bsc);
+        heap_free(bsc);
     }
 
     return ref;
@@ -309,7 +309,7 @@ HRESULT bind_url(IMoniker *mon, HRESULT (*onDataAvailable)(void*,char*,DWORD),
     if(FAILED(hr))
         return hr;
 
-    bsc = malloc(sizeof(bsc_t));
+    bsc = heap_alloc(sizeof(bsc_t));
 
     bsc->IBindStatusCallback_iface.lpVtbl = &bsc_vtbl;
     bsc->ref = 1;
