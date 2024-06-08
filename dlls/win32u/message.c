@@ -469,9 +469,16 @@ static inline void push_string( struct packed_message *data, LPCWSTR str )
 }
 
 /* make sure that there is space for 'size' bytes in buffer, growing it if needed */
-static inline void *get_buffer_space( void **buffer, size_t size, size_t prev_size )
+static inline void *get_buffer_space( void **buffer, size_t size, size_t *buffer_size )
 {
-    if (prev_size < size) *buffer = realloc( *buffer, size );
+    if (*buffer_size < size)
+    {
+        void *new;
+
+        if (!(new = realloc( *buffer, size ))) return NULL;
+        *buffer = new;
+        *buffer_size = size;
+    }
     return *buffer;
 }
 
@@ -522,7 +529,7 @@ BOOL set_keyboard_auto_repeat( BOOL enable )
  * Unpack a message received from another process.
  */
 static BOOL unpack_message( HWND hwnd, UINT message, WPARAM *wparam, LPARAM *lparam,
-                            void **buffer, size_t size, size_t buffer_size )
+                            void **buffer, size_t size, size_t *buffer_size )
 {
     size_t minsize = 0;
     union packed_structs *ps = *buffer;
@@ -2916,7 +2923,7 @@ static int peek_message( MSG *msg, HWND hwnd, UINT first, UINT last, UINT flags,
                 memcpy( buffer, buffer_init, buffer_size );
             }
             if (!unpack_message( info.msg.hwnd, info.msg.message, &info.msg.wParam,
-                                 &info.msg.lParam, &buffer, size, buffer_size ))
+                                 &info.msg.lParam, &buffer, size, &buffer_size ))
                 continue;
             break;
         case MSG_CALLBACK:
@@ -3000,7 +3007,7 @@ static int peek_message( MSG *msg, HWND hwnd, UINT first, UINT last, UINT flags,
                 memcpy( buffer, buffer_init, buffer_size );
             }
             if (!unpack_message( info.msg.hwnd, info.msg.message, &info.msg.wParam,
-                                 &info.msg.lParam, &buffer, size, buffer_size ))
+                                 &info.msg.lParam, &buffer, size, &buffer_size ))
             {
                 /* ignore it */
                 reply_message( &info, 0, &info.msg );

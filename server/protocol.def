@@ -918,7 +918,6 @@ struct shared_cursor
     int                  y;
     unsigned int         last_change;      /* time of last position change */
     rectangle_t          clip;             /* cursor clip rectangle */
-    unsigned int         clip_flags;       /* cursor clip flags */
 };
 
 struct desktop_shared_memory
@@ -3465,6 +3464,8 @@ struct handle_info
     unsigned int access;
     unsigned int attributes;
     unsigned int type;
+    unsigned int __pad;
+    unsigned __int64 object;
 };
 
 /* Return a list of all opened handles */
@@ -3895,6 +3896,7 @@ struct handle_info
 @REPLY
     data_size_t next_size; /* minimum size to get next message data */
     unsigned int count;
+    unsigned int last_message_time;
     VARARG(data,bytes);
 @END
 

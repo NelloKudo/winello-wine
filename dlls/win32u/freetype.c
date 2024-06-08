@@ -555,8 +555,11 @@ static BOOL is_hinting_enabled(void)
 
     if (enabled == -1)
     {
+        const char *sgi;
+
+        if ((sgi = getenv("SteamGameId")) && !strcmp(sgi, "563560")) enabled = FALSE;
         /* Use the >= 2.2.0 function if available */
-        if (pFT_Get_TrueType_Engine_Type)
+        else if (pFT_Get_TrueType_Engine_Type)
         {
             FT_TrueTypeEngineType type = pFT_Get_TrueType_Engine_Type(library);
             enabled = (type == FT_TRUETYPE_ENGINE_TYPE_PATENTED);
@@ -3454,6 +3457,12 @@ static FT_Int get_load_flags( UINT format, BOOL vertical_metrics, BOOL force_no_
     return load_flags;
 }
 
+static BOOL is_curve_format(UINT format)
+{
+    format &= ~(GGO_GLYPH_INDEX | GGO_UNHINTED);
+    return format == GGO_BEZIER || format == GGO_NATIVE;
+}
+
 /*************************************************************
  * freetype_get_glyph_outline
  */
@@ -3479,8 +3488,7 @@ static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT 
 
     matrices = get_transform_matrices( font, tategaki, lpmat, transform_matrices );
 
-    if (aa_flags && (format & ~GGO_GLYPH_INDEX) == GGO_METRICS)
-        effective_format = aa_flags | (format & GGO_GLYPH_INDEX);
+    if (aa_flags && !is_curve_format( format )) effective_format = aa_flags | (format & GGO_GLYPH_INDEX);
     vertical_metrics = (tategaki && FT_HAS_VERTICAL(ft_face));
     /* there is a freetype bug where vertical metrics are only
        properly scaled and correct in 2.4.0 or greater */
@@ -3488,12 +3496,12 @@ static UINT freetype_get_glyph_outline( struct gdi_font *font, UINT glyph, UINT 
         vertical_metrics = FALSE;
     load_flags = get_load_flags(effective_format, vertical_metrics, !!matrices);
 
-    err = pFT_Load_Glyph(ft_face, glyph, load_flags);
+    err = pFT_Load_Glyph(ft_face, glyph, load_flags & FT_LOAD_NO_HINTING ? load_flags : load_flags | FT_LOAD_PEDANTIC);
     if (err && format != effective_format)
     {
         WARN("Failed to load glyph %#x, retrying with GGO_METRICS. Error %#x.\n", glyph, err);
         load_flags = get_load_flags(effective_format, vertical_metrics, !!matrices);
-        err = pFT_Load_Glyph(ft_face, glyph, load_flags);
+        err = pFT_Load_Glyph(ft_face, glyph, load_flags & FT_LOAD_NO_HINTING ? load_flags : load_flags | FT_LOAD_PEDANTIC);
     }
     if (err && !(load_flags & FT_LOAD_NO_HINTING))
     {

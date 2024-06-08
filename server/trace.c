@@ -4572,6 +4572,7 @@ static void dump_get_rawinput_buffer_reply( const struct get_rawinput_buffer_rep
 {
     fprintf( stderr, " next_size=%u", req->next_size );
     fprintf( stderr, ", count=%08x", req->count );
+    fprintf( stderr, ", last_message_time=%08x", req->last_message_time );
     dump_varargs_bytes( ", data=", cur_size );
 }
 

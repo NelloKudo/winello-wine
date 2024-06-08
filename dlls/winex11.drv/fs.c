@@ -47,7 +47,7 @@ struct fs_monitor_size
     SIZE size;
     BOOL additional;
 };
-static struct fs_monitor_size fs_monitor_sizes_base[] =
+static const struct fs_monitor_size fs_monitor_sizes_base[] =
 {
     {{640, 480}},   /*  4:3 */
     {{800, 600}},   /*  4:3 */
@@ -75,7 +75,7 @@ static struct fs_monitor_size fs_monitor_sizes_base[] =
 };
 
 /* The order should be in sync with the values in 'fs_hack_is_fsr_single_mode'*/
-static float fsr_ratios[] = {
+static const float fsr_ratios[] = {
     2.0f, /* FSR Performance */
     1.7f, /* FSR Balanced */
     1.5f, /* FSR Quality */

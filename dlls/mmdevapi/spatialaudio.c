@@ -76,7 +76,7 @@ static const char *debugstr_fmtex(const WAVEFORMATEX *fmt)
 
 static BOOL formats_equal(const WAVEFORMATEX *fmt1, const WAVEFORMATEX *fmt2)
 {
-    return !memcmp(fmt1, fmt2, sizeof(*fmt1) + fmt1->cbSize);
+    return !memcmp(fmt1, fmt2, sizeof(*fmt1)) && !memcmp(fmt1 + 1, fmt2 + 1, fmt1->cbSize);
 }
 
 typedef struct SpatialAudioImpl SpatialAudioImpl;

@@ -2385,7 +2385,7 @@ static void gen_texture( struct wgl_context *ctx, GLuint *tex, enum fshack_textu
     {
         const char *sgi = getenv( "SteamGameId" );
 
-        texture_name_hack = sgi && (!strcmp( sgi, "6020" ) || !strcmp( sgi, "2200" ) || !strcmp( sgi, "2350" ));
+        texture_name_hack = sgi && (!strcmp( sgi, "6020" ) || !strcmp( sgi, "2200" ) || !strcmp( sgi, "2350" ) || !strcmp( sgi, "273590" ));
     }
 
     if (!texture_name_hack || opengl_funcs.gl.p_glIsTexture( texture_names[type] ))
@@ -4238,6 +4238,7 @@ static BOOL X11DRV_wglGetPixelFormatAttribivARB( HDC hdc, int iPixelFormat, int 
     int hTest;
     int tmp;
     int curGLXAttr = 0;
+    PIXELFORMATDESCRIPTOR pfd;
 
     TRACE("(%p, %d, %d, %d, %p, %p)\n", hdc, iPixelFormat, iLayerPlane, nAttributes, piAttributes, piValues);
 
@@ -4252,6 +4253,12 @@ static BOOL X11DRV_wglGetPixelFormatAttribivARB( HDC hdc, int iPixelFormat, int 
     fmt = get_pixel_format(gdi_display, iPixelFormat, TRUE /* Offscreen */);
     if(!fmt) {
         WARN("Unable to convert iPixelFormat %d to a GLX one!\n", iPixelFormat);
+    }
+
+    if (!describe_pixel_format(iPixelFormat, &pfd, TRUE))
+    {
+        WARN("describe_pixel_format failed.\n");
+        memset(&pfd, 0, sizeof(pfd));
     }
 
     for (i = 0; i < nAttributes; ++i) {
@@ -4354,6 +4361,23 @@ static BOOL X11DRV_wglGetPixelFormatAttribivARB( HDC hdc, int iPixelFormat, int 
             case WGL_AUX_BUFFERS_ARB:
                 curGLXAttr = GLX_AUX_BUFFERS;
                 break;
+
+            case WGL_RED_SHIFT_ARB:
+                if (!pfd.nSize) goto pix_error;
+                piValues[i] = pfd.cRedShift;
+                continue;
+            case WGL_GREEN_SHIFT_ARB:
+                if (!pfd.nSize) goto pix_error;
+                piValues[i] = pfd.cGreenShift;
+                continue;
+            case WGL_BLUE_SHIFT_ARB:
+                if (!pfd.nSize) goto pix_error;
+                piValues[i] = pfd.cBlueShift;
+                continue;
+            case WGL_ALPHA_SHIFT_ARB:
+                if (!pfd.nSize) goto pix_error;
+                piValues[i] = pfd.cAlphaShift;
+                continue;
 
             case WGL_SUPPORT_GDI_ARB:
                 if (!fmt) goto pix_error;

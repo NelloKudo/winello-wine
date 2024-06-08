@@ -535,20 +535,15 @@ static int update_desktop_cursor_window( struct desktop *desktop, user_handle_t 
     struct thread_input *input;
     desktop->cursor_win = win;
 
-    if (!updated) return 0;
-
-    if (!(input = get_desktop_cursor_thread_input( desktop )))
-        desktop->cursor_handle = -1;
-    else
+    if (updated && (input = get_desktop_cursor_thread_input( desktop )))
     {
         user_handle_t handle = input->shared->cursor_count < 0 ? 0 : input->shared->cursor;
         /* when clipping send the message to the foreground window as well, as some driver have an artificial overlay window */
         if (is_cursor_clipped( desktop )) queue_cursor_message( desktop, 0, WM_WINE_SETCURSOR, win, handle );
         queue_cursor_message( desktop, win, WM_WINE_SETCURSOR, win, handle );
-        desktop->cursor_handle = handle;
     }
 
-    return 1;
+    return updated;
 }
 
 static int update_desktop_cursor_pos( struct desktop *desktop, user_handle_t win, int x, int y )
@@ -575,17 +570,14 @@ static int update_desktop_cursor_pos( struct desktop *desktop, user_handle_t win
     return updated;
 }
 
-static void update_desktop_cursor_handle( struct desktop *desktop, struct thread_input *input )
+static void update_desktop_cursor_handle( struct desktop *desktop, struct thread_input *input, user_handle_t handle )
 {
     if (input == get_desktop_cursor_thread_input( desktop ))
     {
-        user_handle_t handle = input->shared->cursor_count < 0 ? 0 : input->shared->cursor, win = desktop->cursor_win;
-        if (handle == desktop->cursor_handle) return;
-
+        user_handle_t win = desktop->cursor_win;
         /* when clipping send the message to the foreground window as well, as some driver have an artificial overlay window */
         if (is_cursor_clipped( desktop )) queue_cursor_message( desktop, 0, WM_WINE_SETCURSOR, win, handle );
         queue_cursor_message( desktop, win, WM_WINE_SETCURSOR, win, handle );
-        desktop->cursor_handle = handle;
     }
 }
 
@@ -641,11 +633,12 @@ void set_clip_rectangle( struct desktop *desktop, const rectangle_t *rect, unsig
 
     SHARED_WRITE_BEGIN( desktop, desktop_shm_t )
     {
-        old_flags = shared->cursor.clip_flags;
         shared->cursor.clip = new_rect;
-        shared->cursor.clip_flags = flags;
     }
     SHARED_WRITE_END
+
+    old_flags = desktop->cursor_clip_flags;
+    desktop->cursor_clip_flags = flags;
 
     /* warp the mouse to be inside the clip rect */
     x = max( min( desktop->shared->cursor.x, new_rect.right - 1 ), new_rect.left );
@@ -655,8 +648,8 @@ void set_clip_rectangle( struct desktop *desktop, const rectangle_t *rect, unsig
     /* request clip cursor rectangle reset to the desktop thread */
     if (reset) post_desktop_message( desktop, WM_WINE_CLIPCURSOR, flags, FALSE );
 
-    /* notify foreground thread, of reset, or to apply new cursor clipping rect */
-    if (rect || reset || old_flags != SET_CURSOR_NOCLIP)
+    /* notify foreground thread of reset, clipped, or released cursor rect */
+    if (reset || flags != SET_CURSOR_NOCLIP || old_flags != SET_CURSOR_NOCLIP)
         queue_cursor_message( desktop, 0, WM_WINE_CLIPCURSOR, flags, reset );
 }
 
@@ -3881,12 +3874,14 @@ DECL_HANDLER(get_last_input_time)
 DECL_HANDLER(set_cursor)
 {
     struct msg_queue *queue = get_current_queue();
+    user_handle_t prev_cursor, new_cursor;
     struct thread_input *input;
     struct desktop *desktop;
 
     if (!queue) return;
     input = queue->input;
     desktop = input->desktop;
+    prev_cursor = input->shared->cursor_count < 0 ? 0 : input->shared->cursor;
 
     reply->prev_handle = input->shared->cursor;
     reply->prev_count  = input->shared->cursor_count;
@@ -3918,8 +3913,8 @@ DECL_HANDLER(set_cursor)
     if (req->flags & SET_CURSOR_CLIP) set_clip_rectangle( desktop, &req->clip, req->flags, 0 );
     if (req->flags & SET_CURSOR_NOCLIP) set_clip_rectangle( desktop, NULL, SET_CURSOR_NOCLIP, 0 );
 
-    if (req->flags & (SET_CURSOR_HANDLE | SET_CURSOR_COUNT))
-        update_desktop_cursor_handle( desktop, input );
+    new_cursor = input->shared->cursor_count < 0 ? 0 : input->shared->cursor;
+    if (prev_cursor != new_cursor) update_desktop_cursor_handle( desktop, input, new_cursor );
 
     reply->new_x       = desktop->shared->cursor.x;
     reply->new_y       = desktop->shared->cursor.y;
@@ -3975,6 +3970,7 @@ DECL_HANDLER(get_rawinput_buffer)
         }
 
         memcpy( buf + pos, data, data->size );
+        reply->last_message_time = msg->time;
         list_remove( &msg->entry );
         free_message( msg );
 

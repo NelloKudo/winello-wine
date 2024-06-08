@@ -2588,6 +2588,8 @@ static VkResult init_fs_hack_images(struct wine_device *device, struct wine_swap
 
         if (createinfo->flags & VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR)
             imageInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+        else if (createinfo->imageFormat != VK_FORMAT_B8G8R8A8_SRGB)
+            imageInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
         res = device->funcs.p_vkCreateImage(device->host_device, &imageInfo, NULL, &hack->user_image);
         if (res != VK_SUCCESS)
@@ -4041,7 +4043,7 @@ static VkResult record_compute_cmd(struct wine_device *device, struct wine_swapc
     /* vec2: blit dst extents in real coords */
     constants[2] = swapchain->blit_dst.extent.width;
     constants[3] = swapchain->blit_dst.extent.height;
-    
+
     bind_pipeline(device, hack->cmd, &swapchain->blit_pipeline, hack->descriptor_set, constants);
 
     /* local sizes in shader are 8 */

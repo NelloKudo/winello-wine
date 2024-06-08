@@ -594,6 +594,8 @@ static const WCHAR *hack_append_command_line( const WCHAR *cmd )
     }
     options[] =
     {
+        {L"A Raven Monologue.exe", L" --use-angle=d3d9"},
+        {L"antenna\\antenna.exe", L" --use-angle=d3d9"},
         {L"Bloody Walls\\game.exe", L" --disable_direct_composition=1"},
         {L"Insanitys Blade\\nw.exe", L" --use-gl=swiftshader"},
         {L"Warhammer2.exe", L" --in-process-gpu"},
@@ -614,6 +616,7 @@ static const WCHAR *hack_append_command_line( const WCHAR *cmd )
         {L"Everquest F2P\\LaunchPad.exe", L" --use-gl=swiftshader"},
         {L"Red Tie Runner.exe", L" --use-angle=gl"},
         {L"UnrealCEFSubProcess.exe", L" --use-gl=swiftshader", "2316580"},
+        {L"UnrealCEFSubProcess.exe", L" --use-angle=d3d9", "2684500"},
         {L"\\EACefSubProcess.exe", L" --use-angle=vulkan"},
     };
     unsigned int i;

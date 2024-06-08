@@ -34,6 +34,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <dlfcn.h>
+#include <math.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -49,6 +50,7 @@ WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrender.h>
+#include <X11/extensions/XShm.h>
 
 #ifndef RepeatNone  /* added in 0.10 */
 #define RepeatNone    0
@@ -183,6 +185,8 @@ MAKE_FUNCPTR(XRenderFindVisualFormat)
 MAKE_FUNCPTR(XRenderFreeGlyphSet)
 MAKE_FUNCPTR(XRenderFreePicture)
 MAKE_FUNCPTR(XRenderSetPictureClipRectangles)
+MAKE_FUNCPTR(XRenderQueryFilters)
+MAKE_FUNCPTR(XRenderSetPictureFilter)
 #ifdef HAVE_XRENDERCREATELINEARGRADIENT
 MAKE_FUNCPTR(XRenderCreateLinearGradient)
 #endif
@@ -339,6 +343,8 @@ const struct gdi_dc_funcs *X11DRV_XRender_Init(void)
     LOAD_FUNCPTR(XRenderFreePicture);
     LOAD_FUNCPTR(XRenderSetPictureClipRectangles);
     LOAD_FUNCPTR(XRenderQueryExtension);
+    LOAD_FUNCPTR(XRenderQueryFilters);
+    LOAD_FUNCPTR(XRenderSetPictureFilter);
 #ifdef HAVE_XRENDERCREATELINEARGRADIENT
     LOAD_OPTIONAL_FUNCPTR(XRenderCreateLinearGradient);
 #endif
@@ -440,6 +446,33 @@ static enum wxr_format get_xrender_format_from_bitmapinfo( const BITMAPINFO *inf
         }
         if (info->bmiHeader.biCompression != BI_RGB) break;
         return (info->bmiHeader.biBitCount == 16) ? WXR_FORMAT_X1R5G5B5 : WXR_FORMAT_A8R8G8B8;
+    }
+    return WXR_INVALID_FORMAT;
+}
+
+static enum wxr_format get_xrender_format_from_ximage( const XImage *image )
+{
+    unsigned int i;
+
+    switch (image->depth)
+    {
+    case 1:
+        return WXR_FORMAT_MONO;
+    case 4:
+    case 8:
+        break;
+    case 16:
+    case 24:
+    case 32:
+        for (i = 0; i < WXR_NB_FORMATS; i++)
+        {
+            if (image->depth == wxr_formats_template[i].depth &&
+                image->red_mask == (wxr_formats_template[i].redMask << wxr_formats_template[i].red) &&
+                image->green_mask == (wxr_formats_template[i].greenMask << wxr_formats_template[i].green) &&
+                image->blue_mask == (wxr_formats_template[i].blueMask << wxr_formats_template[i].blue))
+                return i;
+        }
+        break;
     }
     return WXR_INVALID_FORMAT;
 }
@@ -1490,17 +1523,22 @@ static void fs_hack_draw_black_bars( HMONITOR monitor, Picture dst_pict )
 }
 
 /* Helper function for (stretched) blitting using xrender */
-static void xrender_blit( struct xrender_physdev *physdev, int op, Picture src_pict, Picture mask_pict,
-                          Picture dst_pict, int x_src, int y_src, int width_src, int height_src, int x_dst,
-                          int y_dst, int width_dst, int height_dst, double xscale, double yscale )
+static void xrender_blit_fshack( HWND hwnd, Drawable drawable, int op, Picture src_pict, Picture mask_pict,
+                                 Picture dst_pict, int x_src, int y_src, int width_src, int height_src, int x_dst,
+                                 int y_dst, int width_dst, int height_dst, double xscale, double yscale )
 {
+    const char *scale_filter = NULL;
     int x_offset, y_offset;
-    HMONITOR monitor;
+    HMONITOR monitor = 0;
+    BOOL fs_hack;
 
-    monitor = fs_hack_monitor_from_hwnd( NtUserWindowFromDC( physdev->dev.hdc ) );
-    if (fs_hack_mapping_required( monitor ))
+    fs_hack = hwnd && fs_hack_mapping_required( monitor = fs_hack_monitor_from_hwnd( hwnd ));
+    if (fs_hack)
     {
         double user_to_real_scale;
+        XFilters *filters;
+        int i;
+
         POINT p;
         p.x = x_dst;
         p.y = y_dst;
@@ -1509,10 +1547,24 @@ static void xrender_blit( struct xrender_physdev *physdev, int op, Picture src_p
         y_dst = p.y;
 
         user_to_real_scale = fs_hack_get_user_to_real_scale( monitor );
-        width_dst *= user_to_real_scale;
-        height_dst *= user_to_real_scale;
+        width_dst = lround(width_dst * user_to_real_scale);
+        height_dst = lround(height_dst * user_to_real_scale);
         xscale /= user_to_real_scale;
         yscale /= user_to_real_scale;
+        if ((filters = pXRenderQueryFilters( gdi_display, drawable )))
+        {
+            for (i = 0; i < filters->nfilter; ++i)
+            {
+                if (!filters->filter[i]) continue;
+                if (!strcmp( filters->filter[i], "good" ))
+                {
+                    scale_filter = "good";
+                    break;
+                }
+                if (!strcmp( filters->filter[i], "bilinear" )) scale_filter = "bilinear";
+            }
+            XFree( filters );
+        }
     }
 
     if (width_src < 0)
@@ -1545,6 +1597,7 @@ static void xrender_blit( struct xrender_physdev *physdev, int op, Picture src_p
         x_offset = (xscale < 0) ? -width_dst : 0;
         y_offset = (yscale < 0) ? -height_dst : 0;
         set_xrender_transformation(src_pict, xscale, yscale, x_src, y_src);
+        if (scale_filter) pXRenderSetPictureFilter(gdi_display, src_pict, scale_filter, NULL, 0);
     }
     else
     {
@@ -1555,7 +1608,53 @@ static void xrender_blit( struct xrender_physdev *physdev, int op, Picture src_p
     pXRenderComposite( gdi_display, op, src_pict, mask_pict, dst_pict,
                        x_offset, y_offset, 0, 0, x_dst, y_dst, width_dst, height_dst );
 
-    if (fs_hack_mapping_required( monitor )) fs_hack_draw_black_bars( monitor, dst_pict );
+    if (fs_hack) fs_hack_draw_black_bars( monitor, dst_pict );
+}
+
+static void xrender_blit( struct xrender_physdev *physdev, int op, Picture src_pict, Picture mask_pict,
+                          Picture dst_pict, int x_src, int y_src, int width_src, int height_src, int x_dst,
+                          int y_dst, int width_dst, int height_dst, double xscale, double yscale )
+{
+    xrender_blit_fshack( NtUserWindowFromDC( physdev->dev.hdc ), physdev->x11dev->drawable, op, src_pict, mask_pict,
+                         dst_pict, x_src, y_src, width_src, height_src, x_dst, y_dst, width_dst, height_dst, xscale, yscale );
+}
+
+BOOL fs_hack_put_image_scaled( HWND hwnd, Window window, GC gc, XImage *image, unsigned int x_dst, unsigned int y_dst,
+                               unsigned int width, unsigned int height, BOOL is_argb )
+{
+    Picture src_pict, dst_pict, mask_pict = 0;
+    struct x11drv_win_data *data;
+    XRenderPictureAttributes pa;
+    enum wxr_format src_format;
+    Pixmap pixmap;
+    BOOL fshack;
+
+    if (default_format == WXR_INVALID_FORMAT) return FALSE;
+    if (!(data = get_win_data( hwnd ))) return FALSE;
+    fshack = data->fs_hack;
+    release_win_data( data );
+    if (!fshack) return FALSE;
+
+    if ((src_format = get_xrender_format_from_ximage( image )) == WXR_INVALID_FORMAT)
+    {
+        FIXME( "Unknown XImage format.\n");
+        return FALSE;
+    }
+
+    pixmap = XCreatePixmap( gdi_display, window, width, height, image->depth );
+    gc = XCreateGC( gdi_display, pixmap, 0, NULL );
+    XShmPutImage( gdi_display, pixmap, gc, image, 0, 0, 0, 0, width, height, False );
+    XFreeGC( gdi_display, gc );
+    src_pict = pXRenderCreatePicture( gdi_display, pixmap, pict_formats[src_format], 0, NULL );
+    pa.subwindow_mode = IncludeInferiors;
+    dst_pict = pXRenderCreatePicture( gdi_display, window, pict_formats[default_format], CPSubwindowMode, &pa );
+    if (!is_argb && pict_formats[default_format]->depth == 32) mask_pict = get_no_alpha_mask();
+    xrender_blit_fshack( hwnd, window, PictOpSrc, src_pict, mask_pict, dst_pict, 0, 0,
+                         width, height, x_dst, y_dst, width, height, 1.0, 1.0 );
+    pXRenderFreePicture( gdi_display, src_pict );
+    pXRenderFreePicture( gdi_display, dst_pict );
+    XFreePixmap( gdi_display, pixmap );
+    return TRUE;
 }
 
 /* Helper function for (stretched) mono->color blitting using xrender */

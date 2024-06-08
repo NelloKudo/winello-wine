@@ -902,7 +902,6 @@ struct shared_cursor
     int                  y;
     unsigned int         last_change;
     rectangle_t          clip;
-    unsigned int         clip_flags;
 };
 
 struct desktop_shared_memory
@@ -4875,6 +4874,8 @@ struct handle_info
     unsigned int access;
     unsigned int attributes;
     unsigned int type;
+    unsigned int __pad;
+    unsigned __int64 object;
 };
 
 
@@ -5584,7 +5585,9 @@ struct get_rawinput_buffer_reply
     struct reply_header __header;
     data_size_t next_size;
     unsigned int count;
+    unsigned int last_message_time;
     /* VARARG(data,bytes); */
+    char __pad_20[4];
 };
 
 
