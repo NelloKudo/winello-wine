@@ -405,7 +405,7 @@ static void stateblock_init_lights(struct wined3d_stateblock *stateblock, const 
 
     RB_FOR_EACH_ENTRY(src_light, src_tree, struct wined3d_light_info, entry)
     {
-        struct wined3d_light_info *dst_light = heap_alloc(sizeof(*dst_light));
+        struct wined3d_light_info *dst_light = malloc(sizeof(*dst_light));
 
         *dst_light = *src_light;
         rb_put(dst_tree, (void *)(ULONG_PTR)dst_light->OriginalIndex, &dst_light->entry);
@@ -592,7 +592,7 @@ static void wined3d_stateblock_state_cleanup(struct wined3d_stateblock_state *st
         if (light->changed)
             list_remove(&light->changed_entry);
         rb_remove(&state->light_state->lights_tree, &light->entry);
-        heap_free(light);
+        free(light);
     }
 }
 
@@ -614,7 +614,7 @@ void state_cleanup(struct wined3d_state *state)
         if (light->changed)
             list_remove(&light->changed_entry);
         rb_remove(&state->light_state.lights_tree, &light->entry);
-        heap_free(light);
+        free(light);
     }
 }
 
@@ -628,7 +628,7 @@ ULONG CDECL wined3d_stateblock_decref(struct wined3d_stateblock *stateblock)
     {
         wined3d_mutex_lock();
         wined3d_stateblock_state_cleanup(&stateblock->stateblock_state);
-        heap_free(stateblock);
+        free(stateblock);
         wined3d_mutex_unlock();
     }
 
@@ -663,7 +663,7 @@ HRESULT wined3d_light_state_set_light(struct wined3d_light_state *state, DWORD l
     if (!(object = wined3d_light_state_get_light(state, light_idx)))
     {
         TRACE("Adding new light.\n");
-        if (!(object = heap_alloc_zero(sizeof(*object))))
+        if (!(object = calloc(1, sizeof(*object))))
         {
             ERR("Failed to allocate light info.\n");
             return E_OUTOFMEMORY;
@@ -2058,7 +2058,7 @@ HRESULT CDECL wined3d_state_create(struct wined3d_device *device,
 
     TRACE("Selected feature level %s.\n", wined3d_debug_feature_level(feature_level));
 
-    if (!(object = heap_alloc_zero(sizeof(*object))))
+    if (!(object = calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
     state_init(object, &device->adapter->d3d_info, WINED3D_STATE_INIT_DEFAULT, feature_level);
 
@@ -2078,7 +2078,7 @@ void CDECL wined3d_state_destroy(struct wined3d_state *state)
     TRACE("state %p.\n", state);
 
     state_cleanup(state);
-    heap_free(state);
+    free(state);
 }
 
 static void stateblock_state_init_default(struct wined3d_stateblock_state *state,
@@ -2184,14 +2184,14 @@ HRESULT CDECL wined3d_stateblock_create(struct wined3d_device *device, const str
     TRACE("device %p, device_state %p, type %#x, stateblock %p.\n",
             device, device_state, type, stateblock);
 
-    if (!(object = heap_alloc_zero(sizeof(*object))))
+    if (!(object = calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
     hr = stateblock_init(object, device_state, device, type);
     if (FAILED(hr))
     {
         WARN("Failed to initialize stateblock, hr %#lx.\n", hr);
-        heap_free(object);
+        free(object);
         return hr;
     }
 
@@ -2325,7 +2325,6 @@ static void wined3d_device_context_set_light(struct wined3d_device_context *cont
         unsigned int light_idx, const struct wined3d_light *light)
 {
     struct wined3d_light_info *object = NULL;
-    float rho;
 
     if (FAILED(wined3d_light_state_set_light(&context->state->light_state, light_idx, light, &object)))
         return;
@@ -2348,7 +2347,6 @@ static void wined3d_device_context_set_light(struct wined3d_device_context *cont
             object->position.y = light->position.y;
             object->position.z = light->position.z;
             object->position.w = 1.0f;
-            object->cutoff = 180.0f;
             /* FIXME: Range */
             break;
 
@@ -2358,8 +2356,6 @@ static void wined3d_device_context_set_light(struct wined3d_device_context *cont
             object->direction.y = -light->direction.y;
             object->direction.z = -light->direction.z;
             object->direction.w = 0.0f;
-            object->exponent = 0.0f;
-            object->cutoff = 180.0f;
             break;
 
         case WINED3D_LIGHT_SPOT:
@@ -2375,33 +2371,6 @@ static void wined3d_device_context_set_light(struct wined3d_device_context *cont
             object->direction.z = light->direction.z;
             object->direction.w = 0.0f;
 
-            /* opengl-ish and d3d-ish spot lights use too different models
-             * for the light "intensity" as a function of the angle towards
-             * the main light direction, so we only can approximate very
-             * roughly. However, spot lights are rather rarely used in games
-             * (if ever used at all). Furthermore if still used, probably
-             * nobody pays attention to such details. */
-            if (!light->falloff)
-            {
-                /* Falloff = 0 is easy, because d3d's and opengl's spot light
-                 * equations have the falloff resp. exponent parameter as an
-                 * exponent, so the spot light lighting will always be 1.0 for
-                 * both of them, and we don't have to care for the rest of the
-                 * rather complex calculation. */
-                object->exponent = 0.0f;
-            }
-            else
-            {
-                rho = light->theta + (light->phi - light->theta) / (2 * light->falloff);
-                if (rho < 0.0001f)
-                    rho = 0.0001f;
-                object->exponent = -0.3f / logf(cosf(rho / 2));
-            }
-
-            if (object->exponent > 128.0f)
-                object->exponent = 128.0f;
-
-            object->cutoff = (float)(light->phi * 90 / M_PI);
             /* FIXME: Range */
             break;
 
@@ -2667,7 +2636,7 @@ static void sampler_desc_from_sampler_states(struct wined3d_sampler_desc *desc,
     if (texture->flags & WINED3D_TEXTURE_COND_NP2)
     {
         desc->mip_filter = WINED3D_TEXF_NONE;
-        if (d3d_info->normalized_texrect)
+        if (!d3d_info->unconditional_npot)
             desc->min_filter = WINED3D_TEXF_POINT;
     }
 }
@@ -3321,28 +3290,14 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
 unsigned int CDECL wined3d_stateblock_set_texture_lod(struct wined3d_stateblock *stateblock,
         struct wined3d_texture *texture, unsigned int lod)
 {
-    struct wined3d_resource *resource;
-    unsigned int old = texture->lod;
+    unsigned int old;
 
     TRACE("texture %p, lod %u.\n", texture, lod);
 
-    /* The d3d9:texture test shows that SetLOD is ignored on non-managed
-     * textures. The call always returns 0, and GetLOD always returns 0. */
-    resource = &texture->resource;
-    if (!(resource->usage & WINED3DUSAGE_MANAGED))
+    old = wined3d_texture_set_lod(texture, lod);
+
+    if (old != lod)
     {
-        TRACE("Ignoring LOD on texture with resource access %s.\n",
-                wined3d_debug_resource_access(resource->access));
-        return 0;
-    }
-
-    if (lod >= texture->level_count)
-        lod = texture->level_count - 1;
-
-    if (texture->lod != lod)
-    {
-        texture->lod = lod;
-
         for (unsigned int i = 0; i < WINED3D_MAX_COMBINED_SAMPLERS; ++i)
         {
             /* Mark the texture as changed. The next time the appplication
@@ -3359,4 +3314,14 @@ unsigned int CDECL wined3d_stateblock_set_texture_lod(struct wined3d_stateblock 
     }
 
     return old;
+}
+
+void CDECL wined3d_stateblock_texture_changed(struct wined3d_stateblock *stateblock,
+        const struct wined3d_texture *texture)
+{
+    for (unsigned int i = 0; i < WINED3D_MAX_COMBINED_SAMPLERS; ++i)
+    {
+        if (stateblock->stateblock_state.textures[i] == texture)
+            stateblock->changed.textures |= (1u << i);
+    }
 }

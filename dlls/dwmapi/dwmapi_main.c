@@ -84,6 +84,18 @@ HRESULT WINAPI DwmGetColorizationColor(DWORD *colorization, BOOL *opaque_blend)
 }
 
 /**********************************************************************
+ *                  DwmFlush              (DWMAPI.@)
+ */
+HRESULT WINAPI DwmFlush(void)
+{
+    static BOOL once;
+
+    if (!once++) FIXME("() stub\n");
+
+    return S_OK;
+}
+
+/**********************************************************************
  *        DwmInvalidateIconicBitmaps      (DWMAPI.@)
  */
 HRESULT WINAPI DwmInvalidateIconicBitmaps(HWND hwnd)
@@ -193,24 +205,15 @@ HRESULT WINAPI DwmGetWindowAttribute(HWND hwnd, DWORD attribute, PVOID pv_attrib
         return E_HANDLE;
     if (!IsWindow(hwnd))
         return E_HANDLE;
-    if (!pv_attribute)
-        return E_INVALIDARG;
 
     switch (attribute) {
-    case DWMWA_NCRENDERING_ENABLED:
-        if (size < sizeof(BOOL))
-            return E_INVALIDARG;
-
-        WARN("DWMWA_NCRENDERING_ENABLED: always returning FALSE.\n");
-        *(BOOL*)(pv_attribute) = FALSE;
-        hr = S_OK;
-        break;
-
     case DWMWA_EXTENDED_FRAME_BOUNDS:
     {
         RECT *rect = (RECT *)pv_attribute;
         DPI_AWARENESS_CONTEXT context;
 
+        if (!rect)
+            return E_INVALIDARG;
         if (size < sizeof(*rect))
             return E_NOT_SUFFICIENT_BUFFER;
         if (GetWindowLongW(hwnd, GWL_STYLE) & WS_CHILD)
@@ -226,15 +229,6 @@ HRESULT WINAPI DwmGetWindowAttribute(HWND hwnd, DWORD attribute, PVOID pv_attrib
         SetThreadDpiAwarenessContext(context);
         break;
     }
-    case DWMWA_CLOAKED:
-        if (size < sizeof(DWORD))
-            return E_INVALIDARG;
-
-        FIXME("DWMWA_CLOAKED: always returning 0.\n");
-        *(DWORD*)(pv_attribute) = 0;
-        hr = S_OK;
-        break;
-
     default:
         FIXME("attribute %ld not implemented.\n", attribute);
         hr = E_NOTIMPL;
@@ -303,31 +297,6 @@ HRESULT WINAPI DwmGetCompositionTimingInfo(HWND hwnd, DWM_TIMING_INFO *info)
 
     QueryPerformanceCounter(&qpc);
     info->qpcVBlank = (qpc.QuadPart / info->qpcRefreshPeriod) * info->qpcRefreshPeriod;
-
-    return S_OK;
-}
-
-/**********************************************************************
- *                  DwmFlush              (DWMAPI.@)
- */
-HRESULT WINAPI DwmFlush(void)
-{
-    LARGE_INTEGER qpf, qpc, delay;
-    LONG64 qpc_refresh_period;
-    int display_frequency;
-    static BOOL once;
-
-    if (!once++)
-        FIXME("() stub\n");
-    else
-        TRACE(".\n");
-
-    display_frequency = get_display_frequency();
-    NtQueryPerformanceCounter(&qpc, &qpf);
-    qpc_refresh_period = qpf.QuadPart / display_frequency;
-    delay.QuadPart = (qpc.QuadPart - ((qpc.QuadPart + qpc_refresh_period - 1) / qpc_refresh_period) * qpc_refresh_period)
-            * 10000000 / qpf.QuadPart;
-    NtDelayExecution(FALSE, &delay);
 
     return S_OK;
 }

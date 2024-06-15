@@ -87,7 +87,6 @@ static const struct object_ops debug_event_ops =
     remove_queue,                  /* remove_queue */
     debug_event_signaled,          /* signaled */
     NULL,                          /* get_esync_fd */
-    NULL,                          /* get_fsync_idx */
     no_satisfied,                  /* satisfied */
     no_signal,                     /* signal */
     no_get_fd,                     /* get_fd */
@@ -117,7 +116,6 @@ static const struct object_ops debug_obj_ops =
     remove_queue,                  /* remove_queue */
     debug_obj_signaled,            /* signaled */
     NULL,                          /* get_esync_fd */
-    NULL,                          /* get_fsync_idx */
     no_satisfied,                  /* satisfied */
     no_signal,                     /* signal */
     no_get_fd,                     /* get_fd */
@@ -163,7 +161,7 @@ static void fill_create_process_event( struct debug_event *event, const void *ar
     const struct memory_view *view = arg;
     const pe_image_info_t *image_info = get_view_image_info( view, &event->data.create_process.base );
 
-    event->data.create_process.start      = event->data.create_process.base + image_info->entry_point;
+    event->data.create_process.start      = event->sender->entry_point;
     event->data.create_process.dbg_offset = image_info->dbg_offset;
     event->data.create_process.dbg_size   = image_info->dbg_size;
     /* the doc says write access too, but this doesn't seem a good idea */

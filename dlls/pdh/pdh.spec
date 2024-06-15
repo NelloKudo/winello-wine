@@ -18,7 +18,7 @@
 @ stdcall PdhCollectQueryDataWithTime(ptr ptr)
 @ stdcall PdhCollectQueryDataEx(ptr long ptr)
 @ stub PdhComputeCounterStatistics
-@ stub PdhConnectMachineA
+@ stdcall PdhConnectMachineA(str)
 @ stub PdhConnectMachineW
 @ stub PdhCreateSQLTablesA
 @ stub PdhCreateSQLTablesW
@@ -58,8 +58,8 @@
 @ stub PdhGetDefaultPerfObjectHW
 @ stub PdhGetDefaultPerfObjectW
 @ stdcall PdhGetDllVersion(ptr)
-@ stdcall PdhGetFormattedCounterArrayA(ptr long ptr ptr ptr)
-@ stdcall PdhGetFormattedCounterArrayW(ptr long ptr ptr ptr)
+@ stub PdhGetFormattedCounterArrayA
+@ stub PdhGetFormattedCounterArrayW
 @ stdcall PdhGetFormattedCounterValue(ptr long ptr ptr)
 @ stub PdhGetLogFileSize
 @ stdcall PdhGetLogFileTypeA(str ptr)

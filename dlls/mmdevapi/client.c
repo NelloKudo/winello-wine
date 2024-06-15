@@ -89,11 +89,6 @@ static inline struct audio_client *impl_from_IAudioClock2(IAudioClock2 *iface)
     return CONTAINING_RECORD(iface, struct audio_client, IAudioClock2_iface);
 }
 
-static inline ACImpl *impl_from_IAudioClockAdjustment(IAudioClockAdjustment *iface)
-{
-    return CONTAINING_RECORD(iface, ACImpl, IAudioClockAdjustment_iface);
-}
-
 static inline struct audio_client *impl_from_IAudioRenderClient(IAudioRenderClient *iface)
 {
     return CONTAINING_RECORD(iface, struct audio_client, IAudioRenderClient_iface);
@@ -102,6 +97,61 @@ static inline struct audio_client *impl_from_IAudioRenderClient(IAudioRenderClie
 static inline struct audio_client *impl_from_IAudioStreamVolume(IAudioStreamVolume *iface)
 {
     return CONTAINING_RECORD(iface, struct audio_client, IAudioStreamVolume_iface);
+}
+
+static HRESULT adjust_timing(struct audio_client *This,
+                             REFERENCE_TIME *duration, REFERENCE_TIME *period,
+                             const AUDCLNT_SHAREMODE mode, const DWORD flags,
+                             const WAVEFORMATEX *fmt)
+{
+    struct get_device_period_params params;
+    REFERENCE_TIME def_period, min_period;
+
+    TRACE("Requested duration %lu and period %lu\n", (ULONG)*duration, (ULONG)*period);
+
+    params.device     = This->device_name;
+    params.flow       = This->dataflow;
+    params.def_period = &def_period;
+    params.min_period = &min_period;
+
+    wine_unix_call(get_device_period, &params);
+
+    if (FAILED(params.result))
+        return params.result;
+
+    TRACE("Device periods: %lu default and %lu minimum\n", (ULONG)def_period, (ULONG)min_period);
+
+    if (mode == AUDCLNT_SHAREMODE_SHARED) {
+        *period = def_period;
+        if (*duration < 3 * *period)
+            *duration = 3 * *period;
+    } else {
+        const WAVEFORMATEXTENSIBLE *fmtex = (WAVEFORMATEXTENSIBLE *)fmt;
+        if (fmtex->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+           (fmtex->dwChannelMask == 0 || fmtex->dwChannelMask & SPEAKER_RESERVED))
+            params.result = AUDCLNT_E_UNSUPPORTED_FORMAT;
+        else {
+            if (*period == 0)
+                *period = def_period;
+            if (*period < min_period || *period > 5000000)
+                params.result = AUDCLNT_E_INVALID_DEVICE_PERIOD;
+            else if (*duration > 20000000) /* The smaller the period, the lower this limit. */
+                params.result = AUDCLNT_E_BUFFER_SIZE_ERROR;
+            else if (flags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) {
+                if (*duration != *period)
+                    params.result = AUDCLNT_E_BUFDURATION_PERIOD_NOT_EQUAL;
+
+                FIXME("EXCLUSIVE mode with EVENTCALLBACK\n");
+
+                params.result = AUDCLNT_E_DEVICE_IN_USE;
+            } else if (*duration < 8 * *period)
+                *duration = 8 * *period; /* May grow above 2s. */
+        }
+    }
+
+    TRACE("Adjusted duration %lu and period %lu\n", (ULONG)*duration, (ULONG)*period);
+
+    return params.result;
 }
 
 static void dump_fmt(const WAVEFORMATEX *fmt)
@@ -412,8 +462,6 @@ const IAudioCaptureClientVtbl AudioCaptureClient_Vtbl =
 
 static HRESULT WINAPI client_QueryInterface(IAudioClient3 *iface, REFIID riid, void **ppv)
 {
-    struct audio_client *This = impl_from_IAudioClient3(iface);
-
     TRACE("(%p)->(%s, %p)\n", iface, debugstr_guid(riid), ppv);
 
     if (!ppv)
@@ -424,8 +472,6 @@ static HRESULT WINAPI client_QueryInterface(IAudioClient3 *iface, REFIID riid, v
         IsEqualIID(riid, &IID_IAudioClient2) ||
         IsEqualIID(riid, &IID_IAudioClient3))
         *ppv = iface;
-    else if (IsEqualIID(riid, &IID_IAudioClockAdjustment))
-        *ppv = &This->IAudioClockAdjustment_iface;
     else if(IsEqualIID(riid, &IID_IMarshal)) {
         struct audio_client *This = impl_from_IAudioClient3(iface);
         return IUnknown_QueryInterface(This->marshal, riid, ppv);
@@ -510,6 +556,9 @@ static HRESULT WINAPI client_Initialize(IAudioClient3 *iface, AUDCLNT_SHAREMODE 
         FIXME("Unknown flags: %08lx\n", flags);
         return E_INVALIDARG;
     }
+
+    if (FAILED(params.result = adjust_timing(This, &duration, &period, mode, flags, fmt)))
+        return params.result;
 
     sessions_lock();
 
@@ -938,10 +987,17 @@ static HRESULT WINAPI client_GetSharedModeEnginePeriod(IAudioClient3 *iface,
                                                 UINT32 *max_period_frames)
 {
     struct audio_client *This = impl_from_IAudioClient3(iface);
-    FIXME("(%p)->(%p, %p, %p, %p, %p) - stub\n", This, format, default_period_frames,
-                                                 unit_period_frames, min_period_frames,
-                                                 max_period_frames);
-    return E_NOTIMPL;
+    FIXME("(%p)->(%p, %p, %p, %p, %p) - partial stub\n",
+          This, format, default_period_frames,
+          unit_period_frames, min_period_frames,
+          max_period_frames);
+
+    *default_period_frames =
+        *min_period_frames =
+        *max_period_frames =
+        format->nSamplesPerSec / 100; /* ~10ms */
+    *unit_period_frames = 1;
+    return S_OK;
 }
 
 static HRESULT WINAPI client_GetCurrentSharedModeEnginePeriod(IAudioClient3 *iface,
@@ -959,8 +1015,14 @@ static HRESULT WINAPI client_InitializeSharedAudioStream(IAudioClient3 *iface, D
                                                   const GUID *session_guid)
 {
     struct audio_client *This = impl_from_IAudioClient3(iface);
-    FIXME("(%p)->(0x%lx, %u, %p, %s) - stub\n", This, flags, period_frames, format, debugstr_guid(session_guid));
-    return E_NOTIMPL;
+    REFERENCE_TIME duration;
+    FIXME("(%p)->(0x%lx, %u, %p, %s) - partial stub\n", This, flags, period_frames, format, debugstr_guid(session_guid));
+
+    if (!format)
+        return E_POINTER;
+
+    duration = period_frames * (REFERENCE_TIME)10000000 / format->nSamplesPerSec;
+    return client_Initialize(iface, AUDCLNT_SHAREMODE_SHARED, flags, duration, 0, format, session_guid);
 }
 
 const IAudioClient3Vtbl AudioClient3_Vtbl =
@@ -1138,52 +1200,6 @@ const IAudioClock2Vtbl AudioClock2_Vtbl =
     clock2_AddRef,
     clock2_Release,
     clock2_GetDevicePosition
-};
-
-static HRESULT WINAPI AudioClockAdjustment_QueryInterface(IAudioClockAdjustment *iface,
-        REFIID riid, void **ppv)
-{
-    ACImpl *This = impl_from_IAudioClockAdjustment(iface);
-    return IAudioClock_QueryInterface(&This->IAudioClock_iface, riid, ppv);
-}
-
-static ULONG WINAPI AudioClockAdjustment_AddRef(IAudioClockAdjustment *iface)
-{
-    ACImpl *This = impl_from_IAudioClockAdjustment(iface);
-    return IAudioClient_AddRef((IAudioClient *)&This->IAudioClient3_iface);
-}
-
-static ULONG WINAPI AudioClockAdjustment_Release(IAudioClockAdjustment *iface)
-{
-    ACImpl *This = impl_from_IAudioClockAdjustment(iface);
-    return IAudioClient_Release((IAudioClient *)&This->IAudioClient3_iface);
-}
-
-static HRESULT WINAPI AudioClockAdjustment_SetSampleRate(IAudioClockAdjustment *iface,
-        float new_rate)
-{
-    ACImpl *This = impl_from_IAudioClockAdjustment(iface);
-    struct set_sample_rate_params params;
-
-    TRACE("(%p)->(%f)\n", This, new_rate);
-
-    if (!This->stream)
-        return AUDCLNT_E_NOT_INITIALIZED;
-
-    params.stream = This->stream;
-    params.new_rate = new_rate;
-
-    wine_unix_call(set_sample_rate, &params);
-
-    return params.result;
-}
-
-const IAudioClockAdjustmentVtbl AudioClockAdjustment_Vtbl =
-{
-    AudioClockAdjustment_QueryInterface,
-    AudioClockAdjustment_AddRef,
-    AudioClockAdjustment_Release,
-    AudioClockAdjustment_SetSampleRate
 };
 
 static HRESULT WINAPI render_QueryInterface(IAudioRenderClient *iface, REFIID riid, void **ppv)
@@ -1472,7 +1488,6 @@ HRESULT AudioClient_Create(GUID *guid, IMMDevice *device, IAudioClient **out)
     This->IAudioClient3_iface.lpVtbl       = &AudioClient3_Vtbl;
     This->IAudioClock_iface.lpVtbl         = &AudioClock_Vtbl;
     This->IAudioClock2_iface.lpVtbl        = &AudioClock2_Vtbl;
-    This->IAudioClockAdjustment_iface.lpVtbl = &AudioClockAdjustment_Vtbl;
     This->IAudioRenderClient_iface.lpVtbl  = &AudioRenderClient_Vtbl;
     This->IAudioStreamVolume_iface.lpVtbl  = &AudioStreamVolume_Vtbl;
 

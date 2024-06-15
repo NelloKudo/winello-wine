@@ -113,7 +113,6 @@ static const struct object_ops dir_ops =
     remove_queue,             /* remove_queue */
     default_fd_signaled,      /* signaled */
     default_fd_get_esync_fd,  /* get_esync_fd */
-    default_fd_get_fsync_idx, /* get_fsync_idx */
     no_satisfied,             /* satisfied */
     no_signal,                /* signal */
     dir_get_fd,               /* get_fd */
@@ -673,7 +672,7 @@ static char *get_path_from_fd( int fd, int sz )
 #ifdef linux
     char *ret = malloc( 32 + sz );
 
-    if (ret) sprintf( ret, "/proc/self/fd/%u", fd );
+    if (ret) snprintf( ret, 32 + sz, "/proc/self/fd/%u", fd );
     return ret;
 #elif defined(F_GETPATH)
     char *ret = malloc( PATH_MAX + sz );

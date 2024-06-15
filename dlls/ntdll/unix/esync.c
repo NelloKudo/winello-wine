@@ -22,6 +22,8 @@
 #pragma makedep unix
 #endif
 
+#define _GNU_SOURCE
+
 #include "config.h"
 
 #include <assert.h>
@@ -47,7 +49,6 @@
 
 #include "unix_private.h"
 #include "esync.h"
-#include "fsync.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(esync);
 
@@ -57,7 +58,7 @@ int do_esync(void)
     static int do_esync_cached = -1;
 
     if (do_esync_cached == -1)
-        do_esync_cached = getenv("WINEESYNC") && atoi(getenv("WINEESYNC")) && !do_fsync();
+        do_esync_cached = getenv("WINEESYNC") && atoi(getenv("WINEESYNC"));
 
     return do_esync_cached;
 #else
@@ -179,7 +180,7 @@ static struct esync *add_to_list( HANDLE handle, enum esync_type type, int fd, v
         }
     }
 
-    if (!InterlockedCompareExchange( (LONG *)&esync_list[entry][idx].type, type, 0 ))
+    if (!InterlockedCompareExchange( (int *)&esync_list[entry][idx].type, type, 0 ))
     {
         esync_list[entry][idx].fd = fd;
         esync_list[entry][idx].shm = shm;
@@ -252,7 +253,7 @@ static NTSTATUS get_object( HANDLE handle, struct esync **obj )
 
     if (ret)
     {
-        WARN("Failed to retrieve fd for handle %p, status %#x.\n", handle, (unsigned int)ret);
+        WARN("Failed to retrieve fd for handle %p, status %#x.\n", handle, ret);
         *obj = NULL;
         return ret;
     }
@@ -271,7 +272,7 @@ NTSTATUS esync_close( HANDLE handle )
 
     if (entry < ESYNC_LIST_ENTRIES && esync_list[entry])
     {
-        if (InterlockedExchange((LONG *)&esync_list[entry][idx].type, 0))
+        if (InterlockedExchange((int *)&esync_list[entry][idx].type, 0))
         {
             close( esync_list[entry][idx].fd );
             return STATUS_SUCCESS;
@@ -370,7 +371,7 @@ extern NTSTATUS esync_create_semaphore(HANDLE *handle, ACCESS_MASK access,
     const OBJECT_ATTRIBUTES *attr, LONG initial, LONG max)
 {
     TRACE("name %s, initial %d, max %d.\n",
-        attr ? debugstr_us(attr->ObjectName) : "<no name>", (int)initial, (int)max);
+        attr ? debugstr_us(attr->ObjectName) : "<no name>", initial, max);
 
     return create_esync( ESYNC_SEMAPHORE, handle, access, attr, initial, max );
 }
@@ -391,7 +392,7 @@ NTSTATUS esync_release_semaphore( HANDLE handle, ULONG count, ULONG *prev )
     ULONG current;
     NTSTATUS ret;
 
-    TRACE("%p, %d, %p.\n", handle, (int)count, prev);
+    TRACE("%p, %d, %p.\n", handle, count, prev);
 
     if ((ret = get_object( handle, &obj))) return ret;
     semaphore = obj->shm;
@@ -402,7 +403,7 @@ NTSTATUS esync_release_semaphore( HANDLE handle, ULONG count, ULONG *prev )
 
         if (count + current > semaphore->max)
             return STATUS_SEMAPHORE_LIMIT_EXCEEDED;
-    } while (InterlockedCompareExchange( (LONG *)&semaphore->count, count + current, current ) != current);
+    } while (InterlockedCompareExchange( &semaphore->count, count + current, current ) != current);
 
     if (prev) *prev = current;
 
@@ -525,13 +526,10 @@ NTSTATUS esync_set_event( HANDLE handle )
     if ((ret = get_object( handle, &obj ))) return ret;
     event = obj->shm;
 
-    if (obj->type != ESYNC_MANUAL_EVENT && obj->type != ESYNC_AUTO_EVENT)
-        return STATUS_OBJECT_TYPE_MISMATCH;
-
     if (obj->type == ESYNC_MANUAL_EVENT)
     {
         /* Acquire the spinlock. */
-        while (InterlockedCompareExchange( (LONG *)&event->locked, 1, 0 ))
+        while (InterlockedCompareExchange( &event->locked, 1, 0 ))
             small_pause();
     }
 
@@ -544,7 +542,7 @@ NTSTATUS esync_set_event( HANDLE handle )
      * eventfd is unsignaled (i.e. reset shm, set shm, set fd, reset fd), we
      * *must* signal the fd now, or any waiting threads will never wake up. */
 
-    if (!InterlockedExchange( (LONG *)&event->signaled, 1 ) || obj->type == ESYNC_AUTO_EVENT)
+    if (!InterlockedExchange( &event->signaled, 1 ) || obj->type == ESYNC_AUTO_EVENT)
     {
         if (write( obj->fd, &value, sizeof(value) ) == -1)
             ERR("write: %s\n", strerror(errno));
@@ -571,13 +569,10 @@ NTSTATUS esync_reset_event( HANDLE handle )
     if ((ret = get_object( handle, &obj ))) return ret;
     event = obj->shm;
 
-    if (obj->type != ESYNC_MANUAL_EVENT && obj->type != ESYNC_AUTO_EVENT)
-        return STATUS_OBJECT_TYPE_MISMATCH;
-
     if (obj->type == ESYNC_MANUAL_EVENT)
     {
         /* Acquire the spinlock. */
-        while (InterlockedCompareExchange( (LONG *)&event->locked, 1, 0 ))
+        while (InterlockedCompareExchange( &event->locked, 1, 0 ))
             small_pause();
     }
 
@@ -587,7 +582,7 @@ NTSTATUS esync_reset_event( HANDLE handle )
      * For auto-reset events, we have no guarantee that the previous "signaled"
      * state is actually correct. We need to leave both states unsignaled after
      * leaving this function, so we always have to read(). */
-    if (InterlockedExchange( (LONG *)&event->signaled, 0 ) || obj->type == ESYNC_AUTO_EVENT)
+    if (InterlockedExchange( &event->signaled, 0 ) || obj->type == ESYNC_AUTO_EVENT)
     {
         if (read( obj->fd, &value, sizeof(value) ) == -1 && errno != EWOULDBLOCK && errno != EAGAIN)
         {
@@ -614,9 +609,6 @@ NTSTATUS esync_pulse_event( HANDLE handle )
 
     if ((ret = get_object( handle, &obj ))) return ret;
 
-    if (obj->type != ESYNC_MANUAL_EVENT && obj->type != ESYNC_AUTO_EVENT)
-        return STATUS_OBJECT_TYPE_MISMATCH;
-
     /* This isn't really correct; an application could miss the write.
      * Unfortunately we can't really do much better. Fortunately this is rarely
      * used (and publicly deprecated). */
@@ -625,7 +617,7 @@ NTSTATUS esync_pulse_event( HANDLE handle )
 
     /* Try to give other threads a chance to wake up. Hopefully erring on this
      * side is the better thing to do... */
-    usleep(0);
+    NtYieldExecution();
 
     read( obj->fd, &value, sizeof(value) );
 
@@ -790,7 +782,7 @@ static BOOL update_grabbed_object( struct esync *obj )
          * fact that we were able to grab it at all means the count is nonzero,
          * and if someone else grabbed it then the count must have been >= 2,
          * etc. */
-        InterlockedExchangeAdd( (LONG *)&semaphore->count, -1 );
+        InterlockedExchangeAdd( &semaphore->count, -1 );
     }
     else if (obj->type == ESYNC_AUTO_EVENT)
     {
@@ -867,7 +859,7 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
             return ret;
     }
 
-    if (count && objs[count - 1] && objs[count - 1]->type == ESYNC_QUEUE)
+    if (objs[count - 1] && objs[count - 1]->type == ESYNC_QUEUE)
         msgwait = TRUE;
 
     if (has_esync && has_server)
@@ -877,7 +869,7 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
 
     if (TRACE_ON(esync))
     {
-        TRACE("Waiting for %s of %d handles:", wait_any ? "any" : "all", (int)count);
+        TRACE("Waiting for %s of %d handles:", wait_any ? "any" : "all", count);
         for (i = 0; i < count; i++)
             TRACE(" %p", handles[i]);
 
@@ -896,7 +888,7 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
         }
     }
 
-    if (wait_any || count <= 1)
+    if (wait_any || count == 1)
     {
         /* Try to check objects now, so we can obviate poll() at least. */
         for (i = 0; i < count; i++)
@@ -944,7 +936,7 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
                         if ((size = read( obj->fd, &value, sizeof(value) )) == sizeof(value))
                         {
                             TRACE("Woken up by handle %p [%d].\n", handles[i], i);
-                            InterlockedDecrement( (LONG *)&semaphore->count );
+                            InterlockedDecrement( &semaphore->count );
                             return i;
                         }
                     }
@@ -956,8 +948,6 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
 
                     if (event->signaled)
                     {
-                        if (ac_odyssey && alertable)
-                            usleep( 0 );
                         if ((size = read( obj->fd, &value, sizeof(value) )) == sizeof(value))
                         {
                             TRACE("Woken up by handle %p [%d].\n", handles[i], i);
@@ -973,12 +963,6 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
 
                     if (event->signaled)
                     {
-                        if (ac_odyssey && alertable)
-                        {
-                            usleep( 0 );
-                            if (!event->signaled)
-                                break;
-                        }
                         TRACE("Woken up by handle %p [%d].\n", handles[i], i);
                         return i;
                     }
@@ -1007,9 +991,6 @@ static NTSTATUS __esync_wait_objects( DWORD count, const HANDLE *handles, BOOLEA
 
         while (1)
         {
-            if (ac_odyssey && alertable)
-                usleep( 0 );
-
             ret = do_poll( fds, pollcount, timeout ? &end : NULL );
             if (ret > 0)
             {
@@ -1167,22 +1148,10 @@ tryagain:
                         {
                             /* We were too slow. Put everything back. */
                             value = 1;
-                            for (j = i - 1; j >= 0; j--)
+                            for (j = i; j >= 0; j--)
                             {
-                                struct esync *obj = objs[j];
-
-                                if (obj->type == ESYNC_MUTEX)
-                                {
-                                    struct mutex *mutex = obj->shm;
-
-                                    if (mutex->tid == GetCurrentThreadId())
-                                        continue;
-                                }
-                                if (write( fds[j].fd, &value, sizeof(value) ) == -1)
-                                {
-                                    ERR("write failed.\n");
+                                if (write( obj->fd, &value, sizeof(value) ) == -1)
                                     return errno_to_status( errno );
-                                }
                             }
 
                             goto tryagain;  /* break out of two loops and a switch */

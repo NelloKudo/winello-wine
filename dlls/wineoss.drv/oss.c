@@ -551,7 +551,7 @@ static HRESULT setup_oss_device(AUDCLNT_SHAREMODE share, int fd,
     if(ret == S_FALSE && !out)
         ret = AUDCLNT_E_UNSUPPORTED_FORMAT;
 
-    if(ret == S_FALSE && out){
+    if(ret == S_FALSE){
         closest->Format.nBlockAlign =
             closest->Format.nChannels * closest->Format.wBitsPerSample / 8;
         closest->Format.nAvgBytesPerSec =
@@ -575,36 +575,6 @@ static NTSTATUS oss_create_stream(void *args)
     SIZE_T size;
 
     params->result = S_OK;
-
-    if (params->share == AUDCLNT_SHAREMODE_SHARED) {
-        params->period = def_period;
-        if (params->duration < 3 * params->period)
-            params->duration = 3 * params->period;
-    } else {
-        if (fmtex->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
-           (fmtex->dwChannelMask == 0 || fmtex->dwChannelMask & SPEAKER_RESERVED))
-            params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
-        else {
-            if (!params->period)
-                params->period = def_period;
-            if (params->period < min_period || params->period > 5000000)
-                params->result = AUDCLNT_E_INVALID_DEVICE_PERIOD;
-            else if (params->duration > 20000000) /* The smaller the period, the lower this limit. */
-                params->result = AUDCLNT_E_BUFFER_SIZE_ERROR;
-            else if (params->flags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) {
-                if (params->duration != params->period)
-                    params->result = AUDCLNT_E_BUFDURATION_PERIOD_NOT_EQUAL;
-
-                FIXME("EXCLUSIVE mode with EVENTCALLBACK\n");
-
-                params->result = AUDCLNT_E_DEVICE_IN_USE;
-            } else if (params->duration < 8 * params->period)
-                params->duration = 8 * params->period; /* May grow above 2s. */
-        }
-    }
-
-    if (FAILED(params->result))
-        return STATUS_SUCCESS;
 
     stream = calloc(1, sizeof(*stream));
     if(!stream){
@@ -1731,7 +1701,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     oss_get_position,
     oss_set_volumes,
     oss_set_event_handle,
-    NULL,
     oss_test_connect,
     oss_is_started,
     oss_get_prop_value,
@@ -2227,7 +2196,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     oss_wow64_get_position,
     oss_wow64_set_volumes,
     oss_wow64_set_event_handle,
-    oss_not_implemented,
     oss_wow64_test_connect,
     oss_is_started,
     oss_wow64_get_prop_value,

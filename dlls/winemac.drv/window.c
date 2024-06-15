@@ -504,15 +504,13 @@ static void sync_window_opacity(struct macdrv_win_data *data, COLORREF key, BYTE
 
     if (needs_flush && data->surface)
     {
-        RECT *bounds;
         RECT rect;
 
         rect = data->whole_rect;
         OffsetRect(&rect, -data->whole_rect.left, -data->whole_rect.top);
-        data->surface->funcs->lock(data->surface);
-        bounds = data->surface->funcs->get_bounds(data->surface);
-        add_bounds_rect(bounds, &rect);
-        data->surface->funcs->unlock(data->surface);
+        window_surface_lock(data->surface);
+        add_bounds_rect(&data->surface->bounds, &rect);
+        window_surface_unlock(data->surface);
     }
 }
 
@@ -1917,8 +1915,8 @@ BOOL macdrv_UpdateLayeredWindow(HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
     surface = data->surface;
     if (!surface || !EqualRect(&surface->rect, &rect))
     {
-        data->surface = create_surface(data->cocoa_window, &rect, NULL, TRUE);
-        set_window_surface(data->cocoa_window, data->surface);
+        data->surface = create_surface(data->hwnd, data->cocoa_window, &rect, NULL, TRUE);
+        macdrv_set_window_surface(data->cocoa_window, data->surface);
         if (surface) window_surface_release(surface);
         surface = data->surface;
         if (data->unminimized_surface)
@@ -1930,6 +1928,11 @@ BOOL macdrv_UpdateLayeredWindow(HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
     else set_surface_use_alpha(surface, TRUE);
 
     if (surface) window_surface_add_ref(surface);
+
+    /* Since layered attributes are now set, can now show the window */
+    if (data->cocoa_window && !data->on_screen && NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_VISIBLE)
+        show_window(data);
+
     release_win_data(data);
 
     if (!surface) return FALSE;
@@ -1959,9 +1962,9 @@ BOOL macdrv_UpdateLayeredWindow(HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
     if (info->prcDirty)
     {
         intersect_rect(&rect, &rect, info->prcDirty);
-        surface->funcs->lock(surface);
+        window_surface_lock(surface);
         memcpy(src_bits, dst_bits, bmi->bmiHeader.biSizeImage);
-        surface->funcs->unlock(surface);
+        window_surface_unlock(surface);
         NtGdiPatBlt(hdc, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, BLACKNESS);
     }
     src_rect = rect;
@@ -1978,11 +1981,11 @@ BOOL macdrv_UpdateLayeredWindow(HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
     {
         if (surface == data->surface)
         {
-            surface->funcs->lock(surface);
+            window_surface_lock(surface);
             memcpy(dst_bits, src_bits, bmi->bmiHeader.biSizeImage);
-            add_bounds_rect(surface->funcs->get_bounds(surface), &rect);
-            surface->funcs->unlock(surface);
-            surface->funcs->flush(surface);
+            add_bounds_rect(&surface->bounds, &rect);
+            window_surface_unlock(surface);
+            window_surface_flush(surface);
         }
 
         /* The ULW flags are a superset of the LWA flags. */
@@ -2091,7 +2094,7 @@ BOOL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags,
     }
     else if (!(swp_flags & SWP_SHOWWINDOW) && !(style & WS_VISIBLE)) goto done;
 
-    *surface = create_surface(data->cocoa_window, &surface_rect, data->surface, FALSE);
+    *surface = create_surface(data->hwnd, data->cocoa_window, &surface_rect, data->surface, FALSE);
 
 done:
     release_win_data(data);
@@ -2135,7 +2138,7 @@ void macdrv_WindowPosChanged(HWND hwnd, HWND insert_after, UINT swp_flags,
         }
         else
         {
-            set_window_surface(data->cocoa_window, surface);
+            macdrv_set_window_surface(data->cocoa_window, surface);
             if (data->unminimized_surface)
             {
                 window_surface_release(data->unminimized_surface);

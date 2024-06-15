@@ -43,15 +43,6 @@ BOOL WINAPI wglDeleteContext( HGLRC oldContext )
     return args.ret;
 }
 
-int WINAPI wglDescribePixelFormat( HDC hdc, int ipfd, UINT cjpfd, PIXELFORMATDESCRIPTOR *ppfd )
-{
-    struct wglDescribePixelFormat_params args = { .teb = NtCurrentTeb(), .hdc = hdc, .ipfd = ipfd, .cjpfd = cjpfd, .ppfd = ppfd };
-    NTSTATUS status;
-    TRACE( "hdc %p, ipfd %d, cjpfd %u, ppfd %p\n", hdc, ipfd, cjpfd, ppfd );
-    if ((status = UNIX_CALL( wglDescribePixelFormat, &args ))) WARN( "wglDescribePixelFormat returned %#lx\n", status );
-    return args.ret;
-}
-
 BOOL WINAPI wglMakeCurrent( HDC hDc, HGLRC newContext )
 {
     struct wglMakeCurrent_params args = { .teb = NtCurrentTeb(), .hDc = hDc, .newContext = newContext };
@@ -17979,6 +17970,22 @@ static void WINAPI glShaderOp3EXT( GLenum op, GLuint res, GLuint arg1, GLuint ar
     if ((status = UNIX_CALL( glShaderOp3EXT, &args ))) WARN( "glShaderOp3EXT returned %#lx\n", status );
 }
 
+static void WINAPI glShaderSource( GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length )
+{
+    struct glShaderSource_params args = { .teb = NtCurrentTeb(), .shader = shader, .count = count, .string = string, .length = length };
+    NTSTATUS status;
+    TRACE( "shader %d, count %d, string %p, length %p\n", shader, count, string, length );
+    if ((status = UNIX_CALL( glShaderSource, &args ))) WARN( "glShaderSource returned %#lx\n", status );
+}
+
+static void WINAPI glShaderSourceARB( GLhandleARB shaderObj, GLsizei count, const GLcharARB **string, const GLint *length )
+{
+    struct glShaderSourceARB_params args = { .teb = NtCurrentTeb(), .shaderObj = shaderObj, .count = count, .string = string, .length = length };
+    NTSTATUS status;
+    TRACE( "shaderObj %d, count %d, string %p, length %p\n", shaderObj, count, string, length );
+    if ((status = UNIX_CALL( glShaderSourceARB, &args ))) WARN( "glShaderSourceARB returned %#lx\n", status );
+}
+
 static void WINAPI glShaderStorageBlockBinding( GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding )
 {
     struct glShaderStorageBlockBinding_params args = { .teb = NtCurrentTeb(), .program = program, .storageBlockIndex = storageBlockIndex, .storageBlockBinding = storageBlockBinding };
@@ -24326,8 +24333,6 @@ extern void * WINAPI glMapNamedBuffer( GLuint buffer, GLenum access );
 extern void * WINAPI glMapNamedBufferEXT( GLuint buffer, GLenum access );
 extern void * WINAPI glMapNamedBufferRange( GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access );
 extern void * WINAPI glMapNamedBufferRangeEXT( GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access );
-extern void WINAPI glShaderSource( GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length );
-extern void WINAPI glShaderSourceARB( GLhandleARB shaderObj, GLsizei count, const GLcharARB **string, const GLint *length );
 extern GLboolean WINAPI glUnmapBuffer( GLenum target );
 extern GLboolean WINAPI glUnmapBufferARB( GLenum target );
 extern GLboolean WINAPI glUnmapNamedBuffer( GLuint buffer );

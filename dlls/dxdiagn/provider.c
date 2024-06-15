@@ -612,7 +612,7 @@ static HRESULT build_systeminfo_tree(IDxDiagContainerImpl_Container *node)
     WCHAR buffer[MAX_PATH], computer_name[MAX_COMPUTERNAME_LENGTH + 1], print_buf[200], localized_pagefile_fmt[200];
     DWORD_PTR args[2];
 
-    hr = add_ui4_property(node, L"dwDirectXVersionMajor", 12);
+    hr = add_ui4_property(node, L"dwDirectXVersionMajor", 9);
     if (FAILED(hr))
         return hr;
 
@@ -620,19 +620,23 @@ static HRESULT build_systeminfo_tree(IDxDiagContainerImpl_Container *node)
     if (FAILED(hr))
         return hr;
 
-    hr = add_bstr_property(node, L"szDirectXVersionLetter", L" ");
+    hr = add_bstr_property(node, L"szDirectXVersionLetter", L"c");
     if (FAILED(hr))
         return hr;
 
-    hr = add_bstr_property(node, L"szDirectXVersionEnglish", L"");
+    hr = add_bstr_property(node, L"szDirectXVersionEnglish", L"4.09.0000.0904");
     if (FAILED(hr))
         return hr;
 
-    hr = add_bstr_property(node, L"szDirectXVersionLongEnglish", L"DirectX 12");
+    hr = add_bstr_property(node, L"szDirectXVersionLongEnglish", L"= \"DirectX 9.0c (4.09.0000.0904)");
     if (FAILED(hr))
         return hr;
 
     hr = add_bool_property(node, L"bDebug", FALSE);
+    if (FAILED(hr))
+        return hr;
+
+    hr = add_bool_property(node, L"bIsD3DDebugRuntime", FALSE);
     if (FAILED(hr))
         return hr;
 
@@ -996,6 +1000,18 @@ static HRESULT fill_display_information_d3d(IDxDiagContainerImpl_Container *node
             goto cleanup;
 
         hr = add_bool_property(display_adapter, L"b3DAccelerationExists", hardware_accel);
+        if (FAILED(hr))
+            goto cleanup;
+
+        hr = add_bool_property(display_adapter, L"bAGPEnabled", hardware_accel);
+        if (FAILED(hr))
+            goto cleanup;
+
+        hr = add_bool_property(display_adapter, L"bAGPExistenceValid", hardware_accel);
+        if (FAILED(hr))
+            goto cleanup;
+
+        hr = add_bool_property(display_adapter, L"bAGPExists", hardware_accel);
         if (FAILED(hr))
             goto cleanup;
 

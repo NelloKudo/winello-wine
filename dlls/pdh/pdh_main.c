@@ -793,26 +793,6 @@ PDH_STATUS WINAPI PdhGetRawCounterValue( PDH_HCOUNTER handle, LPDWORD type,
     return ERROR_SUCCESS;
 }
 
-PDH_STATUS WINAPI PdhGetFormattedCounterArrayW( PDH_HCOUNTER handle, DWORD format, DWORD *size, DWORD *count,
-                                                PDH_FMT_COUNTERVALUE_ITEM_W *buffer)
-{
-    FIXME( "%p %lu %p %p %p stub.\n", handle, format, size, count, buffer );
-
-    *size = 0;
-    *count = 0;
-    return ERROR_SUCCESS;
-}
-
-PDH_STATUS WINAPI PdhGetFormattedCounterArrayA( PDH_HCOUNTER handle, DWORD format, DWORD *size, DWORD *count,
-                                                PDH_FMT_COUNTERVALUE_ITEM_A *buffer)
-{
-    FIXME( "%p %lu %p %p %p stub.\n", handle, format, size, count, buffer );
-
-    *size = 0;
-    *count = 0;
-    return ERROR_SUCCESS;
-}
-
 /***********************************************************************
  *              PdhLookupPerfIndexByNameA   (PDH.@)
  */
@@ -1298,5 +1278,14 @@ PDH_STATUS WINAPI PdhBindInputDataSourceA(PDH_HLOG *source, const char *filename
 PDH_STATUS WINAPI PdhBindInputDataSourceW(PDH_HLOG *source, const WCHAR *filenamelist)
 {
     FIXME("%p %s: stub\n", source, debugstr_w(filenamelist));
+    return PDH_NOT_IMPLEMENTED;
+}
+
+/***********************************************************************
+ *              PdhConnectMachineA   (PDH.@)
+ */
+PDH_STATUS WINAPI PdhConnectMachineA(const char *name)
+{
+    FIXME("%s: stub\n", debugstr_a(name));
     return PDH_NOT_IMPLEMENTED;
 }

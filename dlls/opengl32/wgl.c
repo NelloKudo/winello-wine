@@ -35,11 +35,17 @@
 
 #include "wine/glu.h"
 #include "wine/debug.h"
+#include "wine/wgl_driver.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(opengl);
 WINE_DECLARE_DEBUG_CHANNEL(fps);
 
 static const MAT2 identity = { {0,1},{0,0},{0,0},{0,1} };
+
+#define WINE_GL_RESERVED_FORMATS_HDC      2
+#define WINE_GL_RESERVED_FORMATS_PTR      3
+#define WINE_GL_RESERVED_FORMATS_NUM      4
+#define WINE_GL_RESERVED_FORMATS_ONSCREEN 5
 
 #ifndef _WIN64
 
@@ -301,6 +307,59 @@ INT WINAPI wglChoosePixelFormat(HDC hdc, const PIXELFORMATDESCRIPTOR* ppfd)
     return best_format;
 }
 
+static struct wgl_pixel_format *get_pixel_formats( HDC hdc, UINT *num_formats,
+                                                   UINT *num_onscreen_formats )
+{
+    struct get_pixel_formats_params args = { .teb = NtCurrentTeb(), .hdc = hdc };
+    PVOID *glReserved = NtCurrentTeb()->glReserved1;
+    NTSTATUS status;
+
+    if (glReserved[WINE_GL_RESERVED_FORMATS_HDC] == hdc)
+    {
+        *num_formats = PtrToUlong( glReserved[WINE_GL_RESERVED_FORMATS_NUM] );
+        *num_onscreen_formats = PtrToUlong( glReserved[WINE_GL_RESERVED_FORMATS_ONSCREEN] );
+        return glReserved[WINE_GL_RESERVED_FORMATS_PTR];
+    }
+
+    if ((status = UNIX_CALL( get_pixel_formats, &args ))) goto error;
+    if (!(args.formats = malloc( sizeof(*args.formats) * args.num_formats ))) goto error;
+    args.max_formats = args.num_formats;
+    if ((status = UNIX_CALL( get_pixel_formats, &args ))) goto error;
+
+    *num_formats = args.num_formats;
+    *num_onscreen_formats = args.num_onscreen_formats;
+
+    free( glReserved[WINE_GL_RESERVED_FORMATS_PTR] );
+    glReserved[WINE_GL_RESERVED_FORMATS_HDC] = hdc;
+    glReserved[WINE_GL_RESERVED_FORMATS_PTR] = args.formats;
+    glReserved[WINE_GL_RESERVED_FORMATS_NUM] = ULongToPtr( args.num_formats );
+    glReserved[WINE_GL_RESERVED_FORMATS_ONSCREEN] = ULongToPtr( args.num_onscreen_formats );
+
+    return args.formats;
+
+error:
+    *num_formats = *num_onscreen_formats = 0;
+    free( args.formats );
+    return NULL;
+}
+
+INT WINAPI wglDescribePixelFormat( HDC hdc, int index, UINT size, PIXELFORMATDESCRIPTOR *ppfd )
+{
+    struct wgl_pixel_format *formats;
+    UINT num_formats, num_onscreen_formats;
+
+    TRACE( "hdc %p, index %d, size %u, ppfd %p\n", hdc, index, index, ppfd );
+
+    if (!(formats = get_pixel_formats( hdc, &num_formats, &num_onscreen_formats ))) return 0;
+    if (!ppfd) return num_onscreen_formats;
+    if (size < sizeof(*ppfd)) return 0;
+    if (index <= 0 || index > num_onscreen_formats) return 0;
+
+    *ppfd = formats[index - 1].pfd;
+
+    return num_onscreen_formats;
+}
+
 /***********************************************************************
  *		wglGetPixelFormat (OPENGL32.@)
  */
@@ -445,8 +504,8 @@ PROC WINAPI wglGetDefaultProcAddress( LPCSTR name )
 /***********************************************************************
  *		wglSwapLayerBuffers (OPENGL32.@)
  */
-BOOL WINAPI wglSwapLayerBuffers(HDC hdc,
-				UINT fuPlanes) {
+BOOL WINAPI DECLSPEC_HOTPATCH wglSwapLayerBuffers(HDC hdc, UINT fuPlanes)
+{
   TRACE("(%p, %08x)\n", hdc, fuPlanes);
 
   if (fuPlanes & WGL_SWAP_MAIN_PLANE) {
@@ -1292,162 +1351,20 @@ GLboolean WINAPI glUnmapNamedBufferEXT( GLuint buffer )
     return gl_unmap_named_buffer( unix_glUnmapNamedBufferEXT, buffer );
 }
 
-static BOOL WINAPI call_opengl_debug_message_callback( struct wine_gl_debug_message_params *params, ULONG size )
+static NTSTATUS WINAPI call_opengl_debug_message_callback( void *args, ULONG size )
 {
+    struct wine_gl_debug_message_params *params = args;
     params->user_callback( params->source, params->type, params->id, params->severity,
                            params->length, params->message, params->user_data );
-    return TRUE;
+    return STATUS_SUCCESS;
 }
-
-static char *fixup_shader( GLsizei count, const GLchar *const*string, const GLint *length )
-{
-    static int needs_fixup = -1;
-    static unsigned int once;
-
-    static const struct
-    {
-        const char *gameid;
-        const char *add_ext;
-        const char *search_str;
-        const char *prepend_str;
-    }
-    replace[] =
-    {
-        {
-            "333420",
-
-            /* add_ext */
-            "#version 120\r\n"
-            "#extension GL_ARB_explicit_uniform_location : enable\r\n"
-            "#extension GL_ARB_explicit_attrib_location : enable\r\n",
-            /* search_str */
-            "uniform mat4 boneMatrices[NBONES];",
-            /* replace_str */
-            "layout(location = 2) ",
-        },
-        {
-            "242110",
-            /* add_ext */
-            "#version 120\r\n",
-        },
-        {
-            "229890",
-            /* add_ext */
-            "#version 120\r\n",
-        },
-    };
-    static const char *add_ext;
-    static const char *search_str;
-    static const char *prepend_str;
-    static unsigned int add_ext_len, search_len, prepend_len;
-    unsigned int new_len;
-    const char *p, *next;
-    BOOL found = FALSE;
-    char *new, *out;
-
-    if (needs_fixup == -1)
-    {
-        const char *sgi = getenv("SteamGameId");
-        unsigned int i;
-
-        if (!sgi) return NULL;
-
-        for (i = 0; i < ARRAY_SIZE(replace); ++i)
-            if (!strcmp( sgi, replace[i].gameid )) break;
-
-        needs_fixup = i < ARRAY_SIZE(replace);
-        if (needs_fixup)
-        {
-            add_ext = replace[i].add_ext;
-            add_ext_len = add_ext ? strlen(add_ext) : 0;
-            search_str = replace[i].search_str;
-            search_len = search_str ? strlen(search_str) : 0;
-            prepend_str = replace[i].prepend_str;
-            prepend_len = prepend_str ? strlen(prepend_str) : 0;
-        }
-    }
-
-    if (!needs_fixup) return NULL;
-
-    if (length || count != 1) return NULL;
-
-    if (!once++)
-      FIXME( "HACK: Fixing up shader.\n" );
-
-    TRACE( "Appending extension string.\n" );
-    new_len = strlen( *string ) + prepend_len + add_ext_len + 1;
-    new = out = malloc( new_len );
-    memcpy( out, add_ext, add_ext_len );
-    out += add_ext_len;
-
-    if (!search_str) goto skip_search;
-
-    next = *string;
-    while (*(p = next))
-    {
-      while (*next && *next != '\r' && *next != '\n') ++next;
-
-      if (next - p == search_len && !memcmp( p, search_str, search_len ))
-      {
-          TRACE( "Adding explicit location.\n" );
-          memcpy( out, *string, p - *string );
-          out += p - *string;
-          memcpy( out, prepend_str, prepend_len );
-          out += prepend_len;
-          strcpy( out, p );
-          found = TRUE;
-          break;
-      }
-
-      while (*next == '\n' || *next == '\r') ++next;
-    }
-
-skip_search:
-    if (!found)
-      strcpy( out, *string );
-
-    return new;
-}
-
-void WINAPI glShaderSource( GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length )
-{
-    struct glShaderSource_params args = { .teb = NtCurrentTeb(), .shader = shader, .count = count, .string = string, .length = length };
-    NTSTATUS status;
-    char *new;
-    TRACE( "shader %d, count %d, string %p, length %p\n", shader, count, string, length );
-    if ((new = fixup_shader( count, string, length )))
-    {
-        args.string = (const GLchar **)&new;
-        args.count = 1;
-        args.length = NULL;
-    }
-    if ((status = UNIX_CALL( glShaderSource, &args ))) WARN( "glShaderSource returned %#lx\n", status );
-    free( new );
-}
-
-void WINAPI glShaderSourceARB( GLhandleARB shaderObj, GLsizei count, const GLcharARB **string, const GLint *length )
-{
-    struct glShaderSourceARB_params args = { .teb = NtCurrentTeb(), .shaderObj = shaderObj, .count = count, .string = string, .length = length };
-    NTSTATUS status;
-    char *new;
-    TRACE( "shaderObj %d, count %d, string %p, length %p\n", shaderObj, count, string, length );
-    if ((new = fixup_shader( count, string, length )))
-    {
-        args.string = (const GLcharARB **)&new;
-        args.count = 1;
-        args.length = NULL;
-    }
-    if ((status = UNIX_CALL( glShaderSourceARB, &args ))) WARN( "glShaderSourceARB returned %#lx\n", status );
-    free( new );
-}
-
 
 /***********************************************************************
  *           OpenGL initialisation routine
  */
 BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
 {
-    void **kernel_callback_table;
+    KERNEL_CALLBACK_PROC *kernel_callback_table;
     NTSTATUS status;
 
     switch(reason)
@@ -1476,6 +1393,9 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
 #ifndef _WIN64
         cleanup_wow64_strings();
 #endif
+        /* fallthrough */
+    case DLL_THREAD_DETACH:
+        free( NtCurrentTeb()->glReserved1[WINE_GL_RESERVED_FORMATS_PTR] );
         return TRUE;
     }
     return TRUE;

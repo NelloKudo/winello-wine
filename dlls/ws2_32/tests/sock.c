@@ -1193,6 +1193,7 @@ static void test_set_getsockopt(void)
         DWORD values[3];
         BOOL accepts_large_value;
         BOOL bool_value;
+        BOOL allow_noprotoopt; /* for old windows only, must work on wine */
     }
     test_optsize[] =
     {
@@ -1210,6 +1211,9 @@ static void test_set_getsockopt(void)
         {AF_INET, SOCK_STREAM, SOL_SOCKET, SO_SNDTIMEO, FALSE, {1, 2, 4}, {0}, TRUE},
         {AF_INET, SOCK_STREAM, SOL_SOCKET, SO_OPENTYPE, FALSE, {1, 2, 4}, {0}, TRUE},
         {AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, TRUE, {1, 1, 1}, {0}, TRUE},
+        {AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_KEEPALIVE, FALSE, {0, 0, 4}, {0}, TRUE},
+        {AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_KEEPCNT, FALSE, {0, 0, 4}, {0}, FALSE, FALSE, TRUE}, /* win10+ */
+        {AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_KEEPINTVL, FALSE, {0, 0, 4}, {0}, TRUE, FALSE, TRUE}, /* win10+ */
         {AF_INET, SOCK_DGRAM, IPPROTO_IP, IP_MULTICAST_LOOP, TRUE, {1, 1, 4}, {0}, TRUE, TRUE},
         {AF_INET, SOCK_DGRAM, IPPROTO_IP, IP_MULTICAST_TTL, TRUE, {1, 1, 4}, {0}, FALSE},
         {AF_INET, SOCK_DGRAM, IPPROTO_IP, IP_PKTINFO, FALSE, {0, 0, 4}, {0}, TRUE, TRUE},
@@ -1453,6 +1457,36 @@ static void test_set_getsockopt(void)
     ok(!err, "getsockopt TCP_NODELAY failed\n");
     ok(!value, "TCP_NODELAY should be 0\n");
 
+    size = sizeof(DWORD);
+    value = 3600;
+    err = setsockopt(s, IPPROTO_TCP, TCP_KEEPALIVE, (char*)&value, 4);
+    ok(!err, "setsockopt TCP_KEEPALIVE failed\n");
+    value = 0;
+    err = getsockopt(s, IPPROTO_TCP, TCP_KEEPALIVE, (char*)&value, &size);
+    ok(!err, "getsockopt TCP_KEEPALIVE failed\n");
+    ok(value == 3600, "TCP_KEEPALIVE should be 3600, is %ld\n", value);
+
+    /* TCP_KEEPCNT and TCP_KEEPINTVL are supported on win10 and later */
+    value = 5;
+    err = setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT, (char*)&value, 4);
+    ok(!err || broken(WSAGetLastError() == WSAENOPROTOOPT),
+        "setsockopt TCP_KEEPCNT failed: %d\n", WSAGetLastError());
+
+    if (!err)
+    {
+        value = 0;
+        err = getsockopt(s, IPPROTO_TCP, TCP_KEEPCNT, (char*)&value, &size);
+        ok(!err, "getsockopt TCP_KEEPCNT failed\n");
+        ok(value == 5, "TCP_KEEPCNT should be 5, is %ld\n", value);
+
+        err = setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, (char*)&value, 4);
+        ok(!err, "setsockopt TCP_KEEPINTVL failed\n");
+        value = 0;
+        err = getsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, (char*)&value, &size);
+        ok(!err, "getsockopt TCP_KEEPINTVL failed\n");
+        ok(value == 5, "TCP_KEEPINTVL should be 5, is %ld\n", value);
+    }
+
     /* Test for erroneously passing a value instead of a pointer as optval */
     size = sizeof(char);
     err = setsockopt(s, SOL_SOCKET, SO_DONTROUTE, (char *)1, size);
@@ -1517,7 +1551,15 @@ static void test_set_getsockopt(void)
 
         size = sizeof(save_value);
         err = getsockopt(s2, test_optsize[i].level, test_optsize[i].optname, (char*)&save_value, &size);
-        ok(!err, "Unexpected getsockopt result %d.\n", err);
+        ok(!err || broken(test_optsize[i].allow_noprotoopt && WSAGetLastError() == WSAENOPROTOOPT),
+            "Unexpected getsockopt result %d.\n", err);
+
+        if (err)
+        {
+            closesocket(s2);
+            winetest_pop_context();
+            continue;
+        }
 
         value64 = 0xffffffff00000001;
         err = setsockopt(s2, test_optsize[i].level, test_optsize[i].optname, (char *)&value64, sizeof(value64));
@@ -7972,7 +8014,6 @@ static void test_write_watch(void)
     ok( count == 9 || !count /* Win 11 */, "wrong count %Iu\n", count );
     ok( !base[0], "data set\n" );
 
-    base[0x1000] = 1;
     send(src, "test message", sizeof("test message"), 0);
 
     ret = GetOverlappedResult( (HANDLE)dest, &ov, &bytesReturned, TRUE );
@@ -7982,18 +8023,9 @@ static void test_write_watch(void)
     ok( !memcmp( base + 0x4000, "message", 8 ), "wrong data %s\n", base + 0x4000 );
 
     count = 64;
-    ret = pGetWriteWatch( 0, base, size, results, &count, &pagesize );
-    ok( !ret, " GetWriteWatch failed %lu\n", GetLastError() );
-    todo_wine_if( count == 3 ) ok( count == 1, "wrong count %Iu\n", count );
-    todo_wine_if( count == 3 ) ok( results[0] == base + 0x1000, "got page %Iu.\n", ((char *)results[0] - base) / 0x1000 );
-
-    base[0x2000] = 1;
-    count = 64;
     ret = pGetWriteWatch( WRITE_WATCH_FLAG_RESET, base, size, results, &count, &pagesize );
     ok( !ret, "GetWriteWatch failed %lu\n", GetLastError() );
-    todo_wine_if( count == 4 ) ok( count == 2, "wrong count %Iu\n", count );
-    todo_wine_if( count == 4 ) ok( results[0] == base + 0x1000, "got page %Iu.\n", ((char *)results[0] - base) / 0x1000 );
-    todo_wine_if( count == 4 ) ok( results[1] == base + 0x2000, "got page %Iu.\n", ((char *)results[1] - base) / 0x1000 );
+    ok( count == 0, "wrong count %Iu\n", count );
 
     memset( base, 0, size );
     count = 64;
@@ -8024,7 +8056,7 @@ static void test_write_watch(void)
     count = 64;
     ret = pGetWriteWatch( WRITE_WATCH_FLAG_RESET, base, size, results, &count, &pagesize );
     ok( !ret, "GetWriteWatch failed %lu\n", GetLastError() );
-    todo_wine_if( count == 2 ) ok( count == 0, "wrong count %Iu\n", count );
+    ok( count == 0, "wrong count %Iu\n", count );
 
     memset( base, 0, size );
     count = 64;
@@ -8053,7 +8085,7 @@ static void test_write_watch(void)
         count = 64;
         ret = pGetWriteWatch( WRITE_WATCH_FLAG_RESET, base, size, results, &count, &pagesize );
         ok( !ret, "GetWriteWatch failed %lu\n", GetLastError() );
-        todo_wine_if( count == 1 ) ok( count == 0, "wrong count %Iu\n", count );
+        ok( count == 0, "wrong count %Iu\n", count );
     }
     WSACloseEvent( event );
     closesocket( dest );
@@ -12589,6 +12621,11 @@ static void test_bind(void)
     closesocket(s);
 
     s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+    WSASetLastError(0xdeadbeef);
+    ret = bind(s, (const struct sockaddr *)&invalid_addr, sizeof(invalid_addr));
+    ok(ret == -1, "expected failure\n");
+    ok(WSAGetLastError() == WSAEADDRNOTAVAIL, "got error %u\n", WSAGetLastError());
 
     WSASetLastError(0xdeadbeef);
     ret = bind(s, (const struct sockaddr *)&bind_addr, sizeof(bind_addr));

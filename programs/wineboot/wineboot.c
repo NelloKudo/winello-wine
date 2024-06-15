@@ -68,7 +68,6 @@
 #include <winternl.h>
 #include <ddk/wdm.h>
 #include <sddl.h>
-#include <ntsecapi.h>
 #include <wine/svcctl.h>
 #include <wine/asm.h>
 #include <wine/debug.h>
@@ -80,7 +79,6 @@
 #include <setupapi.h>
 #include <wininet.h>
 #include <newdev.h>
-#include <wincrypt.h>
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wineboot);
@@ -363,13 +361,7 @@ static UINT64 read_tsc_frequency(void)
     }
     while (error > 500 && --retries);
 
-    if (!retries)
-    {
-        FIXME( "TSC frequency calibration failed, unstable TSC?");
-        FIXME( "time0 %I64u ns, time1 %I64u ns\n", time0 * 100, time1 * 100 );
-        FIXME( "tsc2 - tsc0 %I64u, tsc3 - tsc1 %I64u\n", tsc2 - tsc0, tsc3 - tsc1 );
-        FIXME( "freq0 %I64u Hz, freq2 %I64u Hz, error %I64u ppm\n", freq0, freq1, error );
-    }
+    if (!retries) WARN( "TSC frequency calibration failed, unstable TSC?\n" );
     else
     {
         freq = (freq0 + freq1) / 2;
@@ -470,13 +462,16 @@ static void create_user_shared_data(void)
     case PROCESSOR_ARCHITECTURE_ARM:
         features[PF_ARM_VFP_32_REGISTERS_AVAILABLE]       = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_VFP_32);
         features[PF_ARM_NEON_INSTRUCTIONS_AVAILABLE]      = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_NEON);
-        features[PF_ARM_V8_INSTRUCTIONS_AVAILABLE]        = (sci.ProcessorLevel >= 8);
         break;
 
     case PROCESSOR_ARCHITECTURE_ARM64:
         features[PF_ARM_V8_INSTRUCTIONS_AVAILABLE]        = TRUE;
         features[PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE]  = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V8_CRC32);
         features[PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V8_CRYPTO);
+        features[PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE]= !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V81_ATOMIC);
+        features[PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE]    = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V82_DP);
+        features[PF_ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V83_JSCVT);
+        features[PF_ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V83_LRCPC);
         features[PF_COMPARE_EXCHANGE_DOUBLE]              = TRUE;
         features[PF_NX_ENABLED]                           = TRUE;
         features[PF_FASTFAIL_AVAILABLE]                   = TRUE;
@@ -516,60 +511,6 @@ static void create_user_shared_data(void)
     UnmapViewOfFile( data );
 }
 
-#if defined(__i386__) || defined(__x86_64__)
-
-static void regs_to_str( int *regs, unsigned int len, WCHAR *buffer )
-{
-    unsigned int i;
-    unsigned char *p = (unsigned char *)regs;
-
-    for (i = 0; i < len; i++) { buffer[i] = *p++; }
-    buffer[i] = 0;
-}
-
-static unsigned int get_model( unsigned int reg0, unsigned int *stepping, unsigned int *family )
-{
-    unsigned int model, family_id = (reg0 & (0x0f << 8)) >> 8;
-
-    model = (reg0 & (0x0f << 4)) >> 4;
-    if (family_id == 6 || family_id == 15) model |= (reg0 & (0x0f << 16)) >> 12;
-
-    *family = family_id;
-    if (family_id == 15) *family += (reg0 & (0xff << 20)) >> 20;
-
-    *stepping = reg0 & 0x0f;
-    return model;
-}
-
-static void get_identifier( WCHAR *buf, size_t size, const WCHAR *arch )
-{
-    unsigned int family, model, stepping;
-    int regs[4] = {0, 0, 0, 0};
-
-    __cpuid( regs, 1 );
-    model = get_model( regs[0], &stepping, &family );
-    swprintf( buf, size, L"%s Family %u Model %u Stepping %u", arch, family, model, stepping );
-}
-
-static void get_vendorid( WCHAR *buf )
-{
-    int tmp, regs[4] = {0, 0, 0, 0};
-
-    __cpuid( regs, 0 );
-    tmp = regs[2];      /* swap edx and ecx */
-    regs[2] = regs[3];
-    regs[3] = tmp;
-
-    regs_to_str( regs + 1, 12, buf );
-}
-
-#else  /* __i386__ || __x86_64__ */
-
-static void get_identifier( WCHAR *buf, size_t size, const WCHAR *arch ) { }
-static void get_vendorid( WCHAR *buf ) { }
-
-#endif  /* __i386__ || __x86_64__ */
-
 #include "pshpack1.h"
 struct smbios_prologue
 {
@@ -582,9 +523,13 @@ struct smbios_prologue
 
 enum smbios_type
 {
-    SMBIOS_TYPE_BIOS,
-    SMBIOS_TYPE_SYSTEM,
-    SMBIOS_TYPE_BASEBOARD,
+    SMBIOS_TYPE_BIOS = 0,
+    SMBIOS_TYPE_SYSTEM = 1,
+    SMBIOS_TYPE_BASEBOARD = 2,
+    SMBIOS_TYPE_CHASSIS = 3,
+    SMBIOS_TYPE_PROCESSOR = 4,
+    SMBIOS_TYPE_BOOTINFO = 32,
+    SMBIOS_TYPE_END = 127
 };
 
 struct smbios_header
@@ -631,11 +576,43 @@ struct smbios_system
     BYTE                 sku;
     BYTE                 family;
 };
+
+struct smbios_processor
+{
+    struct smbios_header hdr;
+    BYTE                 socket;
+    BYTE                 type;
+    BYTE                 family;
+    BYTE                 vendor;
+    ULONGLONG            id;
+    BYTE                 version;
+    BYTE                 voltage;
+    WORD                 clock;
+    WORD                 max_speed;
+    WORD                 cur_speed;
+    BYTE                 status;
+    BYTE                 upgrade;
+    WORD                 l1cache;
+    WORD                 l2cache;
+    WORD                 l3cache;
+    BYTE                 serial;
+    BYTE                 asset_tag;
+    BYTE                 part_number;
+    BYTE                 core_count;
+    BYTE                 core_enabled;
+    BYTE                 thread_count;
+    WORD                 characteristics;
+    WORD                 family2;
+    WORD                 core_count2;
+    WORD                 core_enabled2;
+    WORD                 thread_count2;
+};
 #include "poppack.h"
 
 #define RSMB (('R' << 24) | ('S' << 16) | ('M' << 8) | 'B')
 
-static const struct smbios_header *find_smbios_entry( enum smbios_type type, const char *buf, UINT len )
+static const struct smbios_header *find_smbios_entry( enum smbios_type type, unsigned int index,
+                                                      const char *buf, UINT len )
 {
     const char *ptr, *start;
     const struct smbios_prologue *prologue;
@@ -661,20 +638,16 @@ static const struct smbios_header *find_smbios_entry( enum smbios_type type, con
         if (hdr->type == type)
         {
             if ((const char *)hdr - start + hdr->length > prologue->length) return NULL;
-            break;
+            if (!index--) return hdr;
         }
-        else /* skip other entries and their strings */
+        /* skip other entries and their strings */
+        for (ptr = (const char *)hdr + hdr->length; ptr - buf < len && *ptr; ptr++)
         {
-            for (ptr = (const char *)hdr + hdr->length; ptr - buf < len && *ptr; ptr++)
-            {
-                for (; ptr - buf < len; ptr++) if (!*ptr) break;
-            }
-            if (ptr == (const char *)hdr + hdr->length) ptr++;
-            hdr = (const struct smbios_header *)(ptr + 1);
+            for (; ptr - buf < len; ptr++) if (!*ptr) break;
         }
+        if (ptr == (const char *)hdr + hdr->length) ptr++;
+        hdr = (const struct smbios_header *)(ptr + 1);
     }
-
-    return hdr;
 }
 
 static inline WCHAR *heap_strdupAW( const char *src )
@@ -715,7 +688,7 @@ static void create_bios_baseboard_values( HKEY bios_key, const char *buf, UINT l
     const struct smbios_baseboard *baseboard;
     UINT offset;
 
-    if (!(hdr = find_smbios_entry( SMBIOS_TYPE_BASEBOARD, buf, len ))) return;
+    if (!(hdr = find_smbios_entry( SMBIOS_TYPE_BASEBOARD, 0, buf, len ))) return;
     baseboard = (const struct smbios_baseboard *)hdr;
     offset = (const char *)baseboard - buf + baseboard->hdr.length;
 
@@ -730,7 +703,7 @@ static void create_bios_bios_values( HKEY bios_key, const char *buf, UINT len )
     const struct smbios_bios *bios;
     UINT offset;
 
-    if (!(hdr = find_smbios_entry( SMBIOS_TYPE_BIOS, buf, len ))) return;
+    if (!(hdr = find_smbios_entry( SMBIOS_TYPE_BIOS, 0, buf, len ))) return;
     bios = (const struct smbios_bios *)hdr;
     offset = (const char *)bios - buf + bios->hdr.length;
 
@@ -760,7 +733,7 @@ static void create_bios_system_values( HKEY bios_key, const char *buf, UINT len 
     const struct smbios_system *system;
     UINT offset;
 
-    if (!(hdr = find_smbios_entry( SMBIOS_TYPE_SYSTEM, buf, len ))) return;
+    if (!(hdr = find_smbios_entry( SMBIOS_TYPE_SYSTEM, 0, buf, len ))) return;
     system = (const struct smbios_system *)hdr;
     offset = (const char *)system - buf + system->hdr.length;
 
@@ -780,76 +753,26 @@ static void create_bios_system_values( HKEY bios_key, const char *buf, UINT len 
     }
 }
 
-static void create_bios_key( HKEY system_key )
+static void create_bios_processor_values( HKEY system_key, const char *buf, UINT len )
 {
-    HKEY bios_key;
-    UINT len;
-    char *buf;
-
-    if (RegCreateKeyExW( system_key, L"BIOS", 0, NULL, REG_OPTION_VOLATILE,
-                         KEY_ALL_ACCESS, NULL, &bios_key, NULL ))
-        return;
-
-    len = GetSystemFirmwareTable( RSMB, 0, NULL, 0 );
-    if (!(buf = malloc( len ))) goto done;
-    len = GetSystemFirmwareTable( RSMB, 0, buf, len );
-
-    create_bios_baseboard_values( bios_key, buf, len );
-    create_bios_bios_values( bios_key, buf, len );
-    create_bios_system_values( bios_key, buf, len );
-
-done:
-    free( buf );
-    RegCloseKey( bios_key );
-}
-
-/* create the volatile hardware registry keys */
-static void create_hardware_registry_keys(void)
-{
-    unsigned int i;
-    HKEY hkey, system_key, cpu_key, fpu_key;
+    const struct smbios_header *hdr;
+    const struct smbios_processor *proc;
+    unsigned int pkg, core, offset, i;
+    HKEY hkey, cpu_key, fpu_key = 0, env_key;
     SYSTEM_CPU_INFORMATION sci;
     PROCESSOR_POWER_INFORMATION* power_info;
     ULONG sizeof_power_info = sizeof(PROCESSOR_POWER_INFORMATION) * NtCurrentTeb()->Peb->NumberOfProcessors;
     UINT64 tsc_frequency = read_tsc_frequency();
-    ULONG name_buffer[16];
-    WCHAR id[60], vendorid[13];
+    const WCHAR *arch;
+    WCHAR id[60], buffer[128], *version, *vendorid;
 
-    get_vendorid( vendorid );
     NtQuerySystemInformation( SystemCpuInformation, &sci, sizeof(sci), NULL );
-    if (NtQuerySystemInformation( SystemProcessorBrandString, name_buffer, sizeof(name_buffer), NULL ))
-        name_buffer[0] = 0;
 
     power_info = malloc( sizeof_power_info );
     if (power_info == NULL)
         return;
     if (NtPowerInformation( ProcessorInformation, NULL, 0, power_info, sizeof_power_info ))
         memset( power_info, 0, sizeof_power_info );
-
-    switch (sci.ProcessorArchitecture)
-    {
-    case PROCESSOR_ARCHITECTURE_ARM:
-    case PROCESSOR_ARCHITECTURE_ARM64:
-        swprintf( id, ARRAY_SIZE(id), L"ARM Family %u Model %u Revision %u",
-                  sci.ProcessorLevel, HIBYTE(sci.ProcessorRevision), LOBYTE(sci.ProcessorRevision) );
-        break;
-
-    case PROCESSOR_ARCHITECTURE_AMD64:
-        get_identifier( id, ARRAY_SIZE(id), !wcscmp(vendorid, L"AuthenticAMD") ? L"AMD64" : L"Intel64" );
-        break;
-
-    case PROCESSOR_ARCHITECTURE_INTEL:
-    default:
-        get_identifier( id, ARRAY_SIZE(id), L"x86" );
-        break;
-    }
-
-    if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Hardware\\Description\\System", 0, NULL,
-                         REG_OPTION_VOLATILE, KEY_ALL_ACCESS, NULL, &system_key, NULL ))
-    {
-        free( power_info );
-        return;
-    }
 
     switch (sci.ProcessorArchitecture)
     {
@@ -862,54 +785,132 @@ static void create_hardware_registry_keys(void)
     case PROCESSOR_ARCHITECTURE_AMD64:
     default:
         set_reg_value( system_key, L"Identifier", L"AT compatible" );
+        if (RegCreateKeyExW( system_key, L"FloatingPointProcessor", 0, NULL, REG_OPTION_VOLATILE,
+                             KEY_ALL_ACCESS, NULL, &fpu_key, NULL ))
+            fpu_key = 0;
         break;
     }
 
-    if (sci.ProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM ||
-        sci.ProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64 ||
-        RegCreateKeyExW( system_key, L"FloatingPointProcessor", 0, NULL, REG_OPTION_VOLATILE,
-                         KEY_ALL_ACCESS, NULL, &fpu_key, NULL ))
-        fpu_key = 0;
     if (RegCreateKeyExW( system_key, L"CentralProcessor", 0, NULL, REG_OPTION_VOLATILE,
                          KEY_ALL_ACCESS, NULL, &cpu_key, NULL ))
         cpu_key = 0;
 
-    for (i = 0; i < NtCurrentTeb()->Peb->NumberOfProcessors; i++)
+    for (pkg = core = 0; ; pkg++)
     {
-        WCHAR numW[10];
+        if (!(hdr = find_smbios_entry( SMBIOS_TYPE_PROCESSOR, pkg, buf, len ))) break;
+        proc = (const struct smbios_processor *)hdr;
+        offset = (const char *)proc - buf + proc->hdr.length;
+        version = get_smbios_string( proc->version, buf, offset, len );
+        vendorid = get_smbios_string( proc->vendor, buf, offset, len );
 
-        swprintf( numW, ARRAY_SIZE(numW), L"%u", i );
-        if (!RegCreateKeyExW( cpu_key, numW, 0, NULL, REG_OPTION_VOLATILE,
-                              KEY_ALL_ACCESS, NULL, &hkey, NULL ))
+        switch (sci.ProcessorArchitecture)
         {
-            DWORD tsc_freq_mhz = (DWORD)(tsc_frequency / 1000000ull); /* Hz -> Mhz */
-            if (!tsc_freq_mhz) tsc_freq_mhz = power_info[i].MaxMhz;
+        case PROCESSOR_ARCHITECTURE_ARM:
+            arch = L"ARM";
+            swprintf( id, ARRAY_SIZE(id), L"ARM Family 7 Model %X Revision %X",
+                      sci.ProcessorLevel, sci.ProcessorRevision );
+            break;
+        case PROCESSOR_ARCHITECTURE_ARM64:
+            arch = L"ARM64";
+            swprintf( id, ARRAY_SIZE(id), L"ARMv8 (64-bit) Family 8 Model %X Revision %X",
+                      sci.ProcessorLevel, sci.ProcessorRevision );
+            break;
+        case PROCESSOR_ARCHITECTURE_AMD64:
+            arch = L"AMD64";
+            swprintf( id, ARRAY_SIZE(id), L"%s Family %u Model %u Stepping %u",
+                      vendorid && !wcscmp(vendorid, L"AuthenticAMD") ? L"AMD64" : L"Intel64",
+                      sci.ProcessorLevel, HIBYTE(sci.ProcessorRevision), LOBYTE(sci.ProcessorRevision) );
+            break;
+        case PROCESSOR_ARCHITECTURE_INTEL:
+        default:
+            arch = L"x86";
+            swprintf( id, ARRAY_SIZE(id), L"x86 Family %u Model %u Stepping %u",
+                      sci.ProcessorLevel, HIBYTE(sci.ProcessorRevision), LOBYTE(sci.ProcessorRevision) );
+            break;
+        }
 
-            RegSetValueExW( hkey, L"FeatureSet", 0, REG_DWORD, (BYTE *)&sci.ProcessorFeatureBits, sizeof(DWORD) );
-            set_reg_value( hkey, L"Identifier", id );
-            /* TODO: report ARM properly */
-            RegSetValueExA( hkey, "ProcessorNameString", 0, REG_SZ, (const BYTE *)name_buffer,
-                            strlen( (char *)name_buffer ) + 1 );
-            set_reg_value( hkey, L"VendorIdentifier", vendorid );
-            RegSetValueExW( hkey, L"~MHz", 0, REG_DWORD, (BYTE *)&tsc_freq_mhz, sizeof(DWORD) );
-            RegCloseKey( hkey );
-        }
-        if (sci.ProcessorArchitecture != PROCESSOR_ARCHITECTURE_ARM &&
-            sci.ProcessorArchitecture != PROCESSOR_ARCHITECTURE_ARM64 &&
-            !RegCreateKeyExW( fpu_key, numW, 0, NULL, REG_OPTION_VOLATILE,
-                              KEY_ALL_ACCESS, NULL, &hkey, NULL ))
+        for (i = 0; i < proc->thread_count2; i++, core++)
         {
-            set_reg_value( hkey, L"Identifier", id );
-            RegCloseKey( hkey );
+            swprintf( buffer, ARRAY_SIZE(buffer), L"%u", core );
+            if (!RegCreateKeyExW( cpu_key, buffer, 0, NULL, REG_OPTION_VOLATILE,
+                                  KEY_ALL_ACCESS, NULL, &hkey, NULL ))
+            {
+                DWORD tsc_freq_mhz = (DWORD)(tsc_frequency / 1000000ull); /* Hz -> Mhz */
+                if (!tsc_freq_mhz) tsc_freq_mhz = power_info[core].MaxMhz;
+
+                RegSetValueExW( hkey, L"FeatureSet", 0, REG_DWORD,
+                                (BYTE *)&sci.ProcessorFeatureBits, sizeof(DWORD) );
+                set_reg_value( hkey, L"Identifier", id );
+                if (vendorid) set_reg_value( hkey, L"VendorIdentifier", vendorid );
+                if (version) set_reg_value( hkey, L"ProcessorNameString", version );
+                RegSetValueExW( hkey, L"~MHz", 0, REG_DWORD, (BYTE *)&tsc_freq_mhz, sizeof(DWORD) );
+                RegCloseKey( hkey );
+            }
+            if (fpu_key && !RegCreateKeyExW( fpu_key, buffer, 0, NULL, REG_OPTION_VOLATILE,
+                                             KEY_ALL_ACCESS, NULL, &hkey, NULL ))
+            {
+                set_reg_value( hkey, L"Identifier", id );
+                RegCloseKey( hkey );
+            }
         }
+
+        if (!pkg && !RegCreateKeyW( HKEY_LOCAL_MACHINE,
+                                    L"System\\CurrentControlSet\\Control\\Session Manager\\Environment",
+                                    &env_key ))
+        {
+            set_reg_value( env_key, L"PROCESSOR_ARCHITECTURE", arch );
+
+            swprintf( buffer, ARRAY_SIZE(buffer), L"%s, %s", id, vendorid ? vendorid : L"Unknown" );
+            set_reg_value( env_key, L"PROCESSOR_IDENTIFIER", buffer );
+
+            swprintf( buffer, ARRAY_SIZE(buffer), L"%u", sci.ProcessorLevel );
+            set_reg_value( env_key, L"PROCESSOR_LEVEL", buffer );
+
+            swprintf( buffer, ARRAY_SIZE(buffer), L"%04x", sci.ProcessorRevision );
+            set_reg_value( env_key, L"PROCESSOR_REVISION", buffer );
+
+            swprintf( buffer, ARRAY_SIZE(buffer), L"%u", NtCurrentTeb()->Peb->NumberOfProcessors );
+            set_reg_value( env_key, L"NUMBER_OF_PROCESSORS", buffer );
+            RegCloseKey( env_key );
+        }
+
+        free( version );
+        free( vendorid );
     }
-
-    create_bios_key( system_key );
 
     RegCloseKey( fpu_key );
     RegCloseKey( cpu_key );
-    RegCloseKey( system_key );
     free( power_info );
+}
+
+/* create the volatile hardware registry keys */
+static void create_hardware_registry_keys(void)
+{
+    HKEY system_key, bios_key;
+    UINT len;
+    char *buf;
+
+    len = GetSystemFirmwareTable( RSMB, 0, NULL, 0 );
+    if (!(buf = malloc( len ))) return;
+    len = GetSystemFirmwareTable( RSMB, 0, buf, len );
+
+    if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Hardware\\Description\\System", 0, NULL,
+                         REG_OPTION_VOLATILE, KEY_ALL_ACCESS, NULL, &system_key, NULL ))
+    {
+        free( buf );
+        return;
+    }
+    if (!RegCreateKeyExW( system_key, L"BIOS", 0, NULL, REG_OPTION_VOLATILE,
+                          KEY_ALL_ACCESS, NULL, &bios_key, NULL ))
+    {
+        create_bios_baseboard_values( bios_key, buf, len );
+        create_bios_bios_values( bios_key, buf, len );
+        create_bios_system_values( bios_key, buf, len );
+        RegCloseKey( bios_key );
+    }
+    create_bios_processor_values( system_key, buf, len );
+    RegCloseKey( system_key );
+    free( buf );
 }
 
 struct dyndata_enum_key{
@@ -1022,63 +1023,6 @@ static void create_dynamic_registry_keys(void)
 
         RegCloseKey( key );
     }
-}
-
-/* create the platform-specific environment registry keys */
-static void create_environment_registry_keys( void )
-{
-    HKEY env_key;
-    SYSTEM_CPU_INFORMATION sci;
-    WCHAR buffer[60], vendorid[13];
-    const WCHAR *arch, *parch;
-
-    if (RegCreateKeyW( HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\Session Manager\\Environment", &env_key )) return;
-
-    get_vendorid( vendorid );
-    NtQuerySystemInformation( SystemCpuInformation, &sci, sizeof(sci), NULL );
-
-    swprintf( buffer, ARRAY_SIZE(buffer), L"%u", NtCurrentTeb()->Peb->NumberOfProcessors );
-    set_reg_value( env_key, L"NUMBER_OF_PROCESSORS", buffer );
-
-    switch (sci.ProcessorArchitecture)
-    {
-    case PROCESSOR_ARCHITECTURE_AMD64:
-        arch = L"AMD64";
-        parch = !wcscmp(vendorid, L"AuthenticAMD") ? L"AMD64" : L"Intel64";
-        break;
-
-    case PROCESSOR_ARCHITECTURE_INTEL:
-    default:
-        arch = parch = L"x86";
-        break;
-    }
-    set_reg_value( env_key, L"PROCESSOR_ARCHITECTURE", arch );
-
-    switch (sci.ProcessorArchitecture)
-    {
-    case PROCESSOR_ARCHITECTURE_ARM:
-    case PROCESSOR_ARCHITECTURE_ARM64:
-        swprintf( buffer, ARRAY_SIZE(buffer), L"ARM Family %u Model %u Revision %u",
-                  sci.ProcessorLevel, HIBYTE(sci.ProcessorRevision), LOBYTE(sci.ProcessorRevision) );
-        break;
-
-    case PROCESSOR_ARCHITECTURE_AMD64:
-    case PROCESSOR_ARCHITECTURE_INTEL:
-    default:
-        get_identifier( buffer, ARRAY_SIZE(buffer), parch );
-        lstrcatW( buffer, L", " );
-        lstrcatW( buffer, vendorid );
-        break;
-    }
-    set_reg_value( env_key, L"PROCESSOR_IDENTIFIER", buffer );
-
-    swprintf( buffer, ARRAY_SIZE(buffer), L"%u", sci.ProcessorLevel );
-    set_reg_value( env_key, L"PROCESSOR_LEVEL", buffer );
-
-    swprintf( buffer, ARRAY_SIZE(buffer), L"%04x", sci.ProcessorRevision );
-    set_reg_value( env_key, L"PROCESSOR_REVISION", buffer );
-
-    RegCloseKey( env_key );
 }
 
 /* create the ComputerName registry keys */
@@ -1569,6 +1513,37 @@ static BOOL start_services_process(void)
     return TRUE;
 }
 
+static INT_PTR CALLBACK wait_dlgproc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+        {
+            DWORD len;
+            WCHAR *buffer, text[1024];
+            const WCHAR *name = (WCHAR *)lp;
+            HICON icon = LoadImageW( 0, (LPCWSTR)IDI_WINLOGO, IMAGE_ICON, 48, 48, LR_SHARED );
+            SendDlgItemMessageW( hwnd, IDC_WAITICON, STM_SETICON, (WPARAM)icon, 0 );
+            SendDlgItemMessageW( hwnd, IDC_WAITTEXT, WM_GETTEXT, 1024, (LPARAM)text );
+            len = lstrlenW(text) + lstrlenW(name) + 1;
+            buffer = malloc( len * sizeof(WCHAR) );
+            swprintf( buffer, len, text, name );
+            SendDlgItemMessageW( hwnd, IDC_WAITTEXT, WM_SETTEXT, 0, (LPARAM)buffer );
+            free( buffer );
+        }
+        break;
+    }
+    return 0;
+}
+
+static HWND show_wait_window(void)
+{
+    HWND hwnd = CreateDialogParamW( GetModuleHandleW(0), MAKEINTRESOURCEW(IDD_WAITDLG), 0,
+                                    wait_dlgproc, (LPARAM)prettyprint_configdir() );
+    ShowWindow( hwnd, SW_SHOWNORMAL );
+    return hwnd;
+}
+
 static HANDLE start_rundll32( const WCHAR *inf_path, const WCHAR *install, WORD machine )
 {
     WCHAR app[MAX_PATH + ARRAY_SIZE(L"\\rundll32.exe" )];
@@ -1686,55 +1661,6 @@ static void update_user_profile(void)
     LocalFree(sid);
 }
 
-static void update_win_version(void)
-{
-    static const WCHAR win10_buildW[] = L"19043";
-    static const WCHAR win10_ntW[] = L"6.3";
-
-    HKEY cv_h;
-    DWORD type, sz;
-    WCHAR current_version[256];
-
-    if(RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows NT\\CurrentVersion",
-                0, KEY_ALL_ACCESS, &cv_h) == ERROR_SUCCESS){
-        /* get the current windows version */
-        sz = sizeof(current_version);
-        if(RegQueryValueExW(cv_h, L"CurrentVersion", NULL, &type, (BYTE *)current_version, &sz) == ERROR_SUCCESS &&
-                type == REG_SZ){
-            if(!wcscmp(current_version, L"6.3") || !wcscmp(current_version, L"10.0")){
-                RegSetValueExW(cv_h, L"CurrentVersion", 0, REG_SZ, (const BYTE *)win10_ntW, sizeof(win10_ntW));
-                RegSetValueExW(cv_h, L"CurrentBuild", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
-                RegSetValueExW(cv_h, L"CurrentBuildNumber", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
-            }
-        }
-        RegCloseKey(cv_h);
-    }
-
-    if(RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion",
-                0, KEY_ALL_ACCESS, &cv_h) == ERROR_SUCCESS){
-        /* get the current windows version */
-        sz = sizeof(current_version);
-        if(RegQueryValueExW(cv_h, L"CurrentVersion", NULL, &type, (BYTE *)current_version, &sz) == ERROR_SUCCESS &&
-                type == REG_SZ){
-            if(!wcscmp(current_version, L"6.3") || !wcscmp(current_version, L"10.0")){
-                RegSetValueExW(cv_h, L"CurrentVersion", 0, REG_SZ, (const BYTE *)win10_ntW, sizeof(win10_ntW));
-                RegSetValueExW(cv_h, L"CurrentBuild", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
-                RegSetValueExW(cv_h, L"CurrentBuildNumber", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
-            }
-        }
-        RegCloseKey(cv_h);
-    }
-}
-
-static void update_root_certs(void)
-{
-    HCERTSTORE store;
-
-    store = CertOpenStore( CERT_STORE_PROV_SYSTEM_REGISTRY_W, 0, 0, CERT_STORE_OPEN_EXISTING_FLAG
-                           | CERT_STORE_READONLY_FLAG | CERT_SYSTEM_STORE_LOCAL_MACHINE, L"Root");
-    CertCloseStore( store, 0 );
-}
-
 /* execute rundll32 on the wine.inf file if necessary */
 static void update_wineprefix( BOOL force )
 {
@@ -1768,6 +1694,7 @@ static void update_wineprefix( BOOL force )
 
         if ((process = start_rundll32( inf_path, L"PreInstall", IMAGE_FILE_MACHINE_TARGET_HOST )))
         {
+            HWND hwnd = show_wait_window();
             for (;;)
             {
                 if (process)
@@ -1788,11 +1715,10 @@ static void update_wineprefix( BOOL force )
                     process = start_rundll32( inf_path, L"Wow64Install", machines[count].Machine );
                 count++;
             }
+            DestroyWindow( hwnd );
         }
         install_root_pnp_devices();
         update_user_profile();
-        update_win_version();
-        update_root_certs();
 
         WINE_MESSAGE( "wine: configuration in %s has been updated.\n", debugstr_w(prettyprint_configdir()) );
     }
@@ -1894,52 +1820,6 @@ static void usage( int status )
     exit( status );
 }
 
-static void create_digitalproductid(void)
-{
-    BYTE digital_product_id[0xa4];
-    char product_id[256];
-    LSTATUS status;
-    unsigned int i;
-    DWORD size;
-    DWORD type;
-    HKEY key;
-
-    if ((status = RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows NT\\CurrentVersion",
-                       0, KEY_ALL_ACCESS, &key )))
-        return;
-    size = sizeof(product_id);
-    status = RegQueryValueExA( key, "ProductId", NULL, &type, (BYTE *)product_id, &size );
-    if (status) goto done;
-    if (!size) goto done;
-    if (product_id[size - 1])
-    {
-        if (size == sizeof(product_id)) goto done;
-        product_id[size++] = 0;
-    }
-
-    if (!RegQueryValueExA( key, "DigitalProductId", NULL, &type, NULL, &size ) && size == sizeof(digital_product_id))
-    {
-        if (RegQueryValueExA( key, "DigitalProductId", NULL, &type, digital_product_id, &size ))
-            goto done;
-        for (i = 0; i < size; ++i)
-            if (digital_product_id[i]) break;
-        if (i < size) goto done;
-    }
-
-    memset( digital_product_id, 0, sizeof(digital_product_id) );
-    *(DWORD *)digital_product_id = sizeof(digital_product_id);
-    digital_product_id[4] = 3;
-    strcpy( (char *)digital_product_id + 8, product_id );
-    *(DWORD *)(digital_product_id + 0x20) = 0x0cec;
-    *(DWORD *)(digital_product_id + 0x34) = 0x0cec;
-    strcpy( (char *)digital_product_id + 0x24, "[TH] X19-99481" );
-    digital_product_id[0x42] = 8;
-    RtlGenRandom( digital_product_id + 0x38, 0x18 );
-    RegSetValueExA( key, "DigitalProductId", 0, REG_BINARY, digital_product_id, sizeof(digital_product_id) );
-done:
-    RegCloseKey( key );
-}
-
 int __cdecl main( int argc, char *argv[] )
 {
     /* First, set the current directory to SystemRoot */
@@ -2035,7 +1915,6 @@ int __cdecl main( int argc, char *argv[] )
     create_user_shared_data();
     create_hardware_registry_keys();
     create_dynamic_registry_keys();
-    create_environment_registry_keys();
     create_computer_name_keys();
     wininit();
     pendingRename();
@@ -2050,7 +1929,6 @@ int __cdecl main( int argc, char *argv[] )
     }
     if (init || update) update_wineprefix( update );
 
-    create_digitalproductid();
     create_volatile_environment_registry_key();
     create_proxy_settings();
 

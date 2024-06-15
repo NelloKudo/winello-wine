@@ -20,9 +20,11 @@
 
 #if defined(__x86_64__) && !defined(__arm64ec__)
 
-#include <setjmp.h>
 #include <stdarg.h>
 #include <fpieee.h>
+#define longjmp ms_longjmp  /* avoid prototype mismatch */
+#include <setjmp.h>
+#undef longjmp
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -37,53 +39,6 @@
 #include "cppexcept.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(seh);
-
-typedef struct
-{
-    int  prev;
-    UINT handler;
-} unwind_info;
-
-typedef struct
-{
-    UINT flags;
-    UINT type_info;
-    int  offset;
-    UINT handler;
-    UINT frame;
-} catchblock_info;
-#define TYPE_FLAG_CONST      1
-#define TYPE_FLAG_VOLATILE   2
-#define TYPE_FLAG_REFERENCE  8
-
-typedef struct
-{
-    int  start_level;
-    int  end_level;
-    int  catch_level;
-    int  catchblock_count;
-    UINT catchblock;
-} tryblock_info;
-
-typedef struct
-{
-    int ip;
-    int state;
-} ipmap_info;
-
-typedef struct __cxx_function_descr
-{
-    UINT magic;
-    UINT unwind_count;
-    UINT unwind_table;
-    UINT tryblock_count;
-    UINT tryblock;
-    UINT ipmap_count;
-    UINT ipmap;
-    UINT unwind_help;
-    UINT expect_list;
-    UINT flags;
-} cxx_function_descr;
 
 typedef struct
 {
@@ -194,76 +149,6 @@ static inline int ip_to_state(ipmap_info *ipmap, UINT count, int ip)
 
     TRACE("%x -> %d\n", ip, ipmap[low].state);
     return ipmap[low].state;
-}
-
-/* check if the exception type is caught by a given catch block, and return the type that matched */
-static const cxx_type_info *find_caught_type(cxx_exception_type *exc_type, ULONG64 exc_base,
-                                             const type_info *catch_ti, UINT catch_flags)
-{
-    const cxx_type_info_table *type_info_table = rva_to_ptr(exc_type->type_info_table, exc_base);
-    UINT i;
-
-    for (i = 0; i < type_info_table->count; i++)
-    {
-        const cxx_type_info *type = rva_to_ptr(type_info_table->info[i], exc_base);
-        const type_info *ti = rva_to_ptr(type->type_info, exc_base);
-
-        if (!catch_ti) return type;   /* catch(...) matches any type */
-        if (catch_ti != ti)
-        {
-            if (strcmp( catch_ti->mangled, ti->mangled )) continue;
-        }
-        /* type is the same, now check the flags */
-        if ((exc_type->flags & TYPE_FLAG_CONST) &&
-                !(catch_flags & TYPE_FLAG_CONST)) continue;
-        if ((exc_type->flags & TYPE_FLAG_VOLATILE) &&
-                !(catch_flags & TYPE_FLAG_VOLATILE)) continue;
-        return type;  /* it matched */
-    }
-    return NULL;
-}
-
-static inline void copy_exception(void *object, ULONG64 frame,
-                                  DISPATCHER_CONTEXT *dispatch,
-                                  const catchblock_info *catchblock,
-                                  const cxx_type_info *type, ULONG64 exc_base)
-{
-    const type_info *catch_ti = rva_to_ptr(catchblock->type_info, dispatch->ImageBase);
-    void **dest = rva_to_ptr(catchblock->offset, frame);
-
-    if (!catch_ti || !catch_ti->mangled[0]) return;
-    if (!catchblock->offset) return;
-
-    if (catchblock->flags & TYPE_FLAG_REFERENCE)
-    {
-        *dest = get_this_pointer(&type->offsets, object);
-    }
-    else if (type->flags & CLASS_IS_SIMPLE_TYPE)
-    {
-        memmove(dest, object, type->size);
-        /* if it is a pointer, adjust it */
-        if (type->size == sizeof(void*)) *dest = get_this_pointer(&type->offsets, *dest);
-    }
-    else  /* copy the object */
-    {
-        if (type->copy_ctor)
-        {
-            if (type->flags & CLASS_HAS_VIRTUAL_BASE_CLASS)
-            {
-                void (__cdecl *copy_ctor)(void*, void*, int) =
-                    rva_to_ptr(type->copy_ctor, exc_base);
-                copy_ctor(dest, get_this_pointer(&type->offsets, object), 1);
-            }
-            else
-            {
-                void (__cdecl *copy_ctor)(void*, void*) =
-                    rva_to_ptr(type->copy_ctor, exc_base);
-                copy_ctor(dest, get_this_pointer(&type->offsets, object));
-            }
-        }
-        else
-            memmove(dest, get_this_pointer(&type->offsets,object), type->size);
-    }
 }
 
 static void cxx_local_unwind(ULONG64 frame, DISPATCHER_CONTEXT *dispatch,
@@ -387,13 +272,14 @@ static inline void find_catch_block(EXCEPTION_RECORD *rec, CONTEXT *context,
                                     cxx_exception_type *info, ULONG64 orig_frame)
 {
     ULONG64 exc_base = (rec->NumberParameters == 4 ? rec->ExceptionInformation[3] : 0);
+    void *handler, *object = (void *)rec->ExceptionInformation[1];
     int trylevel = ip_to_state(rva_to_ptr(descr->ipmap, dispatch->ImageBase),
             descr->ipmap_count, dispatch->ControlPc-dispatch->ImageBase);
     thread_data_t *data = msvcrt_get_thread_data();
     const tryblock_info *in_catch;
     EXCEPTION_RECORD catch_record;
     CONTEXT ctx;
-    UINT i, j;
+    UINT i;
     INT *unwind_help;
 
     data->processing_throw++;
@@ -429,49 +315,23 @@ static inline void find_catch_block(EXCEPTION_RECORD *rec, CONTEXT *context,
             if(tryblock->end_level > in_catch->catch_level) continue;
         }
 
-        /* got a try block */
-        for (j=0; j<tryblock->catchblock_count; j++)
-        {
-            const catchblock_info *catchblock = rva_to_ptr(tryblock->catchblock, dispatch->ImageBase);
-            catchblock = &catchblock[j];
+        handler = find_catch_handler( object, orig_frame, exc_base, tryblock, info, dispatch->ImageBase );
+        if (!handler) continue;
 
-            if (info)
-            {
-                const cxx_type_info *type = find_caught_type(info, exc_base,
-                        rva_to_ptr(catchblock->type_info, dispatch->ImageBase),
-                        catchblock->flags);
-                if (!type) continue;
-
-                TRACE("matched type %p in tryblock %d catchblock %d\n", type, i, j);
-
-                /* copy the exception to its destination on the stack */
-                copy_exception((void*)rec->ExceptionInformation[1],
-                        orig_frame, dispatch, catchblock, type, exc_base);
-            }
-            else
-            {
-                /* no CXX_EXCEPTION only proceed with a catch(...) block*/
-                if (catchblock->type_info)
-                    continue;
-                TRACE("found catch(...) block\n");
-            }
-
-            /* unwind stack and call catch */
-            memset(&catch_record, 0, sizeof(catch_record));
-            catch_record.ExceptionCode = STATUS_UNWIND_CONSOLIDATE;
-            catch_record.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
-            catch_record.NumberParameters = 8;
-            catch_record.ExceptionInformation[0] = (ULONG_PTR)call_catch_block;
-            catch_record.ExceptionInformation[1] = orig_frame;
-            catch_record.ExceptionInformation[2] = (ULONG_PTR)descr;
-            catch_record.ExceptionInformation[3] = tryblock->start_level;
-            catch_record.ExceptionInformation[4] = (ULONG_PTR)rec;
-            catch_record.ExceptionInformation[5] =
-                (ULONG_PTR)rva_to_ptr(catchblock->handler, dispatch->ImageBase);
-            catch_record.ExceptionInformation[6] = (ULONG_PTR)untrans_rec;
-            catch_record.ExceptionInformation[7] = (ULONG_PTR)context;
-            RtlUnwindEx((void*)frame, (void*)dispatch->ControlPc, &catch_record, NULL, &ctx, NULL);
-        }
+        /* unwind stack and call catch */
+        memset(&catch_record, 0, sizeof(catch_record));
+        catch_record.ExceptionCode = STATUS_UNWIND_CONSOLIDATE;
+        catch_record.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
+        catch_record.NumberParameters = 8;
+        catch_record.ExceptionInformation[0] = (ULONG_PTR)call_catch_block;
+        catch_record.ExceptionInformation[1] = orig_frame;
+        catch_record.ExceptionInformation[2] = (ULONG_PTR)descr;
+        catch_record.ExceptionInformation[3] = tryblock->start_level;
+        catch_record.ExceptionInformation[4] = (ULONG_PTR)rec;
+        catch_record.ExceptionInformation[5] = (ULONG_PTR)handler;
+        catch_record.ExceptionInformation[6] = (ULONG_PTR)untrans_rec;
+        catch_record.ExceptionInformation[7] = (ULONG_PTR)context;
+        RtlUnwindEx((void*)frame, (void*)dispatch->ControlPc, &catch_record, NULL, &ctx, NULL);
     }
 
     TRACE("no matching catch block found\n");
@@ -564,9 +424,9 @@ static DWORD cxx_frame_handler(EXCEPTION_RECORD *rec, ULONG64 frame,
         }
     }
 
-    if (rec->ExceptionFlags & (EH_UNWINDING|EH_EXIT_UNWIND))
+    if (rec->ExceptionFlags & (EXCEPTION_UNWINDING|EXCEPTION_EXIT_UNWIND))
     {
-        if (rec->ExceptionFlags & EH_TARGET_UNWIND)
+        if (rec->ExceptionFlags & EXCEPTION_TARGET_UNWIND)
             cxx_local_unwind(orig_frame, dispatch, descr,
                 cxx_is_consolidate(rec) ? rec->ExceptionInformation[3] : trylevel);
         else
@@ -653,60 +513,11 @@ EXCEPTION_DISPOSITION CDECL __CxxFrameHandler( EXCEPTION_RECORD *rec, ULONG64 fr
 }
 
 
-/*********************************************************************
- *		__CppXcptFilter (MSVCRT.@)
- */
-int CDECL __CppXcptFilter(NTSTATUS ex, PEXCEPTION_POINTERS ptr)
-{
-    /* only filter c++ exceptions */
-    if (ex != CXX_EXCEPTION) return EXCEPTION_CONTINUE_SEARCH;
-    return _XcptFilter( ex, ptr );
-}
-
-
-/*********************************************************************
- *		__CxxDetectRethrow (MSVCRT.@)
- */
-BOOL CDECL __CxxDetectRethrow(PEXCEPTION_POINTERS ptrs)
-{
-    PEXCEPTION_RECORD rec;
-
-    if (!ptrs)
-        return FALSE;
-
-    rec = ptrs->ExceptionRecord;
-
-    if (rec->ExceptionCode == CXX_EXCEPTION &&
-        rec->NumberParameters == 4 &&
-        rec->ExceptionInformation[0] == CXX_FRAME_MAGIC_VC6 &&
-        rec->ExceptionInformation[2])
-    {
-        ptrs->ExceptionRecord = msvcrt_get_thread_data()->exc_record;
-        return TRUE;
-    }
-    return (msvcrt_get_thread_data()->exc_record == rec);
-}
-
-
-/*********************************************************************
- *		__CxxQueryExceptionSize (MSVCRT.@)
- */
-unsigned int CDECL __CxxQueryExceptionSize(void)
-{
-    return sizeof(cxx_exception_type);
-}
-
-
-/*******************************************************************
- *		_setjmp (MSVCRT.@)
- */
-__ASM_GLOBAL_FUNC( MSVCRT__setjmp,
-                   "jmp " __ASM_NAME("__wine_setjmpex") );
-
 /*******************************************************************
  *		longjmp (MSVCRT.@)
  */
-void __cdecl MSVCRT_longjmp( _JUMP_BUFFER *jmp, int retval )
+#ifndef __WINE_PE_BUILD
+void __cdecl longjmp( _JUMP_BUFFER *jmp, int retval )
 {
     EXCEPTION_RECORD rec;
 
@@ -723,6 +534,7 @@ void __cdecl MSVCRT_longjmp( _JUMP_BUFFER *jmp, int retval )
     }
     __wine_longjmp( (__wine_jmp_buf *)jmp, retval );
 }
+#endif
 
 /*******************************************************************
  *		_local_unwind (MSVCRT.@)

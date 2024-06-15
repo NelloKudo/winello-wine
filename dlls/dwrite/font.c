@@ -2530,7 +2530,7 @@ static struct dwrite_font *unsafe_impl_from_IDWriteFont(IDWriteFont *iface)
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == (IDWriteFontVtbl*)&dwritefontvtbl);
-    return CONTAINING_RECORD(iface, struct dwrite_font, IDWriteFont3_iface);
+    return CONTAINING_RECORD((IDWriteFont3 *)iface, struct dwrite_font, IDWriteFont3_iface);
 }
 
 struct dwrite_fontface *unsafe_impl_from_IDWriteFontFace(IDWriteFontFace *iface)
@@ -2538,7 +2538,7 @@ struct dwrite_fontface *unsafe_impl_from_IDWriteFontFace(IDWriteFontFace *iface)
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == (IDWriteFontFaceVtbl*)&dwritefontfacevtbl);
-    return CONTAINING_RECORD(iface, struct dwrite_fontface, IDWriteFontFace5_iface);
+    return CONTAINING_RECORD((IDWriteFontFace5 *)iface, struct dwrite_fontface, IDWriteFontFace5_iface);
 }
 
 static struct dwrite_fontfacereference *unsafe_impl_from_IDWriteFontFaceReference(IDWriteFontFaceReference *iface)
@@ -4659,7 +4659,6 @@ HRESULT create_font_collection(IDWriteFactory7 *factory, IDWriteFontFileEnumerat
     BOOL current = FALSE;
     HRESULT hr = S_OK;
     size_t i;
-    const char *sgi = getenv("SteamGameId");
 
     *ret = NULL;
 
@@ -4786,9 +4785,7 @@ HRESULT create_font_collection(IDWriteFactory7 *factory, IDWriteFontFileEnumerat
             }
         }
 
-        if ((!sgi) | (sgi && strcmp(sgi, "244210"))) {
-            IDWriteFontFileStream_Release(stream);
-        }
+        IDWriteFontFileStream_Release(stream);
     }
 
     LIST_FOR_EACH_ENTRY_SAFE(fileenum, fileenum2, &scannedfiles, struct fontfile_enum, entry)
@@ -5996,7 +5993,7 @@ void init_local_fontfile_loader(void)
     local_fontfile_loader.IDWriteLocalFontFileLoader_iface.lpVtbl = &localfontfileloadervtbl;
     local_fontfile_loader.refcount = 1;
     list_init(&local_fontfile_loader.streams);
-    InitializeCriticalSection(&local_fontfile_loader.cs);
+    InitializeCriticalSectionEx(&local_fontfile_loader.cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     local_fontfile_loader.cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": localfileloader.lock");
 }
 
@@ -8104,7 +8101,7 @@ static struct dwrite_fontset *unsafe_impl_from_IDWriteFontSet(IDWriteFontSet *if
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == (IDWriteFontSetVtbl *)&fontsetvtbl);
-    return CONTAINING_RECORD(iface, struct dwrite_fontset, IDWriteFontSet3_iface);
+    return CONTAINING_RECORD((IDWriteFontSet3*)iface, struct dwrite_fontset, IDWriteFontSet3_iface);
 }
 
 static HRESULT fontset_create_entry(IDWriteFontFile *file, DWRITE_FONT_FACE_TYPE face_type,

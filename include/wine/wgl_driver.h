@@ -7,10 +7,15 @@
 #define WINE_GLAPI
 #endif
 
-#define WINE_WGL_DRIVER_VERSION 24
+#define WINE_WGL_DRIVER_VERSION 25
 
 struct wgl_context;
 struct wgl_pbuffer;
+
+struct wgl_pixel_format
+{
+    PIXELFORMATDESCRIPTOR pfd;
+};
 
 struct opengl_funcs
 {
@@ -19,13 +24,13 @@ struct opengl_funcs
         BOOL       (WINE_GLAPI *p_wglCopyContext)( struct wgl_context * hglrcSrc, struct wgl_context * hglrcDst, UINT mask );
         struct wgl_context * (WINE_GLAPI *p_wglCreateContext)( HDC hDc );
         BOOL       (WINE_GLAPI *p_wglDeleteContext)( struct wgl_context * oldContext );
-        int        (WINE_GLAPI *p_wglDescribePixelFormat)( HDC hdc, int ipfd, UINT cjpfd, PIXELFORMATDESCRIPTOR *ppfd );
         int        (WINE_GLAPI *p_wglGetPixelFormat)( HDC hdc );
         PROC       (WINE_GLAPI *p_wglGetProcAddress)( LPCSTR lpszProc );
         BOOL       (WINE_GLAPI *p_wglMakeCurrent)( HDC hDc, struct wgl_context * newContext );
         BOOL       (WINE_GLAPI *p_wglSetPixelFormat)( HDC hdc, int ipfd, const PIXELFORMATDESCRIPTOR *ppfd );
         BOOL       (WINE_GLAPI *p_wglShareLists)( struct wgl_context * hrcSrvShare, struct wgl_context * hrcSrvSource );
         BOOL       (WINE_GLAPI *p_wglSwapBuffers)( HDC hdc );
+        void       (WINE_GLAPI *p_get_pixel_formats)( struct wgl_pixel_format *formats, UINT max_formats, UINT *num_formats, UINT *num_onscreen_formats );
     } wgl;
 
     struct

@@ -15,7 +15,6 @@ SOURCES = \
 	event.c \
 	fd.c \
 	file.c \
-	fsync.c \
 	handle.c \
 	hook.c \
 	mach.c \
@@ -32,6 +31,7 @@ SOURCES = \
 	region.c \
 	registry.c \
 	request.c \
+	scheduler.c \
 	semaphore.c \
 	serial.c \
 	signal.c \

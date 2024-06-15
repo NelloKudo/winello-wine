@@ -120,7 +120,7 @@ void WINAPI RtlInitializeResource(LPRTL_RWLOCK rwl)
 	rwl->uSharedWaiters = 0;
 	rwl->hOwningThreadId = 0;
 	rwl->dwTimeoutBoost = 0; /* no info on this one, default value is 0 */
-	RtlInitializeCriticalSection( &rwl->rtlCS );
+	RtlInitializeCriticalSectionEx( &rwl->rtlCS, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO );
         rwl->rtlCS.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": RTL_RWLOCK.rtlCS");
         NtCreateSemaphore( &rwl->hExclusiveReleaseSemaphore, SEMAPHORE_ALL_ACCESS, NULL, 0, 65535 );
         NtCreateSemaphore( &rwl->hSharedReleaseSemaphore, SEMAPHORE_ALL_ACCESS, NULL, 0, 65535 );
@@ -2175,6 +2175,15 @@ void WINAPI RtlInsertElementGenericTableAvl(PRTL_AVL_TABLE table, void *buffer, 
     FIXME("%p %p %lu %p: stub\n", table, buffer, size, element);
 }
 
+/******************************************************************************
+ *           RtlLookupElementGenericTableAvl  (NTDLL.@)
+ */
+void * WINAPI RtlLookupElementGenericTableAvl(PRTL_AVL_TABLE table, void *buffer)
+{
+    FIXME("(%p, %p) stub!\n", table, buffer);
+    return NULL;
+}
+
 /*********************************************************************
  *           RtlQueryPackageIdentity [NTDLL.@]
  */
@@ -2192,4 +2201,16 @@ char WINAPI RtlQueryProcessPlaceholderCompatibilityMode(void)
 {
     FIXME("stub\n");
     return PHCM_APPLICATION_DEFAULT;
+}
+
+/*********************************************************************
+ *           RtlGetDeviceFamilyInfoEnum [NTDLL.@]
+ */
+void WINAPI RtlGetDeviceFamilyInfoEnum(ULONGLONG *version, DWORD *family, DWORD *form)
+{
+    FIXME("%p %p %p: stub\n", version, family, form);
+
+    if (version) *version = 0;
+    if (family) *family = DEVICEFAMILYINFOENUM_DESKTOP;
+    if (form) *form = DEVICEFAMILYDEVICEFORM_UNKNOWN;
 }

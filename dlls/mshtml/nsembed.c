@@ -42,7 +42,6 @@ WINE_DECLARE_DEBUG_CHANNEL(gecko);
 #define NS_WEBBROWSER_CONTRACTID "@mozilla.org/embedding/browser/nsWebBrowser;1"
 #define NS_COMMANDPARAMS_CONTRACTID "@mozilla.org/embedcomp/command-params;1"
 #define NS_HTMLSERIALIZER_CONTRACTID "@mozilla.org/layout/contentserializer;1?mimetype=text/html"
-#define NS_DOMPARSER_CONTRACTID "@mozilla.org/xmlextras/domparser;1"
 #define NS_EDITORCONTROLLER_CONTRACTID "@mozilla.org/editor/editorcontroller;1"
 #define NS_PREFERENCES_CONTRACTID "@mozilla.org/preferences;1"
 #define NS_VARIANT_CONTRACTID "@mozilla.org/variant;1"
@@ -1664,8 +1663,7 @@ static nsresult NSAPI nsContextMenuListener_OnShowContextMenu(nsIContextMenuList
     if(FAILED(hres))
         return NS_ERROR_FAILURE;
 
-    hres = create_event_from_nsevent(aEvent, This->doc->window->base.inner_window,
-                                     dispex_compat_mode(&node->event_target.dispex), &event);
+    hres = create_event_from_nsevent(aEvent, dispex_compat_mode(&node->event_target.dispex), &event);
     if(SUCCEEDED(hres)) {
         dispatch_event(&node->event_target, event);
         IDOMEvent_Release(&event->IDOMEvent_iface);
@@ -2174,16 +2172,6 @@ static const nsISupportsWeakReferenceVtbl nsSupportsWeakReferenceVtbl = {
     nsSupportsWeakReference_GetWeakReference
 };
 
-void cycle_collect(nsIDOMWindowUtils *window_utils)
-{
-    thread_data_t *thread_data = get_thread_data(TRUE);
-    if(thread_data) {
-        thread_data->full_cc_in_progress++;
-        nsIDOMWindowUtils_CycleCollect(window_utils, NULL, 0);
-        thread_data->full_cc_in_progress--;
-    }
-}
-
 static HRESULT init_browser(GeckoBrowser *browser)
 {
     mozIDOMWindowProxy *mozwindow;
@@ -2407,7 +2395,7 @@ void detach_gecko_browser(GeckoBrowser *This)
 
     /* Force cycle collection */
     if(window_utils) {
-        cycle_collect(window_utils);
+        nsIDOMWindowUtils_CycleCollect(window_utils, NULL, 0);
         nsIDOMWindowUtils_Release(window_utils);
     }
 }
@@ -2425,51 +2413,6 @@ __ASM_GLOBAL_FUNC(call_thiscall_func,
         "jmp *%edx\n\t")
 #define nsIScriptObjectPrincipal_GetPrincipal(this) ((void* (WINAPI*)(void*,void*))&call_thiscall_func)((this)->lpVtbl->GetPrincipal,this)
 #endif
-
-nsIDOMParser *create_nsdomparser(HTMLDocumentNode *doc_node)
-{
-    nsIScriptObjectPrincipal *sop;
-    HTMLOuterWindow *outer_window;
-    mozIDOMWindow *inner_window;
-    nsIGlobalObject *nsglo;
-    nsIDOMParser *nsparser;
-    nsIPrincipal *nspri;
-    nsresult nsres;
-
-    outer_window = doc_node->window && doc_node->window->base.outer_window ? doc_node->window->base.outer_window : doc_node->doc_obj->window;
-
-    nsres = nsIDOMWindow_GetInnerWindow(outer_window->nswindow, &inner_window);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get inner window: %08lx\n", nsres);
-        return NULL;
-    }
-
-    nsres = mozIDOMWindow_QueryInterface(inner_window, &IID_nsIGlobalObject, (void**)&nsglo);
-    mozIDOMWindow_Release(inner_window);
-    assert(nsres == NS_OK);
-
-    nsres = nsIGlobalObject_QueryInterface(nsglo, &IID_nsIScriptObjectPrincipal, (void**)&sop);
-    assert(nsres == NS_OK);
-
-    /* The returned principal is *not* AddRef'd */
-    nspri = nsIScriptObjectPrincipal_GetPrincipal(sop);
-    nsIScriptObjectPrincipal_Release(sop);
-
-    nsres = nsIComponentManager_CreateInstanceByContractID(pCompMgr,
-            NS_DOMPARSER_CONTRACTID, NULL, &IID_nsIDOMParser, (void**)&nsparser);
-    if(NS_SUCCEEDED(nsres)) {
-        nsres = nsIDOMParser_Init(nsparser, nspri, NULL, NULL, nsglo);
-        if(NS_FAILED(nsres))
-            nsIDOMParser_Release(nsparser);
-    }
-    nsIGlobalObject_Release(nsglo);
-    if(NS_FAILED(nsres)) {
-        ERR("nsIDOMParser_Init failed: %08lx\n", nsres);
-        return NULL;
-    }
-
-    return nsparser;
-}
 
 nsIXMLHttpRequest *create_nsxhr(nsIDOMWindow *nswindow)
 {

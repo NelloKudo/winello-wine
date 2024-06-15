@@ -756,19 +756,11 @@ static HRESULT WINAPI PPB_Load(IPersistPropertyBag *iface, IPropertyBag *bag, IE
     VARIANT var;
     HRESULT hr;
 
-    char sgi[64];
-
     TRACE("filter %p, bag %p, error_log %p.\n", filter, bag, error_log);
 
     V_VT(&var) = VT_I4;
     if (FAILED(hr = IPropertyBag_Read(bag, L"WaveInID", &var, error_log)))
         return hr;
-
-    if (GetEnvironmentVariableA("SteamGameId", sgi, sizeof(sgi)) && !strcmp(sgi, "470220"))
-    {
-        FIXME("HACK: returning error.\n");
-        return E_FAIL;
-    }
 
     EnterCriticalSection(&filter->filter.filter_cs);
     filter->id = V_I4(&var);
@@ -832,7 +824,7 @@ HRESULT audio_record_create(IUnknown *outer, IUnknown **out)
 
     object->state = State_Stopped;
     InitializeConditionVariable(&object->state_cv);
-    InitializeCriticalSection(&object->state_cs);
+    InitializeCriticalSectionEx(&object->state_cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     object->state_cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": audio_record.state_cs");
 
     TRACE("Created audio recorder %p.\n", object);

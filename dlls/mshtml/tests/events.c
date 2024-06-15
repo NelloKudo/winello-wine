@@ -1600,10 +1600,8 @@ EVENT_HANDLER_FUNC_OBJ(onmessage);
 static HRESULT WINAPI onvisibilitychange(IDispatchEx *iface, DISPID id, LCID lcid, WORD wFlags, DISPPARAMS *pdp,
         VARIANT *pvarRes, EXCEPINFO *pei, IServiceProvider *pspCaller)
 {
-    DISPPARAMS dp = {0};
     IDispatchEx *dispex;
     HRESULT hres;
-    VARIANT res;
     BSTR bstr;
 
     CHECK_EXPECT(visibilitychange);
@@ -1614,14 +1612,9 @@ static HRESULT WINAPI onvisibilitychange(IDispatchEx *iface, DISPID id, LCID lci
 
     bstr = SysAllocString(L"toString");
     hres = IDispatchEx_GetDispID(dispex, bstr, 0, &id);
+    todo_wine
     ok(hres == S_OK, "GetDispID(\"toString\") failed: %08lx\n", hres);
     SysFreeString(bstr);
-
-    hres = IDispatchEx_InvokeEx(dispex, id, LOCALE_NEUTRAL, INVOKE_FUNC, &dp, &res, NULL, NULL);
-    ok(hres == S_OK, "InvokeEx(\"toString\") failed: %08lx\n", hres);
-    ok(V_VT(&res) == VT_BSTR, "V_VT(\"toString\") = %d\n", V_VT(&res));
-    ok(!wcscmp(V_BSTR(&res), L"[object Event]"), "toString = %s\n", wine_dbgstr_w(V_BSTR(&res)));
-    VariantClear(&res);
 
     return S_OK;
 }
@@ -3425,7 +3418,7 @@ static void test_message_event(IHTMLDocument2 *doc)
 
             hres = IDOMMessageEvent_get_origin(msg_event, &bstr);
             ok(hres == S_OK, "get_origin failed: %08lx\n", hres);
-            ok(!wcscmp(bstr, L"foobar"), "origin = %s\n", wine_dbgstr_w(bstr));
+            ok(broken(!bstr) /* win10-21h2 */ || !wcscmp(bstr, L"foobar"), "origin = %s\n", wine_dbgstr_w(bstr));
             SysFreeString(bstr);
         }else {
             bstr = SysAllocString(L"data");
@@ -3476,7 +3469,7 @@ static void test_message_event(IHTMLDocument2 *doc)
 
             hres = IDOMMessageEvent_get_origin(msg_event, &bstr);
             ok(hres == S_OK, "get_origin failed: %08lx\n", hres);
-            ok(!wcscmp(bstr, L"foobar"), "origin = %s\n", wine_dbgstr_w(bstr));
+            ok(broken(!bstr) /* win10-21h2 */ || !wcscmp(bstr, L"foobar"), "origin = %s\n", wine_dbgstr_w(bstr));
             SysFreeString(bstr);
         }
 
@@ -4148,7 +4141,6 @@ static void test_doc_obj(IHTMLDocument2 *doc)
     IHTMLOptionElementFactory *option, *option2;
     IHTMLImageElementFactory *image, *image2;
     IHTMLXMLHttpRequestFactory *xhr, *xhr2;
-    IHTMLXDomainRequestFactory *xdr, *xdr2;
     IHTMLDocument2 *doc_node, *doc_node2;
     IOmNavigator *navigator, *navigator2;
     IHTMLLocation *location, *location2;
@@ -4208,6 +4200,7 @@ static void test_doc_obj(IHTMLDocument2 *doc)
     bstr = NULL;
     hres = IHTMLDocument2_toString(doc, &bstr);
     ok(hres == S_OK, "toString failed: %08lx\n", hres);
+    todo_wine_if(document_mode >= 9)
     ok(!wcscmp(bstr, (document_mode < 9 ? L"[object]" : L"[object Document]")), "toString returned %s\n", wine_dbgstr_w(bstr));
     SysFreeString(bstr);
 
@@ -4246,6 +4239,7 @@ static void test_doc_obj(IHTMLDocument2 *doc)
     /* jscript prop on prototype chain */
     bstr = SysAllocString(L"hasOwnProperty");
     hres = IHTMLDocument2_GetIDsOfNames(doc, &IID_NULL, &bstr, 1, 0, &has_own_prop_id);
+    todo_wine_if(document_mode >= 9)
     ok(hres == (document_mode < 9 ? DISP_E_UNKNOWNNAME : S_OK), "GetIDsOfNames(hasOwnProperty) returned: %08lx\n", hres);
     SysFreeString(bstr);
 
@@ -4257,6 +4251,7 @@ static void test_doc_obj(IHTMLDocument2 *doc)
         hres = IHTMLDocument2_Invoke(doc, has_own_prop_id, &IID_NULL, 0, DISPATCH_METHOD, &dp, &res, NULL, NULL);
         ok(hres == S_OK, "Invoke(hasOwnProperty(\"createElement\")) failed: %08lx\n", hres);
         ok(V_VT(&res) == VT_BOOL, "VT = %d\n", V_VT(&res));
+        todo_wine
         ok(V_BOOL(&res) == VARIANT_FALSE, "hasOwnProperty(\"createElement\") = %d\n", V_BOOL(&res));
 
         hres = IHTMLDocument2_GetIDsOfNames(doc, &IID_NULL, &V_BSTR(&arg), 1, 0, &dispid);
@@ -4269,23 +4264,6 @@ static void test_doc_obj(IHTMLDocument2 *doc)
         ok(V_VT(&res) == VT_BOOL, "VT = %d\n", V_VT(&res));
         ok(V_BOOL(&res) == VARIANT_TRUE, "hasOwnProperty(\"prop\") = %d\n", V_BOOL(&res));
         SysFreeString(V_BSTR(&arg));
-
-        V_BSTR(&arg) = SysAllocString(L"proto_prop");
-        hres = IHTMLDocument2_Invoke(doc, has_own_prop_id, &IID_NULL, 0, DISPATCH_METHOD, &dp, &res, NULL, NULL);
-        ok(hres == S_OK, "Invoke(hasOwnProperty(\"proto_prop\")) failed: %08lx\n", hres);
-        ok(V_VT(&res) == VT_BOOL, "VT = %d\n", V_VT(&res));
-        ok(V_BOOL(&res) == VARIANT_FALSE, "hasOwnProperty(\"proto_prop\") = %d\n", V_BOOL(&res));
-
-        hres = IHTMLDocument2_GetIDsOfNames(doc, &IID_NULL, &V_BSTR(&arg), 1, 0, &dispid);
-        ok(hres == S_OK, "GetIDsOfNames(proto_prop) returned: %08lx\n", hres);
-        SysFreeString(V_BSTR(&arg));
-
-        dp.cArgs = 0;
-        dp.rgvarg = NULL;
-        hres = IHTMLDocument2_Invoke(doc, dispid, &IID_NULL, 0, DISPATCH_PROPERTYGET, &dp, &res, NULL, NULL);
-        ok(hres == S_OK, "Invoke(proto_prop) failed: %08lx\n", hres);
-        ok(V_VT(&res) == VT_BOOL, "VT(proto_prop) = %d\n", V_VT(&res));
-        ok(V_BOOL(&res) == VARIANT_TRUE, "proto_prop = %d\n", V_BOOL(&res));
     }
 
     /* test window props during navigation */
@@ -4324,14 +4302,7 @@ static void test_doc_obj(IHTMLDocument2 *doc)
     ok(hres == S_OK, "Could not get IHTMLWindow6: %08lx\n", hres);
     hres = IHTMLWindow6_get_sessionStorage(window6, &storage);
     ok(hres == S_OK, "get_sessionStorage failed: %08lx\n", hres);
-
-    hres = IHTMLWindow6_get_XDomainRequest(window6, &res);
-    ok(hres == S_OK, "get_XDomainRequest failed: %08lx\n", hres);
-    ok(V_VT(&res) == VT_DISPATCH, "V_VT(XDomainRequest) = %d\n", V_VT(&res));
-    hres = IDispatch_QueryInterface(V_DISPATCH(&res), &IID_IHTMLXDomainRequestFactory, (void**)&xdr);
-    ok(hres == S_OK, "Could not get IHTMLXDomainRequestFactory: %08lx\n", hres);
     IHTMLWindow6_Release(window6);
-    VariantClear(&res);
 
     hres = IHTMLWindow2_QueryInterface(window, &IID_IHTMLWindow7, (void**)&window7);
     ok(hres == S_OK, "Could not get IHTMLWindow7: %08lx\n", hres);
@@ -4517,18 +4488,7 @@ static void test_doc_obj(IHTMLDocument2 *doc)
     ok(storage != storage2, "storage == storage2\n");
     IHTMLStorage_Release(storage2);
     IHTMLStorage_Release(storage);
-
-    ok(hres == S_OK, "Could not get IHTMLWindow6: %08lx\n", hres);
-    hres = IHTMLWindow6_get_XDomainRequest(window6, &res);
-    ok(hres == S_OK, "get_XDomainRequest failed: %08lx\n", hres);
-    ok(V_VT(&res) == VT_DISPATCH, "V_VT(XDomainRequest) = %d\n", V_VT(&res));
-    hres = IDispatch_QueryInterface(V_DISPATCH(&res), &IID_IHTMLXDomainRequestFactory, (void**)&xdr2);
-    ok(hres == S_OK, "Could not get IHTMLXDomainRequestFactory: %08lx\n", hres);
-    ok(xdr != xdr2, "xdr == xdr2\n");
-    IHTMLXDomainRequestFactory_Release(xdr2);
-    IHTMLXDomainRequestFactory_Release(xdr);
     IHTMLWindow6_Release(window6);
-    VariantClear(&res);
 
     hres = IHTMLWindow2_QueryInterface(window, &IID_IHTMLWindow7, (void**)&window7);
     ok(hres == S_OK, "Could not get IHTMLWindow7: %08lx\n", hres);
@@ -4692,10 +4652,8 @@ static void test_storage_event(DISPPARAMS *params, BOOL doc_onstorage)
     IHTMLEventObj *event_obj;
     IDOMStorageEvent *event;
     IDispatchEx *dispex;
-    DISPPARAMS dp = {0};
     IDispatch *disp;
     HRESULT hres;
-    VARIANT res;
     unsigned i;
     DISPID id;
     BSTR bstr;
@@ -4710,18 +4668,6 @@ static void test_storage_event(DISPPARAMS *params, BOOL doc_onstorage)
     ok_(__FILE__,line)(V_VT(&params->rgvarg[1]) == VT_DISPATCH, "V_VT(event) = %d\n", V_VT(&params->rgvarg[1]));
     hres = IDispatch_QueryInterface(V_DISPATCH(&params->rgvarg[1]), &IID_IDispatchEx, (void**)&dispex);
     ok_(__FILE__,line)(hres == S_OK, "Could not get IDispatchEx: %08lx\n", hres);
-
-    bstr = SysAllocString(L"toString");
-    hres = IDispatchEx_GetDispID(dispex, bstr, 0, &id);
-    ok_(__FILE__,line)(hres == S_OK, "GetDispID(\"toString\") failed: %08lx\n", hres);
-    SysFreeString(bstr);
-
-    hres = IDispatchEx_InvokeEx(dispex, id, LOCALE_NEUTRAL, INVOKE_FUNC, &dp, &res, NULL, NULL);
-    ok_(__FILE__,line)(hres == S_OK, "InvokeEx(\"toString\") failed: %08lx\n", hres);
-    ok_(__FILE__,line)(V_VT(&res) == VT_BSTR, "V_VT(\"toString\") = %d\n", V_VT(&res));
-    ok_(__FILE__,line)(!wcscmp(V_BSTR(&res), doc_onstorage ? L"[object MSEventObj]" : L"[object StorageEvent]"),
-                       "toString = %s\n", wine_dbgstr_w(V_BSTR(&res)));
-    VariantClear(&res);
 
     hres = IDispatchEx_QueryInterface(dispex, &IID_IDOMStorageEvent, (void**)&event);
     if(doc_onstorage) {

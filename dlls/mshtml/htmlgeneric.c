@@ -44,57 +44,8 @@ static inline HTMLGenericElement *impl_from_IHTMLGenericElement(IHTMLGenericElem
     return CONTAINING_RECORD(iface, HTMLGenericElement, IHTMLGenericElement_iface);
 }
 
-static HRESULT WINAPI HTMLGenericElement_QueryInterface(IHTMLGenericElement *iface, REFIID riid, void **ppv)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-
-    return IHTMLDOMNode_QueryInterface(&This->element.node.IHTMLDOMNode_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLGenericElement_AddRef(IHTMLGenericElement *iface)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-
-    return IHTMLDOMNode_AddRef(&This->element.node.IHTMLDOMNode_iface);
-}
-
-static ULONG WINAPI HTMLGenericElement_Release(IHTMLGenericElement *iface)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-
-    return IHTMLDOMNode_Release(&This->element.node.IHTMLDOMNode_iface);
-}
-
-static HRESULT WINAPI HTMLGenericElement_GetTypeInfoCount(IHTMLGenericElement *iface, UINT *pctinfo)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-    return IDispatchEx_GetTypeInfoCount(&This->element.node.event_target.dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLGenericElement_GetTypeInfo(IHTMLGenericElement *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-    return IDispatchEx_GetTypeInfo(&This->element.node.event_target.dispex.IDispatchEx_iface, iTInfo, lcid,
-            ppTInfo);
-}
-
-static HRESULT WINAPI HTMLGenericElement_GetIDsOfNames(IHTMLGenericElement *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-    return IDispatchEx_GetIDsOfNames(&This->element.node.event_target.dispex.IDispatchEx_iface, riid, rgszNames,
-            cNames, lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLGenericElement_Invoke(IHTMLGenericElement *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLGenericElement *This = impl_from_IHTMLGenericElement(iface);
-    return IDispatchEx_Invoke(&This->element.node.event_target.dispex.IDispatchEx_iface, dispIdMember, riid,
-            lcid, wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLGenericElement, IHTMLGenericElement,
+                      impl_from_IHTMLGenericElement(iface)->element.node.event_target.dispex)
 
 static HRESULT WINAPI HTMLGenericElement_get_recordset(IHTMLGenericElement *iface, IDispatch **p)
 {
@@ -157,16 +108,15 @@ static const event_target_vtbl_t HTMLGenericElement_event_target_vtbl = {
     .handle_event       = HTMLElement_handle_event
 };
 
-const tid_t HTMLGenericElement_iface_tids[] = {
+static const tid_t HTMLGenericElement_iface_tids[] = {
     HTMLELEMENT_TIDS,
     IHTMLGenericElement_tid,
     0
 };
 
-dispex_static_data_t HTMLGenericElement_dispex = {
+static dispex_static_data_t HTMLGenericElement_dispex = {
     "HTMLUnknownElement",
     &HTMLGenericElement_event_target_vtbl.dispex_vtbl,
-    PROTO_ID_HTMLGenericElement,
     DispHTMLGenericElement_tid,
     HTMLGenericElement_iface_tids,
     HTMLElement_init_dispex_info

@@ -31,6 +31,8 @@
 #include "dmoreg.h"
 #include "gst_guids.h"
 #include "wmcodecdsp.h"
+#include "mferror.h"
+#include "mfapi.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 WINE_DECLARE_DEBUG_CHANNEL(mfplat);
@@ -68,18 +70,16 @@ bool array_reserve(void **elements, size_t *capacity, size_t count, size_t size)
     return TRUE;
 }
 
-wg_parser_t wg_parser_create(enum wg_parser_type type, bool output_compressed, bool use_opengl)
+wg_parser_t wg_parser_create(bool output_compressed)
 {
     struct wg_parser_create_params params =
     {
-        .type = type,
         .output_compressed = output_compressed,
-        .use_opengl = use_opengl,
         .err_on = ERR_ON(quartz),
         .warn_on = WARN_ON(quartz),
     };
 
-    TRACE("type %#x, use_opengl %u.\n", type, use_opengl);
+    TRACE("output_compressed %d.\n", output_compressed);
 
     if (WINE_UNIX_CALL(unix_wg_parser_create, &params))
         return 0;
@@ -176,9 +176,9 @@ wg_parser_stream_t wg_parser_get_stream(wg_parser_t parser, uint32_t index)
     return params.stream;
 }
 
-void wg_parser_stream_get_preferred_format(wg_parser_stream_t stream, struct wg_format *format)
+void wg_parser_stream_get_current_format(wg_parser_stream_t stream, struct wg_format *format)
 {
-    struct wg_parser_stream_get_preferred_format_params params =
+    struct wg_parser_stream_get_current_format_params params =
     {
         .stream = stream,
         .format = format,
@@ -186,7 +186,7 @@ void wg_parser_stream_get_preferred_format(wg_parser_stream_t stream, struct wg_
 
     TRACE("stream %#I64x, format %p.\n", stream, format);
 
-    WINE_UNIX_CALL(unix_wg_parser_stream_get_preferred_format, &params);
+    WINE_UNIX_CALL(unix_wg_parser_stream_get_current_format, &params);
 }
 
 void wg_parser_stream_get_codec_format(wg_parser_stream_t stream, struct wg_format *format)
@@ -202,14 +202,12 @@ void wg_parser_stream_get_codec_format(wg_parser_stream_t stream, struct wg_form
     WINE_UNIX_CALL(unix_wg_parser_stream_get_codec_format, &params);
 }
 
-void wg_parser_stream_enable(wg_parser_stream_t stream, const struct wg_format *format,
-        uint32_t flags)
+void wg_parser_stream_enable(wg_parser_stream_t stream, const struct wg_format *format)
 {
     struct wg_parser_stream_enable_params params =
     {
         .stream = stream,
         .format = format,
-        .flags = flags,
     };
 
     TRACE("stream %#I64x, format %p.\n", stream, format);
@@ -342,196 +340,6 @@ void wg_parser_stream_seek(wg_parser_stream_t stream, double rate,
     WINE_UNIX_CALL(unix_wg_parser_stream_seek, &params);
 }
 
-HRESULT wg_source_create(const WCHAR *url, uint64_t file_size,
-        const void *data, uint32_t size, WCHAR mime_type[256],
-        wg_source_t *out)
-{
-    struct wg_source_create_params params =
-    {
-        .file_size = file_size,
-        .data = data, .size = size,
-    };
-    UINT len = url ? WideCharToMultiByte(CP_ACP, 0, url, -1, NULL, 0, NULL, NULL) : 0;
-    char *tmp = url ? malloc(len) : NULL;
-    NTSTATUS status;
-
-    TRACE("url %s, file_size %#I64x, data %p, size %#x, mime_type %p\n", debugstr_w(url),
-            file_size, data, size, mime_type);
-
-    if ((params.url = tmp))
-        WideCharToMultiByte(CP_ACP, 0, url, -1, tmp, len, NULL, NULL);
-
-    if ((status = WINE_UNIX_CALL(unix_wg_source_create, &params)))
-        WARN("wg_source_create returned status %#lx\n", status);
-    else
-    {
-        TRACE("Returning source %#I64x.\n", params.source);
-        MultiByteToWideChar(CP_ACP, 0, params.mime_type, -1, mime_type, 256);
-        *out = params.source;
-    }
-
-    free(tmp);
-    return HRESULT_FROM_NT(status);
-}
-
-void wg_source_destroy(wg_source_t source)
-{
-    TRACE("source %#I64x.\n", source);
-
-    WINE_UNIX_CALL(unix_wg_source_destroy, &source);
-}
-
-HRESULT wg_source_get_stream_count(wg_source_t source, uint32_t *stream_count)
-{
-    struct wg_source_get_stream_count_params params =
-    {
-        .source = source,
-    };
-    NTSTATUS status;
-
-    TRACE("source %#I64x, stream_count %p\n", source, stream_count);
-
-    if ((status = WINE_UNIX_CALL(unix_wg_source_get_stream_count, &params))
-            && status != STATUS_PENDING)
-    {
-        WARN("wg_source_get_stream_count returned status %#lx\n", status);
-        return HRESULT_FROM_NT(status);
-    }
-
-    *stream_count = params.stream_count;
-    TRACE("source %#I64x, stream_count %u\n", source, *stream_count);
-    return S_OK;
-}
-
-HRESULT wg_source_get_duration(wg_source_t source, uint64_t *duration)
-{
-    struct wg_source_get_duration_params params =
-    {
-        .source = source,
-    };
-    NTSTATUS status;
-
-    TRACE("source %#I64x, duration %p\n", source, duration);
-
-    if ((status = WINE_UNIX_CALL(unix_wg_source_get_duration, &params))
-            && status != STATUS_PENDING)
-    {
-        WARN("wg_source_get_duration returned status %#lx\n", status);
-        return HRESULT_FROM_NT(status);
-    }
-
-    *duration = params.duration;
-    TRACE("source %#I64x, duration %s\n", source, debugstr_time(*duration));
-    return S_OK;
-}
-
-HRESULT wg_source_get_position(wg_source_t source, uint64_t *read_offset)
-{
-    struct wg_source_get_position_params params =
-    {
-        .source = source,
-    };
-    NTSTATUS status;
-
-    TRACE("source %#I64x, read_offset %p\n", source, read_offset);
-
-    if ((status = WINE_UNIX_CALL(unix_wg_source_get_position, &params))
-            && status != STATUS_PENDING)
-    {
-        WARN("wg_source_get_position returned status %#lx\n", status);
-        return HRESULT_FROM_NT(status);
-    }
-
-    *read_offset = params.read_offset;
-    TRACE("source %#I64x, read_offset %#I64x\n", source, *read_offset);
-    return S_OK;
-}
-
-HRESULT wg_source_set_position(wg_source_t source, uint64_t time)
-{
-    struct wg_source_set_position_params params = {.source = source, .time = time};
-
-    TRACE("source %#I64x, time %s\n", source, debugstr_time(time));
-
-    return HRESULT_FROM_NT(WINE_UNIX_CALL(unix_wg_source_set_position, &params));
-}
-
-HRESULT wg_source_push_data(wg_source_t source, const void *data, uint32_t size)
-{
-    struct wg_source_push_data_params params =
-    {
-        .source = source,
-        .data = data,
-        .size = size,
-    };
-
-    TRACE("source %#I64x, data %p, size %#x\n", source, data, size);
-
-    return HRESULT_FROM_NT(WINE_UNIX_CALL(unix_wg_source_push_data, &params));
-}
-
-bool wg_source_get_stream_format(wg_source_t source, UINT32 index,
-        struct wg_format *format)
-{
-    struct wg_source_get_stream_format_params params =
-    {
-        .source = source,
-        .index = index,
-    };
-
-    TRACE("source %#I64x, index %u, format %p\n", source,
-            index, format);
-
-    if (WINE_UNIX_CALL(unix_wg_source_get_stream_format, &params))
-        return false;
-
-    *format = params.format;
-    return true;
-}
-
-char *wg_source_get_stream_tag(wg_source_t source, UINT32 index, wg_parser_tag tag)
-{
-    struct wg_source_get_stream_tag_params params =
-    {
-        .source = source,
-        .index = index,
-        .tag = tag,
-    };
-    char *buffer;
-
-    TRACE("source %#I64x, index %u, tag %#I64x\n", source, index, tag);
-
-    if (WINE_UNIX_CALL(unix_wg_source_get_stream_tag, &params) != STATUS_BUFFER_TOO_SMALL)
-        return NULL;
-    if (!(buffer = malloc(params.size)))
-    {
-        ERR("No memory.\n");
-        return NULL;
-    }
-    params.buffer = buffer;
-    if (WINE_UNIX_CALL(unix_wg_source_get_stream_tag, &params))
-    {
-        ERR("wg_source_get_stream_tag failed unexpectedly.\n");
-        free(buffer);
-        return NULL;
-    }
-    return buffer;
-}
-
-void wg_source_set_stream_flags(wg_source_t source, UINT32 index, BOOL select)
-{
-    struct wg_source_set_stream_flags_params params =
-    {
-        .source = source,
-        .index = index,
-        .select = select,
-    };
-
-    TRACE("source %#I64x, index %u, select %u\n", source, index, select);
-
-    WINE_UNIX_CALL(unix_wg_source_set_stream_flags, &params);
-}
-
 wg_transform_t wg_transform_create(const struct wg_format *input_format,
         const struct wg_format *output_format, const struct wg_transform_attrs *attrs)
 {
@@ -549,6 +357,38 @@ wg_transform_t wg_transform_create(const struct wg_format *input_format,
 
     TRACE("Returning transform %#I64x.\n", params.transform);
     return params.transform;
+}
+
+HRESULT wg_transform_create_mf(IMFMediaType *input_type, IMFMediaType *output_type,
+        const struct wg_transform_attrs *attrs, wg_transform_t *transform)
+{
+    struct wg_format input_format, output_format;
+
+    mf_media_type_to_wg_format(input_type, &input_format);
+    if (input_format.major_type == WG_MAJOR_TYPE_UNKNOWN)
+        return MF_E_INVALIDMEDIATYPE;
+    mf_media_type_to_wg_format(output_type, &output_format);
+    if (output_format.major_type == WG_MAJOR_TYPE_UNKNOWN)
+        return MF_E_INVALIDMEDIATYPE;
+
+    if (!(*transform = wg_transform_create(&input_format, &output_format, attrs)))
+        return E_FAIL;
+    return S_OK;
+}
+
+HRESULT wg_transform_create_quartz(const AM_MEDIA_TYPE *input_type, const AM_MEDIA_TYPE *output_type,
+        const struct wg_transform_attrs *attrs, wg_transform_t *transform)
+{
+    struct wg_format input_format, output_format;
+
+    if (!amt_to_wg_format(input_type, &input_format))
+        return E_FAIL;
+    if (!amt_to_wg_format(output_type, &output_format))
+        return E_FAIL;
+
+    if (!(*transform = wg_transform_create(&input_format, &output_format, attrs)))
+        return E_FAIL;
+    return S_OK;
 }
 
 void wg_transform_destroy(wg_transform_t transform)
@@ -796,6 +636,56 @@ HRESULT wg_muxer_finalize(wg_muxer_t muxer)
     return S_OK;
 }
 
+HRESULT check_audio_transform_support(const WAVEFORMATEX *input, const WAVEFORMATEX *output)
+{
+    IMFMediaType *input_type, *output_type;
+    struct wg_transform_attrs attrs = {0};
+    wg_transform_t transform;
+    HRESULT hr;
+
+    if (FAILED(hr = MFCreateMediaType(&input_type)))
+        return hr;
+    if (FAILED(hr = MFCreateMediaType(&output_type)))
+    {
+        IMFMediaType_Release(input_type);
+        return hr;
+    }
+
+    if (SUCCEEDED(hr = MFInitMediaTypeFromWaveFormatEx(input_type, input, sizeof(*input) + input->cbSize))
+            && SUCCEEDED(hr = MFInitMediaTypeFromWaveFormatEx(output_type, output, sizeof(*output) + output->cbSize))
+            && SUCCEEDED(hr = wg_transform_create_mf(input_type, output_type, &attrs, &transform)))
+        wg_transform_destroy(transform);
+
+    IMFMediaType_Release(output_type);
+    IMFMediaType_Release(input_type);
+    return hr;
+}
+
+HRESULT check_video_transform_support(const MFVIDEOFORMAT *input, const MFVIDEOFORMAT *output)
+{
+    IMFMediaType *input_type, *output_type;
+    struct wg_transform_attrs attrs = {0};
+    wg_transform_t transform;
+    HRESULT hr;
+
+    if (FAILED(hr = MFCreateMediaType(&input_type)))
+        return hr;
+    if (FAILED(hr = MFCreateMediaType(&output_type)))
+    {
+        IMFMediaType_Release(input_type);
+        return hr;
+    }
+
+    if (SUCCEEDED(hr = MFInitMediaTypeFromMFVideoFormat(input_type, input, input->dwSize))
+            && SUCCEEDED(hr = MFInitMediaTypeFromMFVideoFormat(output_type, output, output->dwSize))
+            && SUCCEEDED(hr = wg_transform_create_mf(input_type, output_type, &attrs, &transform)))
+        wg_transform_destroy(transform);
+
+    IMFMediaType_Release(output_type);
+    IMFMediaType_Release(input_type);
+    return hr;
+}
+
 #define ALIGN(n, alignment) (((n) + (alignment) - 1) & ~((alignment) - 1))
 
 unsigned int wg_format_get_stride(const struct wg_format *format)
@@ -809,6 +699,7 @@ unsigned int wg_format_get_stride(const struct wg_format *format)
 
         case WG_VIDEO_FORMAT_BGRA:
         case WG_VIDEO_FORMAT_BGRx:
+        case WG_VIDEO_FORMAT_RGBA:
             return width * 4;
 
         case WG_VIDEO_FORMAT_BGR:
@@ -842,19 +733,12 @@ bool wg_video_format_is_rgb(enum wg_video_format format)
         case WG_VIDEO_FORMAT_BGRA:
         case WG_VIDEO_FORMAT_BGRx:
         case WG_VIDEO_FORMAT_BGR:
-        case WG_VIDEO_FORMAT_RGBA:
         case WG_VIDEO_FORMAT_RGB15:
         case WG_VIDEO_FORMAT_RGB16:
+        case WG_VIDEO_FORMAT_RGBA:
             return true;
 
-        case WG_VIDEO_FORMAT_AYUV:
-        case WG_VIDEO_FORMAT_I420:
-        case WG_VIDEO_FORMAT_NV12:
-        case WG_VIDEO_FORMAT_UYVY:
-        case WG_VIDEO_FORMAT_YUY2:
-        case WG_VIDEO_FORMAT_YV12:
-        case WG_VIDEO_FORMAT_YVYU:
-        case WG_VIDEO_FORMAT_UNKNOWN:
+        default:
             break;
     }
 
@@ -1255,7 +1139,7 @@ static const REGFILTERPINS2 reg_decodebin_parser_pins[3] =
 static const REGFILTER2 reg_decodebin_parser =
 {
     .dwVersion = 2,
-    .dwMerit = MERIT_PREFERRED,
+    .dwMerit = MERIT_NORMAL - 1,
     .u.s2.cPins2 = 3,
     .u.s2.rgPins2 = reg_decodebin_parser_pins,
 };

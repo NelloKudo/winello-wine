@@ -426,17 +426,8 @@ static const struct
     { 16,  5, 0,  6, 5,  5, 11, 0, 0,   16, 16, 8 },
 };
 
-/**********************************************************************
- *	     dibdrv_wglDescribePixelFormat
- */
-static int dibdrv_wglDescribePixelFormat( HDC hdc, int fmt, UINT size, PIXELFORMATDESCRIPTOR *descr )
+static void describe_pixel_format( int fmt, PIXELFORMATDESCRIPTOR *descr )
 {
-    int ret = ARRAY_SIZE( pixel_formats );
-
-    if (!descr) return ret;
-    if (fmt <= 0 || fmt > ret) return 0;
-    if (size < sizeof(*descr)) return 0;
-
     memset( descr, 0, sizeof(*descr) );
     descr->nSize            = sizeof(*descr);
     descr->nVersion         = 1;
@@ -460,7 +451,6 @@ static int dibdrv_wglDescribePixelFormat( HDC hdc, int fmt, UINT size, PIXELFORM
     descr->cStencilBits     = pixel_formats[fmt - 1].stencil_bits;
     descr->cAuxBuffers      = 0;
     descr->iLayerType       = PFD_MAIN_PLANE;
-    return ret;
 }
 
 /***********************************************************************
@@ -506,7 +496,8 @@ static struct wgl_context *dibdrv_wglCreateContext( HDC hdc )
     int format = dibdrv_wglGetPixelFormat( hdc );
 
     if (!format) format = 1;
-    if (!dibdrv_wglDescribePixelFormat( hdc, format, sizeof(descr), &descr )) return NULL;
+    if (format <= 0 || format > ARRAY_SIZE( pixel_formats )) return NULL;
+    describe_pixel_format( format, &descr );
 
     if (!osmesa_funcs) return NULL;
     return osmesa_funcs->create_context( hdc, &descr );
@@ -585,19 +576,37 @@ static BOOL dibdrv_wglSwapBuffers( HDC hdc )
     return TRUE;
 }
 
+/***********************************************************************
+ *		dibdrv_get_pixel_formats
+ */
+static void dibdrv_get_pixel_formats( struct wgl_pixel_format *formats,
+                                      UINT max_formats, UINT *num_formats,
+                                      UINT *num_onscreen_formats )
+{
+    UINT num_pixel_formats = ARRAY_SIZE( pixel_formats );
+    UINT i;
+
+    if (formats)
+    {
+        for (i = 0; i < min( max_formats, num_pixel_formats ); ++i)
+            describe_pixel_format( i + 1, &formats[i].pfd );
+    }
+    *num_formats = *num_onscreen_formats = num_pixel_formats;
+}
+
 static struct opengl_funcs opengl_funcs =
 {
     {
         dibdrv_wglCopyContext,         /* p_wglCopyContext */
         dibdrv_wglCreateContext,       /* p_wglCreateContext */
         dibdrv_wglDeleteContext,       /* p_wglDeleteContext */
-        dibdrv_wglDescribePixelFormat, /* p_wglDescribePixelFormat */
         dibdrv_wglGetPixelFormat,      /* p_wglGetPixelFormat */
         dibdrv_wglGetProcAddress,      /* p_wglGetProcAddress */
         dibdrv_wglMakeCurrent,         /* p_wglMakeCurrent */
         dibdrv_wglSetPixelFormat,      /* p_wglSetPixelFormat */
         dibdrv_wglShareLists,          /* p_wglShareLists */
         dibdrv_wglSwapBuffers,         /* p_wglSwapBuffers */
+        dibdrv_get_pixel_formats,      /* p_get_pixel_formats */
     }
 };
 
@@ -707,11 +716,6 @@ const struct gdi_dc_funcs dib_driver =
     dibdrv_StrokeAndFillPath,           /* pStrokeAndFillPath */
     dibdrv_StrokePath,                  /* pStrokePath */
     NULL,                               /* pUnrealizePalette */
-    NULL,                               /* pD3DKMTCheckVidPnExclusiveOwnership */
-    NULL,                               /* pD3DKMTCloseAdapter */
-    NULL,                               /* pD3DKMTOpenAdapterFromLuid */
-    NULL,                               /* pD3DKMTQueryVideoMemoryInfo */
-    NULL,                               /* pD3DKMTSetVidPnSourceOwner */
     GDI_PRIORITY_DIB_DRV                /* priority */
 };
 
@@ -730,6 +734,7 @@ struct windrv_physdev
     struct gdi_physdev     dev;
     struct dibdrv_physdev *dibdrv;
     struct window_surface *surface;
+    UINT lock_count;
 };
 
 static const struct gdi_dc_funcs window_driver;
@@ -739,25 +744,34 @@ static inline struct windrv_physdev *get_windrv_physdev( PHYSDEV dev )
     return (struct windrv_physdev *)dev;
 }
 
+/* gdi_lock should not be locked */
 static inline void lock_surface( struct windrv_physdev *dev )
 {
-    /* gdi_lock should not be locked */
-    dev->surface->funcs->lock( dev->surface );
-    if (IsRectEmpty( dev->dibdrv->bounds ) || dev->surface->draw_start_ticks == 0)
-        dev->surface->draw_start_ticks = NtGetTickCount();
+    struct window_surface *surface = dev->surface;
+
+    if (!dev->lock_count++)
+    {
+        window_surface_lock( surface );
+        if (IsRectEmpty( dev->dibdrv->bounds ) || !surface->draw_start_ticks)
+            surface->draw_start_ticks = NtGetTickCount();
+    }
 }
 
 static inline void unlock_surface( struct windrv_physdev *dev )
 {
-    BOOL should_flush = NtGetTickCount() - dev->surface->draw_start_ticks > FLUSH_PERIOD;
-    dev->surface->funcs->unlock( dev->surface );
-    if (should_flush) dev->surface->funcs->flush( dev->surface );
+    struct window_surface *surface = dev->surface;
+
+    if (!--dev->lock_count)
+    {
+        DWORD ticks = NtGetTickCount() - surface->draw_start_ticks;
+        window_surface_unlock( surface );
+        if (ticks > FLUSH_PERIOD) window_surface_flush( dev->surface );
+    }
 }
 
-static void unlock_bits_surface( struct gdi_image_bits *bits )
+static void unlock_windrv_bits( struct gdi_image_bits *bits )
 {
-    struct window_surface *surface = bits->param;
-    surface->funcs->unlock( surface );
+    unlock_surface( bits->param );
 }
 
 void dibdrv_set_window_surface( DC *dc, struct window_surface *surface )
@@ -792,7 +806,7 @@ void dibdrv_set_window_surface( DC *dc, struct window_surface *surface )
         init_dib_info_from_bitmapinfo( &dibdrv->dib, info, bits );
         dibdrv->dib.rect = dc->attr->vis_rect;
         OffsetRect( &dibdrv->dib.rect, -dc->device_rect.left, -dc->device_rect.top );
-        dibdrv->bounds = surface->funcs->get_bounds( surface );
+        dibdrv->bounds = &surface->bounds;
         DC_InitDC( dc );
     }
     else if (windev)
@@ -960,8 +974,8 @@ static DWORD windrv_GetImage( PHYSDEV dev, BITMAPINFO *info,
     {
         /* use the freeing callback to unlock the surface */
         assert( !bits->free );
-        bits->free = unlock_bits_surface;
-        bits->param = physdev->surface;
+        bits->free = unlock_windrv_bits;
+        bits->param = physdev;
     }
     else unlock_surface( physdev );
     return ret;
@@ -1268,10 +1282,5 @@ static const struct gdi_dc_funcs window_driver =
     NULL,                               /* pStrokeAndFillPath */
     NULL,                               /* pStrokePath */
     NULL,                               /* pUnrealizePalette */
-    NULL,                               /* pD3DKMTCheckVidPnExclusiveOwnership */
-    NULL,                               /* pD3DKMTCloseAdapter */
-    NULL,                               /* pD3DKMTOpenAdapterFromLuid */
-    NULL,                               /* pD3DKMTQueryVideoMemoryInfo */
-    NULL,                               /* pD3DKMTSetVidPnSourceOwner */
     GDI_PRIORITY_DIB_DRV + 10           /* priority */
 };

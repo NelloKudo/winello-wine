@@ -304,12 +304,11 @@ static const struct user_driver_funcs macdrv_funcs =
     .pUpdateLayeredWindow = macdrv_UpdateLayeredWindow,
     .pVkKeyScanEx = macdrv_VkKeyScanEx,
     .pImeProcessKey = macdrv_ImeProcessKey,
-    .pImeToAsciiEx = macdrv_ImeToAsciiEx,
     .pNotifyIMEStatus = macdrv_NotifyIMEStatus,
     .pWindowMessage = macdrv_WindowMessage,
     .pWindowPosChanged = macdrv_WindowPosChanged,
     .pWindowPosChanging = macdrv_WindowPosChanging,
-    .pwine_get_vulkan_driver = macdrv_wine_get_vulkan_driver,
+    .pVulkanInit = macdrv_VulkanInit,
     .pwine_get_wgl_driver = macdrv_wine_get_wgl_driver,
 };
 

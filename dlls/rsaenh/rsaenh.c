@@ -1211,19 +1211,8 @@ static void store_key_permissions(HCRYPTKEY hCryptKey, HKEY hKey, DWORD dwKeySpe
  */
 static BOOL create_container_key(KEYCONTAINER *pKeyContainer, REGSAM sam, HKEY *phKey)
 {
-    static DWORD key_options = ~0ul;
     CHAR szRSABase[sizeof(RSAENH_REGKEY) + MAX_PATH];
     HKEY hRootKey;
-
-    if (key_options == ~0ul)
-    {
-        const char *sgi;
-
-        if ((sgi = getenv("SteamGameId")) && !strcmp(sgi, "1364780"))
-            key_options = REG_OPTION_VOLATILE;
-        else
-            key_options = REG_OPTION_NON_VOLATILE;
-    }
 
     sprintf(szRSABase, RSAENH_REGKEY, pKeyContainer->szName);
 
@@ -1235,7 +1224,7 @@ static BOOL create_container_key(KEYCONTAINER *pKeyContainer, REGSAM sam, HKEY *
     /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
     /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
     return RegCreateKeyExA(hRootKey, szRSABase, 0, NULL,
-                           key_options, sam, NULL, phKey, NULL)
+                           REG_OPTION_NON_VOLATILE, sam, NULL, phKey, NULL)
                            == ERROR_SUCCESS;
 }
 
@@ -3808,7 +3797,7 @@ BOOL WINAPI RSAENH_CPGetHashParam(HCRYPTPROV hProv, HCRYPTHASH hHash, DWORD dwPa
  *                     CRYPT_EXPORT, CRYPT_READ, CRYPT_WRITE, CRYPT_MAC
  *   - KP_IV: Initialization vector
  */
-BOOL WINAPI RSAENH_CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam, BYTE *pbData, 
+BOOL WINAPI RSAENH_CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam, BYTE *pbData,
                                  DWORD dwFlags)
 {
     CRYPTKEY *pCryptKey;
@@ -3826,13 +3815,19 @@ BOOL WINAPI RSAENH_CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam
         SetLastError(NTE_BAD_FLAGS);
         return FALSE;
     }
-    
+
     if (!lookup_handle(&handle_table, hKey, RSAENH_MAGIC_KEY, (OBJECTHDR**)&pCryptKey))
     {
         SetLastError(NTE_BAD_KEY);
         return FALSE;
     }
-    
+
+    if (!pbData)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
     switch (dwParam) {
         case KP_PADDING:
             /* The MS providers only support PKCS5_PADDING */

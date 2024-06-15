@@ -2784,6 +2784,9 @@ static BOOL dwarf2_parse_line_numbers(dwarf2_parse_context_t* ctx,
                 case DW_LNS_fixed_advance_pc:
                     address += dwarf2_parse_u2(&traverse);
                     break;
+                case DW_LNS_set_prologue_end:
+                case DW_LNS_set_epilogue_begin:
+                    break;
                 case DW_LNS_extended_op:
                     dwarf2_leb128_as_unsigned(&traverse);
                     extopcode = dwarf2_parse_byte(&traverse);
@@ -4204,11 +4207,6 @@ BOOL dwarf2_parse(struct module* module, ULONG_PTR load_offset,
     BOOL                ret = TRUE;
     struct module_format* dwarf2_modfmt;
     dwarf2_parse_module_context_t module_ctx;
-
-/* Our DWARF parser has been known to crash winedbg in some cases. Since
- * probably no concerned parties are going to be using plain winedbg, just don't
- * bother parsing anything. */
-return FALSE;
 
     if (!dwarf2_init_section(&eh_frame,                fmap, ".eh_frame",     NULL,             &eh_frame_sect))
         /* lld produces .eh_fram to avoid generating a long name */

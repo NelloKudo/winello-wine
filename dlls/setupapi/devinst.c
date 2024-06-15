@@ -103,7 +103,6 @@ static const WCHAR Linked[] = {'L','i','n','k','e','d',0};
 static const WCHAR dotInterfaces[] = {'.','I','n','t','e','r','f','a','c','e','s',0};
 static const WCHAR AddInterface[] = {'A','d','d','I','n','t','e','r','f','a','c','e',0};
 static const WCHAR backslashW[] = {'\\',0};
-static const WCHAR hashW[] = {'#',0};
 static const WCHAR emptyW[] = {0};
 
 #define SERVICE_CONTROL_REENUMERATE_ROOT_DEVICES 128
@@ -319,6 +318,7 @@ static WCHAR *get_iface_key_path(struct device_iface *iface)
 
 static WCHAR *get_refstr_key_path(struct device_iface *iface)
 {
+    static const WCHAR hashW[] = {'#',0};
     static const WCHAR slashW[] = {'\\',0};
     WCHAR *path, *ptr;
     size_t len = lstrlenW(DeviceClasses) + 1 + 38 + 1 + lstrlenW(iface->symlink) + 1 + 1;
@@ -2119,7 +2119,7 @@ BOOL WINAPI SetupDiGetClassDescriptionExA(
 {
     HKEY hKey;
     DWORD dwLength;
-    BOOL ret;
+    LSTATUS ls;
 
     hKey = SetupDiOpenClassRegKeyExA(ClassGuid,
                                      KEY_ALL_ACCESS,
@@ -2133,11 +2133,11 @@ BOOL WINAPI SetupDiGetClassDescriptionExA(
     }
 
     dwLength = ClassDescriptionSize;
-    ret = !RegQueryValueExA( hKey, NULL, NULL, NULL,
-                             (LPBYTE)ClassDescription, &dwLength );
-    if (RequiredSize) *RequiredSize = dwLength;
+    ls = RegQueryValueExA(hKey, NULL, NULL, NULL, (BYTE *)ClassDescription, &dwLength);
     RegCloseKey(hKey);
-    return ret;
+    if ((!ls || ls == ERROR_MORE_DATA) && RequiredSize)
+        *RequiredSize = dwLength;
+    return !ls;
 }
 
 /***********************************************************************
@@ -2153,7 +2153,7 @@ BOOL WINAPI SetupDiGetClassDescriptionExW(
 {
     HKEY hKey;
     DWORD dwLength;
-    BOOL ret;
+    LSTATUS ls;
 
     hKey = SetupDiOpenClassRegKeyExW(ClassGuid,
                                      KEY_ALL_ACCESS,
@@ -2167,11 +2167,11 @@ BOOL WINAPI SetupDiGetClassDescriptionExW(
     }
 
     dwLength = ClassDescriptionSize * sizeof(WCHAR);
-    ret = !RegQueryValueExW( hKey, NULL, NULL, NULL,
-                             (LPBYTE)ClassDescription, &dwLength );
-    if (RequiredSize) *RequiredSize = dwLength / sizeof(WCHAR);
+    ls = RegQueryValueExW(hKey, NULL, NULL, NULL, (BYTE *)ClassDescription, &dwLength);
     RegCloseKey(hKey);
-    return ret;
+    if ((!ls || ls == ERROR_MORE_DATA) && RequiredSize)
+        *RequiredSize = dwLength / sizeof(WCHAR);
+    return !ls;
 }
 
 /***********************************************************************
@@ -2424,80 +2424,6 @@ static void SETUPDI_EnumerateInterfaces(HDEVINFO DeviceInfoSet,
     }
 }
 
-
-/* iterate over all interfaces supported by this device instance. if any of
- * them are "linked", return TRUE */
-static BOOL is_device_instance_linked(HKEY interfacesKey, const WCHAR *deviceInstance)
-{
-    LONG l;
-    DWORD class_idx = 0, device_idx, len, type;
-    HKEY class_key, device_key, link_key;
-    WCHAR class_keyname[40], device_keyname[MAX_DEVICE_ID_LEN];
-    WCHAR interface_devinstance[MAX_DEVICE_ID_LEN];
-
-    while (1)
-    {
-        len = ARRAY_SIZE(class_keyname);
-        l = RegEnumKeyExW(interfacesKey, class_idx++, class_keyname, &len, NULL, NULL, NULL, NULL);
-        if (l)
-            break;
-
-        l = RegOpenKeyExW(interfacesKey, class_keyname, 0, KEY_READ, &class_key);
-        if (l)
-            continue;
-
-        device_idx = 0;
-        while (1)
-        {
-            len = ARRAY_SIZE(device_keyname);
-            l = RegEnumKeyExW(class_key, device_idx++, device_keyname, &len, NULL, NULL, NULL, NULL);
-            if (l)
-                break;
-
-            l = RegOpenKeyExW(class_key, device_keyname, 0, KEY_READ, &device_key);
-            if (l)
-                continue;
-
-            len = ARRAY_SIZE(interface_devinstance);
-            l = RegQueryValueExW(device_key, DeviceInstance, NULL, &type, (BYTE *)interface_devinstance, &len);
-            if (l || type != REG_SZ)
-            {
-                RegCloseKey(device_key);
-                continue;
-            }
-
-            if (lstrcmpiW(interface_devinstance, deviceInstance))
-            {
-                /* not our device instance */
-                RegCloseKey(device_key);
-                continue;
-            }
-
-            l = RegOpenKeyExW(device_key, hashW, 0, KEY_READ, &link_key);
-            if (l)
-            {
-                RegCloseKey(device_key);
-                continue;
-            }
-
-            if (is_linked(link_key))
-            {
-                RegCloseKey(link_key);
-                RegCloseKey(device_key);
-                RegCloseKey(class_key);
-                return TRUE;
-            }
-
-            RegCloseKey(link_key);
-            RegCloseKey(device_key);
-        }
-
-        RegCloseKey(class_key);
-    }
-
-    return FALSE;
-}
-
 static void SETUPDI_EnumerateMatchingDeviceInstances(struct DeviceInfoSet *set,
         LPCWSTR enumerator, LPCWSTR deviceName, HKEY deviceKey,
         const GUID *class, DWORD flags)
@@ -2506,7 +2432,6 @@ static void SETUPDI_EnumerateMatchingDeviceInstances(struct DeviceInfoSet *set,
     DWORD i, len;
     WCHAR deviceInstance[MAX_PATH];
     LONG l = ERROR_SUCCESS;
-    HKEY interfacesKey = SetupDiOpenClassRegKeyExW(NULL, KEY_READ, DIOCR_INTERFACE, NULL, NULL);
 
     TRACE("%s %s\n", debugstr_w(enumerator), debugstr_w(deviceName));
 
@@ -2543,9 +2468,7 @@ static void SETUPDI_EnumerateMatchingDeviceInstances(struct DeviceInfoSet *set,
                              {'%','s','\\','%','s','\\','%','s',0};
 
                             if (swprintf(id, ARRAY_SIZE(id), fmt, enumerator,
-                                        deviceName, deviceInstance) != -1 &&
-                                    (!(flags & DIGCF_PRESENT) ||
-                                     is_device_instance_linked(interfacesKey, id)))
+                                    deviceName, deviceInstance) != -1)
                             {
                                 create_device(set, &deviceClass, id, FALSE);
                             }
@@ -2558,8 +2481,6 @@ static void SETUPDI_EnumerateMatchingDeviceInstances(struct DeviceInfoSet *set,
             l = ERROR_SUCCESS;
         }
     }
-
-    RegCloseKey(interfacesKey);
 }
 
 static void SETUPDI_EnumerateMatchingDevices(HDEVINFO DeviceInfoSet,
@@ -4359,8 +4280,11 @@ BOOL WINAPI SetupDiGetINFClassW(PCWSTR inf, LPGUID class_guid, PWSTR class_name,
         DWORD size, PDWORD required_size)
 {
     BOOL have_guid, have_name;
-    DWORD dret;
+    DWORD class_name_len;
     WCHAR buffer[MAX_PATH];
+    INFCONTEXT inf_ctx;
+    HINF hinf;
+    BOOL retval = FALSE;
 
     if (!inf)
     {
@@ -4381,30 +4305,63 @@ BOOL WINAPI SetupDiGetINFClassW(PCWSTR inf, LPGUID class_guid, PWSTR class_name,
         return FALSE;
     }
 
-    if (!GetPrivateProfileStringW(Version, Signature, NULL, buffer, MAX_PATH, inf))
+    if ((hinf = SetupOpenInfFileW(inf, NULL, INF_STYLE_WIN4, NULL)) == INVALID_HANDLE_VALUE)
+    {
+        ERR("failed to open INF file %s\n", debugstr_w(inf));
         return FALSE;
+    }
+
+    if (!SetupFindFirstLineW(hinf, Version, Signature, &inf_ctx))
+    {
+        ERR("INF file %s does not have mandatory [Version].Signature\n", debugstr_w(inf));
+        goto out;
+    }
+
+    if (!SetupGetStringFieldW(&inf_ctx, 1, buffer, ARRAY_SIZE(buffer), NULL))
+    {
+        ERR("failed to get [Version].Signature string from %s\n", debugstr_w(inf));
+        goto out;
+    }
 
     if (lstrcmpiW(buffer, Chicago) && lstrcmpiW(buffer, WindowsNT))
-        return FALSE;
+    {
+        ERR("INF file %s has invalid [Version].Signature: %s\n", debugstr_w(inf), debugstr_w(buffer));
+        goto out;
+    }
 
-    buffer[0] = '\0';
-    have_guid = 0 < GetPrivateProfileStringW(Version, ClassGUID, NULL, buffer, MAX_PATH, inf);
+    have_guid = SetupFindFirstLineW(hinf, Version, ClassGUID, &inf_ctx);
+
     if (have_guid)
     {
+        if (!SetupGetStringFieldW(&inf_ctx, 1, buffer, ARRAY_SIZE(buffer), NULL))
+        {
+            ERR("failed to get [Version].ClassGUID as a string from '%s'\n", debugstr_w(inf));
+            goto out;
+        }
+
         buffer[lstrlenW(buffer)-1] = 0;
         if (RPC_S_OK != UuidFromStringW(buffer + 1, class_guid))
         {
-            FIXME("failed to convert \"%s\" into a guid\n", debugstr_w(buffer));
+            ERR("INF file %s has invalid [Version].ClassGUID: %s\n", debugstr_w(inf), debugstr_w(buffer));
             SetLastError(ERROR_INVALID_PARAMETER);
-            return FALSE;
+            goto out;
         }
     }
 
-    buffer[0] = '\0';
-    dret = GetPrivateProfileStringW(Version, Class, NULL, buffer, MAX_PATH, inf);
-    have_name = 0 < dret;
+    have_name = SetupFindFirstLineW(hinf, Version, Class, &inf_ctx);
 
-    if (dret >= MAX_PATH -1) FIXME("buffer might be too small\n");
+    class_name_len = 0;
+    if (have_name)
+    {
+        if (!SetupGetStringFieldW(&inf_ctx, 1, buffer, ARRAY_SIZE(buffer), NULL))
+        {
+            ERR("failed to get [Version].Class as a string from '%s'\n", debugstr_w(inf));
+            goto out;
+        }
+
+        class_name_len = lstrlenW(buffer);
+    }
+
     if (have_guid && !have_name)
     {
         class_name[0] = '\0';
@@ -4413,7 +4370,7 @@ BOOL WINAPI SetupDiGetINFClassW(PCWSTR inf, LPGUID class_guid, PWSTR class_name,
 
     if (have_name)
     {
-        if (dret < size) lstrcpyW(class_name, buffer);
+        if (class_name_len < size) lstrcpyW(class_name, buffer);
         else
         {
             SetLastError(ERROR_INSUFFICIENT_BUFFER);
@@ -4421,9 +4378,12 @@ BOOL WINAPI SetupDiGetINFClassW(PCWSTR inf, LPGUID class_guid, PWSTR class_name,
         }
     }
 
-    if (required_size) *required_size = dret + ((dret) ? 1 : 0);
+    if (required_size) *required_size = class_name_len + ((class_name_len) ? 1 : 0);
 
-    return (have_guid || have_name);
+    retval = (have_guid || have_name);
+out:
+    SetupCloseInfFile(hinf);
+    return retval;
 }
 
 static LSTATUS get_device_property(struct device *device, const DEVPROPKEY *prop_key, DEVPROPTYPE *prop_type,
@@ -4451,7 +4411,7 @@ static LSTATUS get_device_property(struct device *device, const DEVPROPKEY *prop
     if (!ls)
     {
         value_size = prop_buff_size;
-        ls = RegQueryValueExW(hkey, L"", NULL, &value_type, prop_buff, &value_size);
+        ls = RegQueryValueExW(hkey, NULL, NULL, &value_type, prop_buff, &value_size);
         RegCloseKey(hkey);
     }
 

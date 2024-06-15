@@ -44,7 +44,6 @@
 #include "mtdll.h"
 #include "wine/asm.h"
 #include "wine/debug.h"
-#include "wine/asm.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
 
@@ -561,12 +560,14 @@ static void msvcrt_set_fd(ioinfo *fdinfo, HANDLE hand, int flag)
   ioinfo_set_unicode(fdinfo, FALSE);
   ioinfo_set_textmode(fdinfo, TEXTMODE_ANSI);
 
-  if (hand == MSVCRT_NO_CONSOLE) hand = 0;
-  switch (fdinfo-MSVCRT___pioinfo[0])
+  if (hand != MSVCRT_NO_CONSOLE)
   {
-  case 0: SetStdHandle(STD_INPUT_HANDLE,  hand); break;
-  case 1: SetStdHandle(STD_OUTPUT_HANDLE, hand); break;
-  case 2: SetStdHandle(STD_ERROR_HANDLE,  hand); break;
+    switch (fdinfo-MSVCRT___pioinfo[0])
+    {
+    case 0: SetStdHandle(STD_INPUT_HANDLE,  hand); break;
+    case 1: SetStdHandle(STD_OUTPUT_HANDLE, hand); break;
+    case 2: SetStdHandle(STD_ERROR_HANDLE,  hand); break;
+    }
   }
 }
 
@@ -605,7 +606,7 @@ static FILE* msvcrt_alloc_fp(void)
       {
           if (file<MSVCRT__iob || file>=MSVCRT__iob+_IOB_ENTRIES)
           {
-              InitializeCriticalSection(&((file_crit*)file)->crit);
+              InitializeCriticalSectionEx(&((file_crit*)file)->crit, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
               ((file_crit*)file)->crit.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": file_crit.crit");
           }
           MSVCRT_stream_idx++;
@@ -819,28 +820,12 @@ static int msvcrt_flush_buffer(FILE* file)
 /*********************************************************************
  *		_isatty (MSVCRT.@)
  */
-#ifdef __x86_64__
-int CDECL MSVCRT__isatty(int fd)
-{
-    TRACE(":fd (%d)\n",fd);
-
-    return get_ioinfo_nolock(fd)->wxflag & WX_TTY;
-}
-__ASM_GLOBAL_FUNC( _isatty,
-        "sub $0x30,%rsp\n\t"
-        "lea MSVCRT___pioinfo(%rip),%rdx\n\t"
-        "nop;nop;nop;nop;nop;nop;nop;nop;nop\n\t"
-        "add $0x30,%rsp\n\t"
-        "jmp " __ASM_NAME( "MSVCRT__isatty" ) )
-#else
 int CDECL _isatty(int fd)
 {
     TRACE(":fd (%d)\n",fd);
 
     return get_ioinfo_nolock(fd)->wxflag & WX_TTY;
 }
-#endif
-
 
 /* INTERNAL: Allocate stdio file buffer */
 static BOOL msvcrt_alloc_buffer(FILE* file)

@@ -62,6 +62,9 @@
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
+#ifdef __FreeBSD__
+#include <sys/thr.h>
+#endif
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -155,27 +158,6 @@ void fpu_to_fpux( XMM_SAVE_AREA32 *fpux, const I386_FLOATING_SAVE_AREA *fpu )
         if (((fpu->TagWord >> (i * 2)) & 3) != 3) fpux->TagWord |= 1 << i;
         memcpy( &fpux->FloatRegisters[i], &fpu->RegisterArea[10 * i], 10 );
     }
-}
-
-
-/***********************************************************************
- *           validate_context_xstate
- */
-BOOL validate_context_xstate( CONTEXT *context )
-{
-    CONTEXT_EX *context_ex;
-
-    if (!((context->ContextFlags & 0x40) && xstate_extended_features())) return TRUE;
-
-    context_ex = (CONTEXT_EX *)(context + 1);
-
-    if (context_ex->XState.Length < sizeof(XSAVE_AREA_HEADER) ||
-        context_ex->XState.Length > sizeof(XSAVE_AREA_HEADER) + xstate_features_size)
-        return FALSE;
-
-    if (((ULONG_PTR)context_ex + context_ex->XState.Offset) & 63) return FALSE;
-
-    return TRUE;
 }
 
 
@@ -1245,6 +1227,24 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
 #endif
     }
 
+#ifdef __aarch64__
+    if (is_arm64ec())
+    {
+        CHPE_V2_CPU_AREA_INFO *cpu_area;
+        const SIZE_T chpev2_stack_size = 0x40000;
+
+        /* emulator stack */
+        if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, chpev2_stack_size, chpev2_stack_size, FALSE )))
+            return status;
+
+        cpu_area = stack.DeallocationStack;
+        cpu_area->ContextAmd64 = (ARM64EC_NT_CONTEXT *)&cpu_area->EmulatorDataInline;
+        cpu_area->EmulatorStackBase  = (ULONG_PTR)stack.StackBase;
+        cpu_area->EmulatorStackLimit = (ULONG_PTR)stack.StackLimit + page_size;
+        teb->ChpeV2CpuAreaInfo = cpu_area;
+    }
+#endif
+
     /* native stack */
     if ((status = virtual_alloc_thread_stack( &stack, 0, limit, reserve_size, commit_size, TRUE )))
         return status;
@@ -1574,7 +1574,7 @@ NTSTATUS WINAPI NtRaiseException( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL 
 
     if (first_chance) return call_user_exception_dispatcher( rec, context );
 
-    if (rec->ExceptionFlags & EH_STACK_INVALID)
+    if (rec->ExceptionFlags & EXCEPTION_STACK_INVALID)
         ERR_(seh)("Exception frame is not in stack limits => unable to dispatch exception.\n");
     else if (rec->ExceptionCode == STATUS_NONCONTINUABLE_EXCEPTION)
         ERR_(seh)("Process attempted to continue execution after noncontinuable exception.\n");
@@ -1622,40 +1622,19 @@ NTSTATUS WINAPI NtOpenThread( HANDLE *handle, ACCESS_MASK access,
 /******************************************************************************
  *              NtSuspendThread   (NTDLL.@)
  */
-NTSTATUS WINAPI NtSuspendThread( HANDLE handle, ULONG *ret_count )
+NTSTATUS WINAPI NtSuspendThread( HANDLE handle, ULONG *count )
 {
-    BOOL self = FALSE;
-    unsigned int ret, count = 0;
-    HANDLE wait_handle = NULL;
+    unsigned int ret;
 
     SERVER_START_REQ( suspend_thread )
     {
         req->handle = wine_server_obj_handle( handle );
-        if (!(ret = wine_server_call( req )) || ret == STATUS_PENDING)
+        if (!(ret = wine_server_call( req )))
         {
-            self = reply->count & 0x80000000;
-            count = reply->count & 0x7fffffff;;
-            wait_handle = wine_server_ptr_handle( reply->wait_handle );
+            if (count) *count = reply->count;
         }
     }
     SERVER_END_REQ;
-
-    if (self) usleep( 0 );
-
-    if (ret == STATUS_PENDING && wait_handle)
-    {
-        NtWaitForSingleObject( wait_handle, FALSE, NULL );
-
-        SERVER_START_REQ( suspend_thread )
-        {
-            req->handle = wine_server_obj_handle( handle );
-            req->waited_handle = wine_server_obj_handle( wait_handle );
-            ret = wine_server_call( req );
-        }
-        SERVER_END_REQ;
-    }
-
-    if (!ret && ret_count) *ret_count = count;
     return ret;
 }
 
@@ -1754,6 +1733,17 @@ NTSTATUS WINAPI NtQueueApcThread( HANDLE handle, PNTAPCFUNC func, ULONG_PTR arg1
 }
 
 
+/******************************************************************************
+ *              NtQueueApcThreadEx  (NTDLL.@)
+ */
+NTSTATUS WINAPI NtQueueApcThreadEx( HANDLE handle, HANDLE reserve_handle, PNTAPCFUNC func,
+                                    ULONG_PTR arg1, ULONG_PTR arg2, ULONG_PTR arg3 )
+{
+    FIXME( "reserve handle should be used: %p\n", reserve_handle );
+    return NtQueueApcThread( handle, func, arg1, arg2, arg3 );
+}
+
+
 /***********************************************************************
  *              set_thread_context
  */
@@ -1822,7 +1812,7 @@ NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, USHORT ma
         }
         SERVER_END_REQ;
     }
-    if (!ret)
+    if (!ret && count)
     {
         ret = context_from_server( context, &server_contexts[0], machine );
         if (!ret && count > 1) ret = context_from_server( context, &server_contexts[1], machine );
@@ -1834,7 +1824,7 @@ NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, USHORT ma
 /***********************************************************************
  *              ntdll_set_exception_jmp_buf
  */
-void ntdll_set_exception_jmp_buf( __wine_jmp_buf *jmp )
+void ntdll_set_exception_jmp_buf( jmp_buf jmp )
 {
     assert( !jmp || !ntdll_get_thread_data()->jmp_buf );
     ntdll_get_thread_data()->jmp_buf = jmp;
@@ -1932,7 +1922,7 @@ static void set_native_thread_name( HANDLE handle, const UNICODE_STRING *name )
 #ifdef linux
     unsigned int status;
     char path[64], nameA[64];
-    int unix_pid = -1, unix_tid = -1, len, fd;
+    int unix_pid, unix_tid, len, fd;
 
     SERVER_START_REQ( get_thread_times )
     {
@@ -1964,10 +1954,34 @@ static void set_native_thread_name( HANDLE handle, const UNICODE_STRING *name )
         close( fd );
     }
 #elif defined(__APPLE__)
-    /* pthread_setname_np() silently fails if the name is longer than 63 characters + null terminator */
+    char nameA[MAXTHREADNAMESIZE];
+    int len;
+    THREAD_BASIC_INFORMATION info;
+
+    if (NtQueryInformationThread( handle, ThreadBasicInformation, &info, sizeof(info), NULL ))
+        return;
+
+    if (HandleToULong( info.ClientId.UniqueProcess ) != GetCurrentProcessId())
+    {
+        static int once;
+        if (!once++) FIXME("cross-process native thread naming not supported\n");
+        return;
+    }
+
+    if (HandleToULong( info.ClientId.UniqueThread ) != GetCurrentThreadId())
+    {
+        static int once;
+        if (!once++) FIXME("setting other thread name not supported\n");
+        return;
+    }
+
+    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
+    nameA[len] = '\0';
+    pthread_setname_np( nameA );
+#elif defined(__FreeBSD__)
+    unsigned int status;
     char nameA[64];
-    NTSTATUS status;
-    int unix_pid, unix_tid, len, current_tid;
+    int unix_pid, unix_tid, len;
 
     SERVER_START_REQ( get_thread_times )
     {
@@ -1984,19 +1998,16 @@ static void set_native_thread_name( HANDLE handle, const UNICODE_STRING *name )
     if (status != STATUS_SUCCESS || unix_pid == -1 || unix_tid == -1)
         return;
 
-    current_tid = mach_thread_self();
-    mach_port_deallocate(mach_task_self(), current_tid);
-
-    if (unix_tid != current_tid)
+    if (unix_pid != getpid())
     {
         static int once;
-        if (!once++) FIXME("setting other thread name not supported\n");
+        if (!once++) FIXME("cross-process native thread naming not supported\n");
         return;
     }
 
-    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
+    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA), FALSE );
     nameA[len] = '\0';
-    pthread_setname_np(nameA);
+    thr_set_name( unix_tid, nameA );
 #else
     static int once;
     if (!once++) FIXME("not implemented on this platform\n");
@@ -2524,20 +2535,7 @@ ULONG WINAPI NtGetCurrentProcessorNumber(void)
 
 #if defined(__linux__) && defined(__NR_getcpu)
     int res = syscall(__NR_getcpu, &processor, NULL, NULL);
-    if (res != -1)
-    {
-        struct cpu_topology_override *override = get_cpu_topology_override();
-        unsigned int i;
-
-        if (!override)
-            return processor;
-
-        for (i = 0; i < override->cpu_count; ++i)
-            if (override->host_cpu_id[i] == processor)
-                return i;
-
-        WARN("Thread is running on processor which is not in the defined override.\n");
-    }
+    if (res != -1) return processor;
 #endif
 
     if (peb->NumberOfProcessors > 1)

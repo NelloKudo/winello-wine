@@ -645,19 +645,9 @@ BOOL WINAPI CryptReleaseContext (HCRYPTPROV hProv, DWORD dwFlags)
 
 	if (InterlockedDecrement(&pProv->refcount) == 0)
 	{
-		static unsigned int once;
-		char sgi[64];
-
 		ret = pProv->pFuncs->pCPReleaseContext(pProv->hPrivate, dwFlags);
 		pProv->dwMagic = 0;
-		if(GetEnvironmentVariableA("SteamGameId", sgi, sizeof(sgi)) && !strcmp(sgi, "1252330"))
-		{
-			if (!once++) FIXME("HACK: not freeing provider library.\n");
-		}
-		else
-		{
-			FreeLibrary(pProv->hModule);
-		}
+		FreeLibrary(pProv->hModule);
 #if 0
 		CRYPT_Free(pProv->pVTable->pContextInfo);
 #endif
@@ -1989,7 +1979,7 @@ BOOL WINAPI CryptSetKeyParam (HCRYPTKEY hKey, DWORD dwParam, const BYTE *pbData,
 	if (!(key = key_from_handle(hKey)))
 		return FALSE;
 
-	if (!pbData || !key->pProvider || key->pProvider->dwMagic != MAGIC_CRYPTPROV)
+	if (!key->pProvider || key->pProvider->dwMagic != MAGIC_CRYPTPROV)
 	{
 		SetLastError(ERROR_INVALID_PARAMETER);
 		return FALSE;

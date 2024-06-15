@@ -3105,7 +3105,7 @@ BOOL WINAPI ImmTranslateMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     if ((vkey = data->vkey) == VK_PROCESSKEY) return FALSE;
     data->vkey = VK_PROCESSKEY;
     GetKeyboardState( state );
-    scan = lparam >> 0x10;
+    scan = (lparam >> 0x10) & 0xffff;
 
     if (ime->info.fdwProperty & IME_PROP_KBD_CHAR_FIRST)
     {
@@ -3321,4 +3321,14 @@ LRESULT WINAPI __wine_ime_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         return DefWindowProcA(hwnd, msg, wparam, lparam);
     else
         return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+/***********************************************************************
+ *      CtfImmIsCiceroEnabled (IMM32.@)
+ */
+BOOL WINAPI CtfImmIsCiceroEnabled(void)
+{
+    FIXME("(): stub\n");
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
 }

@@ -24,7 +24,6 @@
 #include "winnt.h"
 #include "wine/asm.h"
 
-void *__os_arm64x_check_call = 0;
 void *__os_arm64x_check_icall_cfg = 0;
 void *__os_arm64x_dispatch_call_no_redirect = 0;
 void *__os_arm64x_dispatch_fptr = 0;
@@ -51,6 +50,11 @@ asm( ".section .data,\"drw\"\n"
      "__os_arm64x_dispatch_icall:\n"
      ".globl __os_arm64x_check_icall\n"
      "__os_arm64x_check_icall:\n"
+     ".xword 0\n"
+     ".globl __os_arm64x_dispatch_call\n"
+     "__os_arm64x_dispatch_call:\n"
+     ".globl __os_arm64x_check_call\n"
+     "__os_arm64x_check_call:\n"
      ".xword 0\n" );
 
 __ASM_GLOBAL_FUNC( __icall_helper_arm64ec,
@@ -101,27 +105,5 @@ asm( "\t.section .rdata,\"dr\"\n"
      "\t.rva __os_arm64x_helper6\n"
      "\t.rva __os_arm64x_helper7\n"
      "\t.rva __os_arm64x_helper8\n" );
-
-asm( "\t.section .rdata,\"dr\"\n"
-     "\t.globl _load_config_used\n"
-     "\t.balign 8\n"
-     "_load_config_used:\n"
-     "\t.word 0x140\n"
-     "\t.fill 0x54, 1, 0\n"
-     "\t.xword 0\n" /* FIXME: __security_cookie */
-     "\t.fill 0x10, 1, 0\n"
-     "\t.xword __guard_check_icall_fptr\n"
-     "\t.xword __guard_dispatch_icall_fptr\n"
-     "\t.xword __guard_fids_table\n"
-     "\t.xword __guard_fids_count\n"
-     "\t.xword __guard_flags\n"
-     "\t.xword 0\n"
-     "\t.xword __guard_iat_table\n"
-     "\t.xword __guard_iat_count\n"
-     "\t.xword __guard_longjmp_table\n"
-     "\t.xword __guard_longjmp_count\n"
-     "\t.xword 0\n"
-     "\t.xword __chpe_metadata\n"
-     "\t.fill 0x78, 1, 0\n" );
 
 #endif /* __arm64ec__ */

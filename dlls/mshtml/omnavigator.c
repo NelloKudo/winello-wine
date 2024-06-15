@@ -24,38 +24,12 @@
 #include "winbase.h"
 #include "winuser.h"
 #include "ole2.h"
-#include "mshtmdid.h"
 
 #include "wine/debug.h"
 
 #include "mshtml_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
-
-static document_type_t document_type_from_content_type(const WCHAR *content_type)
-{
-    static const struct {
-        const WCHAR *content_type;
-        document_type_t doc_type;
-    } table[] = {
-        { L"application/xhtml+xml", DOCTYPE_XHTML },
-        { L"application/xml",       DOCTYPE_XML },
-        { L"image/svg+xml",         DOCTYPE_SVG },
-        { L"text/html",             DOCTYPE_HTML },
-        { L"text/xml",              DOCTYPE_XML },
-    };
-    unsigned int i, a = 0, b = ARRAY_SIZE(table);
-    int c;
-
-    while(a < b) {
-        i = (a + b) / 2;
-        c = wcsicmp(table[i].content_type, content_type);
-        if(!c) return table[i].doc_type;
-        if(c > 0) b = i;
-        else      a = i + 1;
-    }
-    return DOCTYPE_INVALID;
-}
 
 typedef struct HTMLPluginsCollection HTMLPluginsCollection;
 typedef struct HTMLMimeTypesCollection HTMLMimeTypesCollection;
@@ -64,7 +38,6 @@ typedef struct {
     DispatchEx dispex;
     IOmNavigator IOmNavigator_iface;
 
-    HTMLInnerWindow *window;
     HTMLPluginsCollection *plugins;
     HTMLMimeTypesCollection *mime_types;
 } OmNavigator;
@@ -83,57 +56,8 @@ static inline HTMLDOMImplementation *impl_from_IHTMLDOMImplementation(IHTMLDOMIm
     return CONTAINING_RECORD(iface, HTMLDOMImplementation, IHTMLDOMImplementation_iface);
 }
 
-static HRESULT WINAPI HTMLDOMImplementation_QueryInterface(IHTMLDOMImplementation *iface, REFIID riid, void **ppv)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLDOMImplementation_AddRef(IHTMLDOMImplementation *iface)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLDOMImplementation_Release(IHTMLDOMImplementation *iface)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation_GetTypeInfoCount(IHTMLDOMImplementation *iface, UINT *pctinfo)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation_GetTypeInfo(IHTMLDOMImplementation *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation_GetIDsOfNames(IHTMLDOMImplementation *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames,
-            cNames, lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation_Invoke(IHTMLDOMImplementation *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams, VARIANT *pVarResult,
-        EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid,
-            lcid, wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLDOMImplementation, IHTMLDOMImplementation,
+                      impl_from_IHTMLDOMImplementation(iface)->dispex)
 
 static HRESULT WINAPI HTMLDOMImplementation_hasFeature(IHTMLDOMImplementation *iface, BSTR feature,
         VARIANT version, VARIANT_BOOL *pfHasFeature)
@@ -162,53 +86,8 @@ static inline HTMLDOMImplementation *impl_from_IHTMLDOMImplementation2(IHTMLDOMI
     return CONTAINING_RECORD(iface, HTMLDOMImplementation, IHTMLDOMImplementation2_iface);
 }
 
-static HRESULT WINAPI HTMLDOMImplementation2_QueryInterface(IHTMLDOMImplementation2 *iface, REFIID riid, void **ppv)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IHTMLDOMImplementation_QueryInterface(&This->IHTMLDOMImplementation_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLDOMImplementation2_AddRef(IHTMLDOMImplementation2 *iface)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IHTMLDOMImplementation_AddRef(&This->IHTMLDOMImplementation_iface);
-}
-
-static ULONG WINAPI HTMLDOMImplementation2_Release(IHTMLDOMImplementation2 *iface)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IHTMLDOMImplementation_Release(&This->IHTMLDOMImplementation_iface);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation2_GetTypeInfoCount(IHTMLDOMImplementation2 *iface, UINT *pctinfo)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation2_GetTypeInfo(IHTMLDOMImplementation2 *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation2_GetIDsOfNames(IHTMLDOMImplementation2 *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames,
-            cNames, lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLDOMImplementation2_Invoke(IHTMLDOMImplementation2 *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams, VARIANT *pVarResult,
-        EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLDOMImplementation *This = impl_from_IHTMLDOMImplementation2(iface);
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid,
-            lcid, wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLDOMImplementation2, IHTMLDOMImplementation2,
+                      impl_from_IHTMLDOMImplementation2(iface)->dispex)
 
 static HRESULT WINAPI HTMLDOMImplementation2_createDocumentType(IHTMLDOMImplementation2 *iface, BSTR name,
         VARIANT *public_id, VARIANT *system_id, IDOMDocumentType **new_type)
@@ -251,7 +130,7 @@ static HRESULT WINAPI HTMLDOMImplementation2_createHTMLDocument(IHTMLDOMImplemen
         return E_FAIL;
     }
 
-    hres = create_document_node(doc, This->browser, NULL, DOCTYPE_HTML, dispex_compat_mode(&This->dispex), &new_document_node);
+    hres = create_document_node(doc, This->browser, NULL, dispex_compat_mode(&This->dispex), &new_document_node);
     nsIDOMDocument_Release(doc);
     if(FAILED(hres))
         return hres;
@@ -339,10 +218,9 @@ static const tid_t HTMLDOMImplementation_iface_tids[] = {
     IHTMLDOMImplementation_tid,
     0
 };
-dispex_static_data_t HTMLDOMImplementation_dispex = {
+static dispex_static_data_t HTMLDOMImplementation_dispex = {
     "DOMImplementation",
     &HTMLDOMImplementation_dispex_vtbl,
-    PROTO_ID_HTMLDOMImplementation,
     DispHTMLDOMImplementation_tid,
     HTMLDOMImplementation_iface_tids,
     HTMLDOMImplementation_init_dispex_info
@@ -364,7 +242,7 @@ HRESULT create_dom_implementation(HTMLDocumentNode *doc_node, IHTMLDOMImplementa
     dom_implementation->IHTMLDOMImplementation2_iface.lpVtbl = &HTMLDOMImplementation2Vtbl;
     dom_implementation->browser = doc_node->browser;
 
-    init_dispatch(&dom_implementation->dispex, &HTMLDOMImplementation_dispex, get_inner_window(doc_node), doc_node->document_mode);
+    init_dispatch(&dom_implementation->dispex, &HTMLDOMImplementation_dispex, doc_node->document_mode);
 
     nsres = nsIDOMDocument_GetImplementation(doc_node->dom_document, &dom_implementation->implementation);
     if(NS_FAILED(nsres)) {
@@ -383,280 +261,6 @@ void detach_dom_implementation(IHTMLDOMImplementation *iface)
     dom_implementation->browser = NULL;
 }
 
-struct dom_parser {
-    DispatchEx dispex;
-    IDOMParser IDOMParser_iface;
-
-    HTMLDocumentNode *doc;
-};
-
-static inline struct dom_parser *impl_from_IDOMParser(IDOMParser *iface)
-{
-    return CONTAINING_RECORD(iface, struct dom_parser, IDOMParser_iface);
-}
-
-static HRESULT WINAPI DOMParser_QueryInterface(IDOMParser *iface, REFIID riid, void **ppv)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI DOMParser_AddRef(IDOMParser *iface)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI DOMParser_Release(IDOMParser *iface)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI DOMParser_GetTypeInfoCount(IDOMParser *iface, UINT *pctinfo)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI DOMParser_GetTypeInfo(IDOMParser *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI DOMParser_GetIDsOfNames(IDOMParser *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-                                     lcid, rgDispId);
-}
-
-static HRESULT WINAPI DOMParser_Invoke(IDOMParser *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-                              pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
-
-static HRESULT WINAPI DOMParser_parseFromString(IDOMParser *iface, BSTR string, BSTR mimeType, IHTMLDocument2 **ppNode)
-{
-    struct dom_parser *This = impl_from_IDOMParser(iface);
-    nsIDOMDocument *nsdoc = NULL;
-    HTMLDocumentNode *xml_doc;
-    document_type_t doc_type;
-    nsAString errns, errtag;
-    nsIDOMNodeList *nodes;
-    nsIDOMParser *parser;
-    nsresult nsres;
-    HRESULT hres;
-
-    TRACE("(%p)->(%s %s %p)\n", This, debugstr_w(string), debugstr_w(mimeType), ppNode);
-
-    if(!string || !mimeType || (doc_type = document_type_from_content_type(mimeType)) == DOCTYPE_INVALID)
-        return E_INVALIDARG;
-
-    if(doc_type == DOCTYPE_HTML) {
-        IHTMLDOMImplementation *impl_iface;
-        HTMLDOMImplementation *impl;
-        IHTMLDocument7 *html_doc;
-        IHTMLElement *html_elem;
-        HTMLDocumentNode *doc;
-
-        hres = IHTMLDocument5_get_implementation(&This->doc->IHTMLDocument5_iface, &impl_iface);
-        if(FAILED(hres))
-            return hres;
-
-        impl = impl_from_IHTMLDOMImplementation(impl_iface);
-        hres = HTMLDOMImplementation2_createHTMLDocument(&impl->IHTMLDOMImplementation2_iface, NULL, &html_doc);
-        HTMLDOMImplementation_Release(impl_iface);
-        if(FAILED(hres))
-            return hres;
-        doc = CONTAINING_RECORD(html_doc, HTMLDocumentNode, IHTMLDocument7_iface);
-
-        hres = IHTMLDocument3_get_documentElement(&doc->IHTMLDocument3_iface, &html_elem);
-        if(FAILED(hres)) {
-            IHTMLDocument7_Release(html_doc);
-            return hres;
-        }
-
-        hres = IHTMLElement_put_innerHTML(html_elem, string);
-        IHTMLElement_Release(html_elem);
-        if(FAILED(hres)) {
-            IHTMLDocument7_Release(html_doc);
-            return hres;
-        }
-
-        *ppNode = &doc->IHTMLDocument2_iface;
-        return hres;
-    }
-
-    if(!(parser = create_nsdomparser(This->doc)))
-        return E_FAIL;
-    nsres = nsIDOMParser_ParseFromString(parser, string ? string : L"",
-            doc_type == DOCTYPE_SVG   ? "image/svg+xml" :
-            doc_type == DOCTYPE_XHTML ? "application/xhtml+xml" :
-                                        "text/xml", &nsdoc);
-    nsIDOMParser_Release(parser);
-    if(NS_FAILED(nsres) || !nsdoc) {
-        ERR("ParseFromString failed: 0x%08lx\n", nsres);
-        return NS_FAILED(nsres) ? map_nsresult(nsres) : E_FAIL;
-    }
-
-    nsAString_InitDepend(&errns, L"http://www.mozilla.org/newlayout/xml/parsererror.xml");
-    nsAString_InitDepend(&errtag, L"parsererror");
-    nsres = nsIDOMDocument_GetElementsByTagNameNS(nsdoc, &errns, &errtag, &nodes);
-    nsAString_Finish(&errtag);
-    nsAString_Finish(&errns);
-    if(NS_SUCCEEDED(nsres)) {
-        UINT32 length;
-        nsres = nsIDOMNodeList_GetLength(nodes, &length);
-        nsIDOMNodeList_Release(nodes);
-        if(NS_SUCCEEDED(nsres) && length) {
-            nsIDOMDocument_Release(nsdoc);
-            return MSHTML_E_SYNTAX;
-        }
-    }
-
-    hres = create_document_node(nsdoc, This->doc->browser, NULL, doc_type, This->doc->document_mode, &xml_doc);
-    nsIDOMDocument_Release(nsdoc);
-    if(FAILED(hres))
-        return hres;
-
-    *ppNode = &xml_doc->IHTMLDocument2_iface;
-    return hres;
-}
-
-static const IDOMParserVtbl DOMParserVtbl = {
-    DOMParser_QueryInterface,
-    DOMParser_AddRef,
-    DOMParser_Release,
-    DOMParser_GetTypeInfoCount,
-    DOMParser_GetTypeInfo,
-    DOMParser_GetIDsOfNames,
-    DOMParser_Invoke,
-    DOMParser_parseFromString
-};
-
-static inline struct dom_parser *DOMParser_from_DispatchEx(DispatchEx *iface)
-{
-    return CONTAINING_RECORD(iface, struct dom_parser, dispex);
-}
-
-static void *DOMParser_query_interface(DispatchEx *dispex, REFIID riid)
-{
-    struct dom_parser *This = DOMParser_from_DispatchEx(dispex);
-
-    if(IsEqualGUID(&IID_IDOMParser, riid))
-        return &This->IDOMParser_iface;
-
-    return NULL;
-}
-
-static void DOMParser_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
-{
-    struct dom_parser *This = DOMParser_from_DispatchEx(dispex);
-    if(This->doc)
-        note_cc_edge((nsISupports*)&This->doc->node.IHTMLDOMNode_iface, "doc", cb);
-}
-
-static void DOMParser_unlink(DispatchEx *dispex)
-{
-    struct dom_parser *This = DOMParser_from_DispatchEx(dispex);
-    if(This->doc) {
-        HTMLDocumentNode *doc = This->doc;
-        This->doc = NULL;
-        IHTMLDOMNode_Release(&doc->node.IHTMLDOMNode_iface);
-    }
-}
-
-static void DOMParser_destructor(DispatchEx *dispex)
-{
-    struct dom_parser *This = DOMParser_from_DispatchEx(dispex);
-    free(This);
-}
-
-static const dispex_static_data_vtbl_t DOMParser_dispex_vtbl = {
-    .query_interface  = DOMParser_query_interface,
-    .destructor       = DOMParser_destructor,
-    .traverse         = DOMParser_traverse,
-    .unlink           = DOMParser_unlink
-};
-
-static const tid_t DOMParser_iface_tids[] = {
-    IDOMParser_tid,
-    0
-};
-
-dispex_static_data_t DOMParser_dispex = {
-    "DOMParser",
-    &DOMParser_dispex_vtbl,
-    PROTO_ID_DOMParser,
-    DispDOMParser_tid,
-    DOMParser_iface_tids
-};
-
-static HRESULT DOMParserCtor_value(DispatchEx *iface, LCID lcid, WORD flags, DISPPARAMS *params,
-        VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
-{
-    struct global_ctor *This = CONTAINING_RECORD(iface, struct global_ctor, dispex);
-    struct dom_parser *ret;
-
-    TRACE("\n");
-
-    switch(flags) {
-    case DISPATCH_METHOD|DISPATCH_PROPERTYGET:
-        if(!res)
-            return E_INVALIDARG;
-        /* fall through */
-    case DISPATCH_METHOD:
-    case DISPATCH_CONSTRUCT:
-        break;
-    default:
-        return global_ctor_value(iface, lcid, flags, params, res, ei, caller);
-    }
-
-    if(!(ret = calloc(1, sizeof(*ret))))
-        return E_OUTOFMEMORY;
-
-    ret->IDOMParser_iface.lpVtbl = &DOMParserVtbl;
-    ret->doc = This->window->doc;
-    IHTMLDOMNode_AddRef(&ret->doc->node.IHTMLDOMNode_iface);
-
-    init_dispatch(&ret->dispex, &DOMParser_dispex, This->window, dispex_compat_mode(&This->dispex));
-
-    V_VT(res) = VT_DISPATCH;
-    V_DISPATCH(res) = (IDispatch*)&ret->IDOMParser_iface;
-    return S_OK;
-}
-
-static const dispex_static_data_vtbl_t DOMParserCtor_dispex_vtbl = {
-    .destructor       = global_ctor_destructor,
-    .traverse         = global_ctor_traverse,
-    .unlink           = global_ctor_unlink,
-    .value            = DOMParserCtor_value,
-    .get_dispid       = legacy_ctor_get_dispid,
-    .get_name         = legacy_ctor_get_name,
-    .invoke           = legacy_ctor_invoke,
-    .delete           = legacy_ctor_delete
-};
-
-dispex_static_data_t DOMParserCtor_dispex = {
-    "DOMParser",
-    &DOMParserCtor_dispex_vtbl,
-    PROTO_ID_NULL,
-    NULL_tid,
-    no_iface_tids
-};
-
 typedef struct {
     DispatchEx dispex;
     IHTMLScreen IHTMLScreen_iface;
@@ -667,53 +271,7 @@ static inline HTMLScreen *impl_from_IHTMLScreen(IHTMLScreen *iface)
     return CONTAINING_RECORD(iface, HTMLScreen, IHTMLScreen_iface);
 }
 
-static HRESULT WINAPI HTMLScreen_QueryInterface(IHTMLScreen *iface, REFIID riid, void **ppv)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLScreen_AddRef(IHTMLScreen *iface)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLScreen_Release(IHTMLScreen *iface)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLScreen_GetTypeInfoCount(IHTMLScreen *iface, UINT *pctinfo)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLScreen_GetTypeInfo(IHTMLScreen *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLScreen_GetIDsOfNames(IHTMLScreen *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLScreen_Invoke(IHTMLScreen *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLScreen *This = impl_from_IHTMLScreen(iface);
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLScreen, IHTMLScreen, impl_from_IHTMLScreen(iface)->dispex)
 
 static HRESULT WINAPI HTMLScreen_get_colorDepth(IHTMLScreen *iface, LONG *p)
 {
@@ -860,15 +418,14 @@ static const tid_t HTMLScreen_iface_tids[] = {
     IHTMLScreen_tid,
     0
 };
-dispex_static_data_t HTMLScreen_dispex = {
+static dispex_static_data_t HTMLScreen_dispex = {
     "Screen",
     &HTMLScreen_dispex_vtbl,
-    PROTO_ID_HTMLScreen,
     DispHTMLScreen_tid,
     HTMLScreen_iface_tids
 };
 
-HRESULT create_html_screen(HTMLInnerWindow *window, IHTMLScreen **ret)
+HRESULT create_html_screen(compat_mode_t compat_mode, IHTMLScreen **ret)
 {
     HTMLScreen *screen;
 
@@ -878,7 +435,7 @@ HRESULT create_html_screen(HTMLInnerWindow *window, IHTMLScreen **ret)
 
     screen->IHTMLScreen_iface.lpVtbl = &HTMLSreenVtbl;
 
-    init_dispatch(&screen->dispex, &HTMLScreen_dispex, window, dispex_compat_mode(&window->event_target.dispex));
+    init_dispatch(&screen->dispex, &HTMLScreen_dispex, compat_mode);
 
     *ret = &screen->IHTMLScreen_iface;
     return S_OK;
@@ -889,56 +446,7 @@ static inline OmHistory *impl_from_IOmHistory(IOmHistory *iface)
     return CONTAINING_RECORD(iface, OmHistory, IOmHistory_iface);
 }
 
-static HRESULT WINAPI OmHistory_QueryInterface(IOmHistory *iface, REFIID riid, void **ppv)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI OmHistory_AddRef(IOmHistory *iface)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI OmHistory_Release(IOmHistory *iface)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI OmHistory_GetTypeInfoCount(IOmHistory *iface, UINT *pctinfo)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-    FIXME("(%p)->(%p)\n", This, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI OmHistory_GetTypeInfo(IOmHistory *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI OmHistory_GetIDsOfNames(IOmHistory *iface, REFIID riid, LPOLESTR *rgszNames, UINT cNames,
-        LCID lcid, DISPID *rgDispId)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI OmHistory_Invoke(IOmHistory *iface, DISPID dispIdMember, REFIID riid, LCID lcid,
-        WORD wFlags, DISPPARAMS *pDispParams, VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    OmHistory *This = impl_from_IOmHistory(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(OmHistory, IOmHistory, impl_from_IOmHistory(iface)->dispex)
 
 static HRESULT WINAPI OmHistory_get_length(IOmHistory *iface, short *p)
 {
@@ -1042,10 +550,9 @@ static const tid_t OmHistory_iface_tids[] = {
     IOmHistory_tid,
     0
 };
-dispex_static_data_t OmHistory_dispex = {
+static dispex_static_data_t OmHistory_dispex = {
     "History",
     &OmHistory_dispex_vtbl,
-    PROTO_ID_History,
     DispHTMLHistory_tid,
     OmHistory_iface_tids
 };
@@ -1059,11 +566,11 @@ HRESULT create_history(HTMLInnerWindow *window, OmHistory **ret)
     if(!history)
         return E_OUTOFMEMORY;
 
+    init_dispatch(&history->dispex, &OmHistory_dispex, dispex_compat_mode(&window->event_target.dispex));
     history->IOmHistory_iface.lpVtbl = &OmHistoryVtbl;
+
     history->window = window;
     IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
-
-    init_dispatch(&history->dispex, &OmHistory_dispex, window, dispex_compat_mode(&window->event_target.dispex));
 
     *ret = history;
     return S_OK;
@@ -1081,53 +588,8 @@ static inline HTMLPluginsCollection *impl_from_IHTMLPluginsCollection(IHTMLPlugi
     return CONTAINING_RECORD(iface, HTMLPluginsCollection, IHTMLPluginsCollection_iface);
 }
 
-static HRESULT WINAPI HTMLPluginsCollection_QueryInterface(IHTMLPluginsCollection *iface, REFIID riid, void **ppv)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLPluginsCollection_AddRef(IHTMLPluginsCollection *iface)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLPluginsCollection_Release(IHTMLPluginsCollection *iface)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLPluginsCollection_GetTypeInfoCount(IHTMLPluginsCollection *iface, UINT *pctinfo)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLPluginsCollection_GetTypeInfo(IHTMLPluginsCollection *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLPluginsCollection_GetIDsOfNames(IHTMLPluginsCollection *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLPluginsCollection_Invoke(IHTMLPluginsCollection *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams, VARIANT *pVarResult,
-        EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLPluginsCollection *This = impl_from_IHTMLPluginsCollection(iface);
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid,
-            wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLPluginsCollection, IHTMLPluginsCollection,
+                      impl_from_IHTMLPluginsCollection(iface)->dispex)
 
 static HRESULT WINAPI HTMLPluginsCollection_get_length(IHTMLPluginsCollection *iface, LONG *p)
 {
@@ -1202,10 +664,9 @@ static const tid_t HTMLPluginsCollection_iface_tids[] = {
     IHTMLPluginsCollection_tid,
     0
 };
-dispex_static_data_t HTMLPluginsCollection_dispex = {
+static dispex_static_data_t HTMLPluginsCollection_dispex = {
     "PluginArray",
     &HTMLPluginsCollection_dispex_vtbl,
-    PROTO_ID_HTMLPluginsCollection,
     DispCPlugins_tid,
     HTMLPluginsCollection_iface_tids
 };
@@ -1221,7 +682,7 @@ static HRESULT create_plugins_collection(OmNavigator *navigator, HTMLPluginsColl
     col->IHTMLPluginsCollection_iface.lpVtbl = &HTMLPluginsCollectionVtbl;
     col->navigator = navigator;
 
-    init_dispatch(&col->dispex, &HTMLPluginsCollection_dispex, navigator->window, dispex_compat_mode(&navigator->dispex));
+    init_dispatch(&col->dispex, &HTMLPluginsCollection_dispex, dispex_compat_mode(&navigator->dispex));
 
     *ret = col;
     return S_OK;
@@ -1239,53 +700,8 @@ static inline HTMLMimeTypesCollection *impl_from_IHTMLMimeTypesCollection(IHTMLM
     return CONTAINING_RECORD(iface, HTMLMimeTypesCollection, IHTMLMimeTypesCollection_iface);
 }
 
-static HRESULT WINAPI HTMLMimeTypesCollection_QueryInterface(IHTMLMimeTypesCollection *iface, REFIID riid, void **ppv)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLMimeTypesCollection_AddRef(IHTMLMimeTypesCollection *iface)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLMimeTypesCollection_Release(IHTMLMimeTypesCollection *iface)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLMimeTypesCollection_GetTypeInfoCount(IHTMLMimeTypesCollection *iface, UINT *pctinfo)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLMimeTypesCollection_GetTypeInfo(IHTMLMimeTypesCollection *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLMimeTypesCollection_GetIDsOfNames(IHTMLMimeTypesCollection *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLMimeTypesCollection_Invoke(IHTMLMimeTypesCollection *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams, VARIANT *pVarResult,
-        EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLMimeTypesCollection *This = impl_from_IHTMLMimeTypesCollection(iface);
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid,
-            wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLMimeTypesCollection, IHTMLMimeTypesCollection,
+                      impl_from_IHTMLMimeTypesCollection(iface)->dispex)
 
 static HRESULT WINAPI HTMLMimeTypesCollection_get_length(IHTMLMimeTypesCollection *iface, LONG *p)
 {
@@ -1349,10 +765,9 @@ static const tid_t HTMLMimeTypesCollection_iface_tids[] = {
     IHTMLMimeTypesCollection_tid,
     0
 };
-dispex_static_data_t HTMLMimeTypesCollection_dispex = {
+static dispex_static_data_t HTMLMimeTypesCollection_dispex = {
     "MimeTypeArray",
     &HTMLMimeTypesCollection_dispex_vtbl,
-    PROTO_ID_HTMLMimeTypesCollection,
     IHTMLMimeTypesCollection_tid,
     HTMLMimeTypesCollection_iface_tids
 };
@@ -1368,7 +783,7 @@ static HRESULT create_mime_types_collection(OmNavigator *navigator, HTMLMimeType
     col->IHTMLMimeTypesCollection_iface.lpVtbl = &HTMLMimeTypesCollectionVtbl;
     col->navigator = navigator;
 
-    init_dispatch(&col->dispex, &HTMLMimeTypesCollection_dispex, navigator->window, dispex_compat_mode(&navigator->dispex));
+    init_dispatch(&col->dispex, &HTMLMimeTypesCollection_dispex, dispex_compat_mode(&navigator->dispex));
 
     *ret = col;
     return S_OK;
@@ -1379,58 +794,7 @@ static inline OmNavigator *impl_from_IOmNavigator(IOmNavigator *iface)
     return CONTAINING_RECORD(iface, OmNavigator, IOmNavigator_iface);
 }
 
-static HRESULT WINAPI OmNavigator_QueryInterface(IOmNavigator *iface, REFIID riid, void **ppv)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI OmNavigator_AddRef(IOmNavigator *iface)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI OmNavigator_Release(IOmNavigator *iface)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI OmNavigator_GetTypeInfoCount(IOmNavigator *iface, UINT *pctinfo)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-    FIXME("(%p)->(%p)\n", This, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI OmNavigator_GetTypeInfo(IOmNavigator *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI OmNavigator_GetIDsOfNames(IOmNavigator *iface, REFIID riid,
-                                                LPOLESTR *rgszNames, UINT cNames,
-                                                LCID lcid, DISPID *rgDispId)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI OmNavigator_Invoke(IOmNavigator *iface, DISPID dispIdMember,
-                            REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-                            VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    OmNavigator *This = impl_from_IOmNavigator(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(OmNavigator, IOmNavigator,impl_from_IOmNavigator(iface)->dispex)
 
 static HRESULT WINAPI OmNavigator_get_appCodeName(IOmNavigator *iface, BSTR *p)
 {
@@ -1754,22 +1118,9 @@ static void *OmNavigator_query_interface(DispatchEx *dispex, REFIID riid)
     return NULL;
 }
 
-static void OmNavigator_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
-{
-    OmNavigator *This = OmNavigator_from_DispatchEx(dispex);
-
-    if(This->window)
-        note_cc_edge((nsISupports*)&This->window->base.IHTMLWindow2_iface, "window", cb);
-}
-
 static void OmNavigator_unlink(DispatchEx *dispex)
 {
     OmNavigator *This = OmNavigator_from_DispatchEx(dispex);
-    if(This->window) {
-        HTMLInnerWindow *window = This->window;
-        This->window = NULL;
-        IHTMLWindow2_Release(&window->base.IHTMLWindow2_iface);
-    }
     if(This->plugins) {
         This->plugins->navigator = NULL;
         This->plugins = NULL;
@@ -1789,7 +1140,6 @@ static void OmNavigator_destructor(DispatchEx *dispex)
 static const dispex_static_data_vtbl_t OmNavigator_dispex_vtbl = {
     .query_interface  = OmNavigator_query_interface,
     .destructor       = OmNavigator_destructor,
-    .traverse         = OmNavigator_traverse,
     .unlink           = OmNavigator_unlink
 };
 
@@ -1797,15 +1147,14 @@ static const tid_t OmNavigator_iface_tids[] = {
     IOmNavigator_tid,
     0
 };
-dispex_static_data_t OmNavigator_dispex = {
+static dispex_static_data_t OmNavigator_dispex = {
     "Navigator",
     &OmNavigator_dispex_vtbl,
-    PROTO_ID_Navigator,
     DispHTMLNavigator_tid,
     OmNavigator_iface_tids
 };
 
-HRESULT create_navigator(HTMLInnerWindow *window, IOmNavigator **navigator)
+HRESULT create_navigator(compat_mode_t compat_mode, IOmNavigator **navigator)
 {
     OmNavigator *ret;
 
@@ -1814,10 +1163,8 @@ HRESULT create_navigator(HTMLInnerWindow *window, IOmNavigator **navigator)
         return E_OUTOFMEMORY;
 
     ret->IOmNavigator_iface.lpVtbl = &OmNavigatorVtbl;
-    ret->window = window;
-    IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
 
-    init_dispatch(&ret->dispex, &OmNavigator_dispex, window, dispex_compat_mode(&window->event_target.dispex));
+    init_dispatch(&ret->dispex, &OmNavigator_dispex, compat_mode);
 
     *navigator = &ret->IOmNavigator_iface;
     return S_OK;
@@ -1835,58 +1182,8 @@ static inline HTMLPerformanceTiming *impl_from_IHTMLPerformanceTiming(IHTMLPerfo
     return CONTAINING_RECORD(iface, HTMLPerformanceTiming, IHTMLPerformanceTiming_iface);
 }
 
-static HRESULT WINAPI HTMLPerformanceTiming_QueryInterface(IHTMLPerformanceTiming *iface, REFIID riid, void **ppv)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLPerformanceTiming_AddRef(IHTMLPerformanceTiming *iface)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLPerformanceTiming_Release(IHTMLPerformanceTiming *iface)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLPerformanceTiming_GetTypeInfoCount(IHTMLPerformanceTiming *iface, UINT *pctinfo)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-    FIXME("(%p)->(%p)\n", This, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI HTMLPerformanceTiming_GetTypeInfo(IHTMLPerformanceTiming *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLPerformanceTiming_GetIDsOfNames(IHTMLPerformanceTiming *iface, REFIID riid,
-                                                          LPOLESTR *rgszNames, UINT cNames,
-                                                          LCID lcid, DISPID *rgDispId)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLPerformanceTiming_Invoke(IHTMLPerformanceTiming *iface, DISPID dispIdMember,
-                            REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-                            VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLPerformanceTiming, IHTMLPerformanceTiming,
+                      impl_from_IHTMLPerformanceTiming(iface)->dispex)
 
 static ULONGLONG get_fetch_time(HTMLPerformanceTiming *This)
 {
@@ -2137,10 +1434,8 @@ static HRESULT WINAPI HTMLPerformanceTiming_toString(IHTMLPerformanceTiming *ifa
 static HRESULT WINAPI HTMLPerformanceTiming_toJSON(IHTMLPerformanceTiming *iface, VARIANT *p)
 {
     HTMLPerformanceTiming *This = impl_from_IHTMLPerformanceTiming(iface);
-
-    TRACE("(%p)->(%p)\n", This, p);
-
-    return dispex_builtin_props_to_json(&This->dispex, p);
+    FIXME("(%p)->(%p)\n", This, p);
+    return E_NOTIMPL;
 }
 
 static const IHTMLPerformanceTimingVtbl HTMLPerformanceTimingVtbl = {
@@ -2221,22 +1516,15 @@ static const dispex_static_data_vtbl_t HTMLPerformanceTiming_dispex_vtbl = {
     .unlink           = HTMLPerformanceTiming_unlink
 };
 
-static void HTMLPerformanceTiming_init_dispex_info(dispex_data_t *info, compat_mode_t mode)
-{
-    static const dispex_hook_t hooks[] = {
-        {DISPID_IHTMLPERFORMANCETIMING_TOJSON},
-        {DISPID_UNKNOWN}
-    };
-    dispex_info_add_interface(info, IHTMLPerformanceTiming_tid, mode < COMPAT_MODE_IE9 ? hooks : NULL);
-}
-
-dispex_static_data_t HTMLPerformanceTiming_dispex = {
+static const tid_t HTMLPerformanceTiming_iface_tids[] = {
+    IHTMLPerformanceTiming_tid,
+    0
+};
+static dispex_static_data_t HTMLPerformanceTiming_dispex = {
     "PerformanceTiming",
     &HTMLPerformanceTiming_dispex_vtbl,
-    PROTO_ID_HTMLPerformanceTiming,
     IHTMLPerformanceTiming_tid,
-    no_iface_tids,
-    HTMLPerformanceTiming_init_dispex_info
+    HTMLPerformanceTiming_iface_tids
 };
 
 typedef struct {
@@ -2251,58 +1539,8 @@ static inline HTMLPerformanceNavigation *impl_from_IHTMLPerformanceNavigation(IH
     return CONTAINING_RECORD(iface, HTMLPerformanceNavigation, IHTMLPerformanceNavigation_iface);
 }
 
-static HRESULT WINAPI HTMLPerformanceNavigation_QueryInterface(IHTMLPerformanceNavigation *iface, REFIID riid, void **ppv)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLPerformanceNavigation_AddRef(IHTMLPerformanceNavigation *iface)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLPerformanceNavigation_Release(IHTMLPerformanceNavigation *iface)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLPerformanceNavigation_GetTypeInfoCount(IHTMLPerformanceNavigation *iface, UINT *pctinfo)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-    FIXME("(%p)->(%p)\n", This, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI HTMLPerformanceNavigation_GetTypeInfo(IHTMLPerformanceNavigation *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLPerformanceNavigation_GetIDsOfNames(IHTMLPerformanceNavigation *iface, REFIID riid,
-                                                          LPOLESTR *rgszNames, UINT cNames,
-                                                          LCID lcid, DISPID *rgDispId)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLPerformanceNavigation_Invoke(IHTMLPerformanceNavigation *iface, DISPID dispIdMember,
-                            REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-                            VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLPerformanceNavigation, IHTMLPerformanceNavigation,
+                      impl_from_IHTMLPerformanceNavigation(iface)->dispex)
 
 static HRESULT WINAPI HTMLPerformanceNavigation_get_type(IHTMLPerformanceNavigation *iface, ULONG *p)
 {
@@ -2336,10 +1574,8 @@ static HRESULT WINAPI HTMLPerformanceNavigation_toString(IHTMLPerformanceNavigat
 static HRESULT WINAPI HTMLPerformanceNavigation_toJSON(IHTMLPerformanceNavigation *iface, VARIANT *p)
 {
     HTMLPerformanceNavigation *This = impl_from_IHTMLPerformanceNavigation(iface);
-
-    TRACE("(%p)->(%p)\n", This, p);
-
-    return dispex_builtin_props_to_json(&This->dispex, p);
+    FIXME("(%p)->(%p)\n", This, p);
+    return E_NOTIMPL;
 }
 
 static const IHTMLPerformanceNavigationVtbl HTMLPerformanceNavigationVtbl = {
@@ -2401,22 +1637,15 @@ static const dispex_static_data_vtbl_t HTMLPerformanceNavigation_dispex_vtbl = {
     .unlink           = HTMLPerformanceNavigation_unlink
 };
 
-static void HTMLPerformanceNavigation_init_dispex_info(dispex_data_t *info, compat_mode_t mode)
-{
-    static const dispex_hook_t hooks[] = {
-        {DISPID_IHTMLPERFORMANCENAVIGATION_TOJSON},
-        {DISPID_UNKNOWN}
-    };
-    dispex_info_add_interface(info, IHTMLPerformanceNavigation_tid, mode < COMPAT_MODE_IE9 ? hooks : NULL);
-}
-
-dispex_static_data_t HTMLPerformanceNavigation_dispex = {
+static const tid_t HTMLPerformanceNavigation_iface_tids[] = {
+    IHTMLPerformanceNavigation_tid,
+    0
+};
+static dispex_static_data_t HTMLPerformanceNavigation_dispex = {
     "PerformanceNavigation",
     &HTMLPerformanceNavigation_dispex_vtbl,
-    PROTO_ID_HTMLPerformanceNavigation,
     IHTMLPerformanceNavigation_tid,
-    no_iface_tids,
-    HTMLPerformanceNavigation_init_dispex_info
+    HTMLPerformanceNavigation_iface_tids
 };
 
 typedef struct {
@@ -2433,58 +1662,7 @@ static inline HTMLPerformance *impl_from_IHTMLPerformance(IHTMLPerformance *ifac
     return CONTAINING_RECORD(iface, HTMLPerformance, IHTMLPerformance_iface);
 }
 
-static HRESULT WINAPI HTMLPerformance_QueryInterface(IHTMLPerformance *iface, REFIID riid, void **ppv)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLPerformance_AddRef(IHTMLPerformance *iface)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLPerformance_Release(IHTMLPerformance *iface)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLPerformance_GetTypeInfoCount(IHTMLPerformance *iface, UINT *pctinfo)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-    FIXME("(%p)->(%p)\n", This, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI HTMLPerformance_GetTypeInfo(IHTMLPerformance *iface, UINT iTInfo,
-                                                  LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLPerformance_GetIDsOfNames(IHTMLPerformance *iface, REFIID riid,
-                                                    LPOLESTR *rgszNames, UINT cNames,
-                                                    LCID lcid, DISPID *rgDispId)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLPerformance_Invoke(IHTMLPerformance *iface, DISPID dispIdMember,
-                            REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-                            VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLPerformance, IHTMLPerformance, impl_from_IHTMLPerformance(iface)->dispex)
 
 static HRESULT WINAPI HTMLPerformance_get_navigation(IHTMLPerformance *iface,
                                                      IHTMLPerformanceNavigation **p)
@@ -2504,7 +1682,7 @@ static HRESULT WINAPI HTMLPerformance_get_navigation(IHTMLPerformance *iface,
         navigation->window = This->window;
         IHTMLWindow2_AddRef(&This->window->base.IHTMLWindow2_iface);
 
-        init_dispatch(&navigation->dispex, &HTMLPerformanceNavigation_dispex, This->window, dispex_compat_mode(&This->dispex));
+        init_dispatch(&navigation->dispex, &HTMLPerformanceNavigation_dispex, dispex_compat_mode(&This->dispex));
 
         This->navigation = &navigation->IHTMLPerformanceNavigation_iface;
     }
@@ -2530,7 +1708,7 @@ static HRESULT WINAPI HTMLPerformance_get_timing(IHTMLPerformance *iface, IHTMLP
         timing->window = This->window;
         IHTMLWindow2_AddRef(&This->window->base.IHTMLWindow2_iface);
 
-        init_dispatch(&timing->dispex, &HTMLPerformanceTiming_dispex, This->window, dispex_compat_mode(&This->dispex));
+        init_dispatch(&timing->dispex, &HTMLPerformanceTiming_dispex, dispex_compat_mode(&This->dispex));
 
         This->timing = &timing->IHTMLPerformanceTiming_iface;
     }
@@ -2551,10 +1729,8 @@ static HRESULT WINAPI HTMLPerformance_toString(IHTMLPerformance *iface, BSTR *st
 static HRESULT WINAPI HTMLPerformance_toJSON(IHTMLPerformance *iface, VARIANT *var)
 {
     HTMLPerformance *This = impl_from_IHTMLPerformance(iface);
-
-    TRACE("(%p)->(%p)\n", This, var);
-
-    return dispex_builtin_props_to_json(&This->dispex, var);
+    FIXME("(%p)->(%p)\n", This, var);
+    return E_NOTIMPL;
 }
 
 static const IHTMLPerformanceVtbl HTMLPerformanceVtbl = {
@@ -2622,22 +1798,15 @@ static const dispex_static_data_vtbl_t HTMLPerformance_dispex_vtbl = {
     .unlink           = HTMLPerformance_unlink
 };
 
-static void HTMLPerformance_init_dispex_info(dispex_data_t *info, compat_mode_t mode)
-{
-    static const dispex_hook_t hooks[] = {
-        {DISPID_IHTMLPERFORMANCE_TOJSON},
-        {DISPID_UNKNOWN}
-    };
-    dispex_info_add_interface(info, IHTMLPerformance_tid, mode < COMPAT_MODE_IE9 ? hooks : NULL);
-}
-
-dispex_static_data_t HTMLPerformance_dispex = {
+static const tid_t HTMLPerformance_iface_tids[] = {
+    IHTMLPerformance_tid,
+    0
+};
+static dispex_static_data_t HTMLPerformance_dispex = {
     "Performance",
     &HTMLPerformance_dispex_vtbl,
-    PROTO_ID_HTMLPerformance,
     IHTMLPerformance_tid,
-    no_iface_tids,
-    HTMLPerformance_init_dispex_info
+    HTMLPerformance_iface_tids
 };
 
 HRESULT create_performance(HTMLInnerWindow *window, IHTMLPerformance **ret)
@@ -2653,7 +1822,7 @@ HRESULT create_performance(HTMLInnerWindow *window, IHTMLPerformance **ret)
     performance->window = window;
     IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
 
-    init_dispatch(&performance->dispex, &HTMLPerformance_dispex, window, compat_mode);
+    init_dispatch(&performance->dispex, &HTMLPerformance_dispex, compat_mode);
 
     *ret = &performance->IHTMLPerformance_iface;
     return S_OK;
@@ -2669,58 +1838,8 @@ static inline HTMLNamespaceCollection *impl_from_IHTMLNamespaceCollection(IHTMLN
     return CONTAINING_RECORD(iface, HTMLNamespaceCollection, IHTMLNamespaceCollection_iface);
 }
 
-static HRESULT WINAPI HTMLNamespaceCollection_QueryInterface(IHTMLNamespaceCollection *iface, REFIID riid, void **ppv)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLNamespaceCollection_AddRef(IHTMLNamespaceCollection *iface)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLNamespaceCollection_Release(IHTMLNamespaceCollection *iface)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLNamespaceCollection_GetTypeInfoCount(IHTMLNamespaceCollection *iface, UINT *pctinfo)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-    FIXME("(%p)->(%p)\n", This, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI HTMLNamespaceCollection_GetTypeInfo(IHTMLNamespaceCollection *iface, UINT iTInfo,
-                                                  LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLNamespaceCollection_GetIDsOfNames(IHTMLNamespaceCollection *iface, REFIID riid,
-                                                    LPOLESTR *rgszNames, UINT cNames,
-                                                    LCID lcid, DISPID *rgDispId)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLNamespaceCollection_Invoke(IHTMLNamespaceCollection *iface, DISPID dispIdMember,
-                            REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-                            VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLNamespaceCollection *This = impl_from_IHTMLNamespaceCollection(iface);
-
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLNamespaceCollection, IHTMLNamespaceCollection,
+                      impl_from_IHTMLNamespaceCollection(iface)->dispex)
 
 static HRESULT WINAPI HTMLNamespaceCollection_get_length(IHTMLNamespaceCollection *iface, LONG *p)
 {
@@ -2788,15 +1907,14 @@ static const tid_t HTMLNamespaceCollection_iface_tids[] = {
     IHTMLNamespaceCollection_tid,
     0
 };
-dispex_static_data_t HTMLNamespaceCollection_dispex = {
+static dispex_static_data_t HTMLNamespaceCollection_dispex = {
     "MSNamespaceInfoCollection",
     &HTMLNamespaceCollection_dispex_vtbl,
-    PROTO_ID_HTMLNamespaceCollection,
     DispHTMLNamespaceCollection_tid,
     HTMLNamespaceCollection_iface_tids
 };
 
-HRESULT create_namespace_collection(HTMLDocumentNode *doc_node, IHTMLNamespaceCollection **ret)
+HRESULT create_namespace_collection(compat_mode_t compat_mode, IHTMLNamespaceCollection **ret)
 {
     HTMLNamespaceCollection *namespaces;
 
@@ -2804,8 +1922,7 @@ HRESULT create_namespace_collection(HTMLDocumentNode *doc_node, IHTMLNamespaceCo
         return E_OUTOFMEMORY;
 
     namespaces->IHTMLNamespaceCollection_iface.lpVtbl = &HTMLNamespaceCollectionVtbl;
-    init_dispatch(&namespaces->dispex, &HTMLNamespaceCollection_dispex, get_inner_window(doc_node),
-                  dispex_compat_mode(&doc_node->node.event_target.dispex));
+    init_dispatch(&namespaces->dispex, &HTMLNamespaceCollection_dispex, compat_mode);
     *ret = &namespaces->IHTMLNamespaceCollection_iface;
     return S_OK;
 }
@@ -2820,57 +1937,7 @@ static inline struct console *impl_from_IWineMSHTMLConsole(IWineMSHTMLConsole *i
     return CONTAINING_RECORD(iface, struct console, IWineMSHTMLConsole_iface);
 }
 
-static HRESULT WINAPI console_QueryInterface(IWineMSHTMLConsole *iface, REFIID riid, void **ppv)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-    return IDispatchEx_QueryInterface(&console->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI console_AddRef(IWineMSHTMLConsole *iface)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-    return IDispatchEx_AddRef(&console->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI console_Release(IWineMSHTMLConsole *iface)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-    return IDispatchEx_Release(&console->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI console_GetTypeInfoCount(IWineMSHTMLConsole *iface, UINT *pctinfo)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-    FIXME("(%p)->(%p)\n", console, pctinfo);
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI console_GetTypeInfo(IWineMSHTMLConsole *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-
-    return IDispatchEx_GetTypeInfo(&console->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI console_GetIDsOfNames(IWineMSHTMLConsole *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-
-    return IDispatchEx_GetIDsOfNames(&console->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI console_Invoke(IWineMSHTMLConsole *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    struct console *console = impl_from_IWineMSHTMLConsole(iface);
-
-    return IDispatchEx_Invoke(&console->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(console, IWineMSHTMLConsole, impl_from_IWineMSHTMLConsole(iface)->dispex)
 
 static HRESULT WINAPI console_assert(IWineMSHTMLConsole *iface, VARIANT_BOOL *assertion, VARIANT *vararg_start)
 {
@@ -3040,15 +2107,14 @@ static const tid_t console_iface_tids[] = {
     IWineMSHTMLConsole_tid,
     0
 };
-dispex_static_data_t console_dispex = {
+static dispex_static_data_t console_dispex = {
     "Console",
     &console_dispex_vtbl,
-    PROTO_ID_Console,
     IWineMSHTMLConsole_tid,
     console_iface_tids
 };
 
-void create_console(HTMLInnerWindow *window, IWineMSHTMLConsole **ret)
+void create_console(compat_mode_t compat_mode, IWineMSHTMLConsole **ret)
 {
     struct console *obj;
 
@@ -3060,7 +2126,7 @@ void create_console(HTMLInnerWindow *window, IWineMSHTMLConsole **ret)
     }
 
     obj->IWineMSHTMLConsole_iface.lpVtbl = &WineMSHTMLConsoleVtbl;
-    init_dispatch(&obj->dispex, &console_dispex, window, dispex_compat_mode(&window->event_target.dispex));
+    init_dispatch(&obj->dispex, &console_dispex, compat_mode);
 
     *ret = &obj->IWineMSHTMLConsole_iface;
 }
@@ -3090,59 +2156,8 @@ static inline struct media_query_list *impl_from_IWineMSHTMLMediaQueryList(IWine
     return CONTAINING_RECORD(iface, struct media_query_list, IWineMSHTMLMediaQueryList_iface);
 }
 
-static HRESULT WINAPI media_query_list_QueryInterface(IWineMSHTMLMediaQueryList *iface, REFIID riid, void **ppv)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-    return IDispatchEx_QueryInterface(&media_query_list->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI media_query_list_AddRef(IWineMSHTMLMediaQueryList *iface)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-    return IDispatchEx_AddRef(&media_query_list->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI media_query_list_Release(IWineMSHTMLMediaQueryList *iface)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-    return IDispatchEx_Release(&media_query_list->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI media_query_list_GetTypeInfoCount(IWineMSHTMLMediaQueryList *iface, UINT *pctinfo)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-
-    TRACE("(%p)->(%p)\n", media_query_list, pctinfo);
-
-    return IDispatchEx_GetTypeInfoCount(&media_query_list->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI media_query_list_GetTypeInfo(IWineMSHTMLMediaQueryList *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-
-    return IDispatchEx_GetTypeInfo(&media_query_list->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI media_query_list_GetIDsOfNames(IWineMSHTMLMediaQueryList *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-
-    return IDispatchEx_GetIDsOfNames(&media_query_list->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI media_query_list_Invoke(IWineMSHTMLMediaQueryList *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    struct media_query_list *media_query_list = impl_from_IWineMSHTMLMediaQueryList(iface);
-
-    return IDispatchEx_Invoke(&media_query_list->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(media_query_list, IWineMSHTMLMediaQueryList,
+                      impl_from_IWineMSHTMLMediaQueryList(iface)->dispex)
 
 static HRESULT WINAPI media_query_list_get_media(IWineMSHTMLMediaQueryList *iface, BSTR *p)
 {
@@ -3382,10 +2397,9 @@ static const tid_t media_query_list_iface_tids[] = {
     IWineMSHTMLMediaQueryList_tid,
     0
 };
-dispex_static_data_t media_query_list_dispex = {
+static dispex_static_data_t media_query_list_dispex = {
     "MediaQueryList",
     &media_query_list_dispex_vtbl,
-    PROTO_ID_MediaQueryList,
     IWineMSHTMLMediaQueryList_tid,
     media_query_list_iface_tids
 };
@@ -3428,433 +2442,8 @@ HRESULT create_media_query_list(HTMLWindow *window, BSTR media_query, IDispatch 
 
     media_query_list->IWineMSHTMLMediaQueryList_iface.lpVtbl = &media_query_list_vtbl;
     list_init(&media_query_list->listeners);
-    init_dispatch(&media_query_list->dispex, &media_query_list_dispex, window->inner_window,
-                  dispex_compat_mode(&window->inner_window->event_target.dispex));
+    init_dispatch(&media_query_list->dispex, &media_query_list_dispex, dispex_compat_mode(&window->inner_window->event_target.dispex));
 
     *ret = (IDispatch*)&media_query_list->IWineMSHTMLMediaQueryList_iface;
     return S_OK;
-}
-
-struct crypto_subtle {
-    DispatchEx dispex;
-    IWineMSHTMLSubtleCrypto IWineMSHTMLSubtleCrypto_iface;
-};
-
-static inline struct crypto_subtle *impl_from_IWineMSHTMLSubtleCrypto(IWineMSHTMLSubtleCrypto *iface)
-{
-    return CONTAINING_RECORD(iface, struct crypto_subtle, IWineMSHTMLSubtleCrypto_iface);
-}
-
-static HRESULT WINAPI crypto_subtle_QueryInterface(IWineMSHTMLSubtleCrypto *iface, REFIID riid, void **ppv)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_QueryInterface(&subtle->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI crypto_subtle_AddRef(IWineMSHTMLSubtleCrypto *iface)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_AddRef(&subtle->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI crypto_subtle_Release(IWineMSHTMLSubtleCrypto *iface)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_Release(&subtle->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI crypto_subtle_GetTypeInfoCount(IWineMSHTMLSubtleCrypto *iface, UINT *pctinfo)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_GetTypeInfoCount(&subtle->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI crypto_subtle_GetTypeInfo(IWineMSHTMLSubtleCrypto *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_GetTypeInfo(&subtle->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI crypto_subtle_GetIDsOfNames(IWineMSHTMLSubtleCrypto *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_GetIDsOfNames(&subtle->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI crypto_subtle_Invoke(IWineMSHTMLSubtleCrypto *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-    return IDispatchEx_Invoke(&subtle->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
-
-static HRESULT WINAPI crypto_subtle_encrypt(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm, VARIANT *key,
-        VARIANT *data, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %p %p %p)\n", subtle, algorithm, key, data, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_decrypt(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm, VARIANT *key,
-        VARIANT *data, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %p %p %p)\n", subtle, algorithm, key, data, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_sign(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm, VARIANT *key,
-        VARIANT *data, IDispatch **signature)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %p %p %p)\n", subtle, algorithm, key, data, signature);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_verify(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm, VARIANT *key,
-        VARIANT *signature, VARIANT *data, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %p %p %p %p)\n", subtle, algorithm, key, signature, data, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_digest(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm, VARIANT *data,
-        IDispatch **digest)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %p %p)\n", subtle, algorithm, data, digest);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_generateKey(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm,
-        VARIANT_BOOL extractable, VARIANT *keyUsages, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %x %p %p)\n", subtle, algorithm, extractable, keyUsages, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_deriveKey(IWineMSHTMLSubtleCrypto *iface, VARIANT *algorithm, VARIANT *baseKey,
-        VARIANT *derivedKeyAlgorithm, VARIANT_BOOL extractable, VARIANT *keyUsages, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%p %p %p %x %p %p)\n", subtle, algorithm, baseKey, derivedKeyAlgorithm, extractable,
-          keyUsages, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_importKey(IWineMSHTMLSubtleCrypto *iface, BSTR format, VARIANT *keyData,
-        VARIANT *algorithm, VARIANT_BOOL extractable, VARIANT *keyUsages, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%s %p %p %x %p %p)\n", subtle, debugstr_w(format), keyData, algorithm, extractable,
-          keyUsages, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_exportKey(IWineMSHTMLSubtleCrypto *iface, BSTR format, VARIANT *key,
-        IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%s %p %p)\n", subtle, debugstr_w(format), key, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_wrapKey(IWineMSHTMLSubtleCrypto *iface, BSTR format, VARIANT *key,
-        VARIANT *wrappingKey, VARIANT *wrapAlgo, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%s %p %p %p %p)\n", subtle, debugstr_w(format), key, wrappingKey, wrapAlgo, result);
-
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI crypto_subtle_unwrapKey(IWineMSHTMLSubtleCrypto *iface, BSTR format, VARIANT *wrappedKey,
-        VARIANT *unwrappingKey, VARIANT *unwrapAlgo, VARIANT *unwrappedKeyAlgo, VARIANT_BOOL extractable,
-        VARIANT *keyUsages, IDispatch **result)
-{
-    struct crypto_subtle *subtle = impl_from_IWineMSHTMLSubtleCrypto(iface);
-
-    FIXME("(%p)->(%s %p %p %p %p %x %p %p)\n", subtle, debugstr_w(format), wrappedKey, unwrappingKey, unwrapAlgo,
-          unwrappedKeyAlgo, extractable, keyUsages, result);
-
-    return E_NOTIMPL;
-}
-
-static const IWineMSHTMLSubtleCryptoVtbl WineMSHTMLSubtleCryptoVtbl = {
-    crypto_subtle_QueryInterface,
-    crypto_subtle_AddRef,
-    crypto_subtle_Release,
-    crypto_subtle_GetTypeInfoCount,
-    crypto_subtle_GetTypeInfo,
-    crypto_subtle_GetIDsOfNames,
-    crypto_subtle_Invoke,
-    crypto_subtle_encrypt,
-    crypto_subtle_decrypt,
-    crypto_subtle_sign,
-    crypto_subtle_verify,
-    crypto_subtle_digest,
-    crypto_subtle_generateKey,
-    crypto_subtle_deriveKey,
-    crypto_subtle_importKey,
-    crypto_subtle_exportKey,
-    crypto_subtle_wrapKey,
-    crypto_subtle_unwrapKey
-};
-
-static inline struct crypto_subtle *crypto_subtle_from_DispatchEx(DispatchEx *iface)
-{
-    return CONTAINING_RECORD(iface, struct crypto_subtle, dispex);
-}
-
-static void *crypto_subtle_query_interface(DispatchEx *dispex, REFIID riid)
-{
-    struct crypto_subtle *subtle = crypto_subtle_from_DispatchEx(dispex);
-
-    if(IsEqualGUID(&IID_IWineMSHTMLSubtleCrypto, riid))
-        return &subtle->IWineMSHTMLSubtleCrypto_iface;
-
-    return NULL;
-}
-
-static void crypto_subtle_destructor(DispatchEx *dispex)
-{
-    struct crypto_subtle *subtle = crypto_subtle_from_DispatchEx(dispex);
-    free(subtle);
-}
-
-static const dispex_static_data_vtbl_t crypto_subtle_dispex_vtbl = {
-    .query_interface  = crypto_subtle_query_interface,
-    .destructor       = crypto_subtle_destructor
-};
-
-static const tid_t crypto_subtle_iface_tids[] = {
-    IWineMSHTMLSubtleCrypto_tid,
-    0
-};
-dispex_static_data_t crypto_subtle_dispex = {
-    "SubtleCrypto",
-    &crypto_subtle_dispex_vtbl,
-    PROTO_ID_SubtleCrypto,
-    IWineMSHTMLSubtleCrypto_tid,
-    crypto_subtle_iface_tids
-};
-
-struct crypto {
-    DispatchEx dispex;
-    IWineMSHTMLCrypto IWineMSHTMLCrypto_iface;
-    struct crypto_subtle *subtle;
-};
-
-static inline struct crypto *impl_from_IWineMSHTMLCrypto(IWineMSHTMLCrypto *iface)
-{
-    return CONTAINING_RECORD(iface, struct crypto, IWineMSHTMLCrypto_iface);
-}
-
-static HRESULT WINAPI crypto_QueryInterface(IWineMSHTMLCrypto *iface, REFIID riid, void **ppv)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-    return IDispatchEx_QueryInterface(&crypto->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI crypto_AddRef(IWineMSHTMLCrypto *iface)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-    return IDispatchEx_AddRef(&crypto->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI crypto_Release(IWineMSHTMLCrypto *iface)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-    return IDispatchEx_Release(&crypto->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI crypto_GetTypeInfoCount(IWineMSHTMLCrypto *iface, UINT *pctinfo)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-
-    TRACE("(%p)->(%p)\n", crypto, pctinfo);
-
-    return IDispatchEx_GetTypeInfoCount(&crypto->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI crypto_GetTypeInfo(IWineMSHTMLCrypto *iface, UINT iTInfo,
-        LCID lcid, ITypeInfo **ppTInfo)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-
-    return IDispatchEx_GetTypeInfo(&crypto->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI crypto_GetIDsOfNames(IWineMSHTMLCrypto *iface, REFIID riid,
-        LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-
-    return IDispatchEx_GetIDsOfNames(&crypto->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI crypto_Invoke(IWineMSHTMLCrypto *iface, DISPID dispIdMember,
-        REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-        VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-
-    return IDispatchEx_Invoke(&crypto->dispex.IDispatchEx_iface, dispIdMember, riid, lcid, wFlags,
-            pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
-
-static HRESULT WINAPI crypto_get_subtle(IWineMSHTMLCrypto *iface, IDispatch **subtle)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-
-    TRACE("(%p)->(%p)\n", crypto, subtle);
-
-    *subtle = (IDispatch*)&crypto->subtle->dispex.IDispatchEx_iface;
-    IWineMSHTMLSubtleCrypto_AddRef(&crypto->subtle->IWineMSHTMLSubtleCrypto_iface);
-    return S_OK;
-}
-
-static HRESULT WINAPI crypto_getRandomValues(IWineMSHTMLCrypto *iface, VARIANT *typedArray, IDispatch **ret)
-{
-    struct crypto *crypto = impl_from_IWineMSHTMLCrypto(iface);
-    IWineDispatchProxyCbPrivate *proxy;
-    HRESULT hres;
-
-    TRACE("(%p)->(%p %p)\n", crypto, typedArray, ret);
-
-    if(V_VT(typedArray) != VT_DISPATCH || !V_DISPATCH(typedArray))
-        return E_INVALIDARG;
-
-    if(!(proxy = crypto->dispex.proxy)) {
-        FIXME("No proxy\n");
-        return E_NOTIMPL;
-    }
-
-    hres = proxy->lpVtbl->GetRandomValues(V_DISPATCH(typedArray));
-    if(SUCCEEDED(hres) && ret) {
-        *ret = V_DISPATCH(typedArray);
-        IDispatch_AddRef(*ret);
-    }
-    return hres;
-}
-
-static const IWineMSHTMLCryptoVtbl WineMSHTMLCryptoVtbl = {
-    crypto_QueryInterface,
-    crypto_AddRef,
-    crypto_Release,
-    crypto_GetTypeInfoCount,
-    crypto_GetTypeInfo,
-    crypto_GetIDsOfNames,
-    crypto_Invoke,
-    crypto_get_subtle,
-    crypto_getRandomValues
-};
-
-static inline struct crypto *crypto_from_DispatchEx(DispatchEx *iface)
-{
-    return CONTAINING_RECORD(iface, struct crypto, dispex);
-}
-
-static void *crypto_query_interface(DispatchEx *dispex, REFIID riid)
-{
-    struct crypto *This = crypto_from_DispatchEx(dispex);
-
-    if(IsEqualGUID(&IID_IWineMSHTMLCrypto, riid))
-        return &This->IWineMSHTMLCrypto_iface;
-
-    return NULL;
-}
-
-static void crypto_traverse(DispatchEx *dispex, nsCycleCollectionTraversalCallback *cb)
-{
-    struct crypto *This = crypto_from_DispatchEx(dispex);
-
-    if(This->subtle)
-        note_cc_edge((nsISupports*)&This->subtle->dispex.IDispatchEx_iface, "subtle", cb);
-}
-
-static void crypto_unlink(DispatchEx *dispex)
-{
-    struct crypto *This = crypto_from_DispatchEx(dispex);
-
-    if(This->subtle) {
-        struct crypto_subtle *subtle = This->subtle;
-        This->subtle = NULL;
-        IDispatchEx_Release(&subtle->dispex.IDispatchEx_iface);
-    }
-}
-
-static void crypto_destructor(DispatchEx *dispex)
-{
-    struct crypto *This = crypto_from_DispatchEx(dispex);
-    free(This);
-}
-
-static const dispex_static_data_vtbl_t crypto_dispex_vtbl = {
-    .query_interface  = crypto_query_interface,
-    .destructor       = crypto_destructor,
-    .traverse         = crypto_traverse,
-    .unlink           = crypto_unlink
-};
-
-static const tid_t crypto_iface_tids[] = {
-    IWineMSHTMLCrypto_tid,
-    0
-};
-dispex_static_data_t crypto_dispex = {
-    "Crypto",
-    &crypto_dispex_vtbl,
-    PROTO_ID_Crypto,
-    IWineMSHTMLCrypto_tid,
-    crypto_iface_tids
-};
-
-void create_crypto(HTMLInnerWindow *window, IWineMSHTMLCrypto **ret)
-{
-    compat_mode_t compat_mode = dispex_compat_mode(&window->event_target.dispex);
-    struct crypto_subtle *subtle;
-    struct crypto *obj;
-
-    if(!(obj = calloc(1, sizeof(*obj))) || !(subtle = calloc(1, sizeof(*subtle)))) {
-        ERR("No memory.\n");
-        free(obj);
-        return;
-    }
-
-    obj->IWineMSHTMLCrypto_iface.lpVtbl = &WineMSHTMLCryptoVtbl;
-    obj->subtle = subtle;
-    init_dispatch(&obj->dispex, &crypto_dispex, window, compat_mode);
-
-    subtle->IWineMSHTMLSubtleCrypto_iface.lpVtbl = &WineMSHTMLSubtleCryptoVtbl;
-    init_dispatch(&subtle->dispex, &crypto_subtle_dispex, window, compat_mode);
-
-    *ret = &obj->IWineMSHTMLCrypto_iface;
 }

@@ -202,7 +202,8 @@ static const WCHAR BCRYPT_KDF_HMAC[] = {'H','M','A','C',0};
 static const WCHAR BCRYPT_KDF_TLS_PRF[] = {'T','L','S','_','P','R','F',0};
 static const WCHAR BCRYPT_KDF_SP80056A_CONCAT[] = {'S','P','8','0','0','_','5','6','A','_','C','O','N','C','A','T',0};
 static const WCHAR BCRYPT_KDF_RAW_SECRET[] = {'T','R','U','N','C','A','T','E',0};
-#define BCRYPT_DH_PARAMETERS        u"DHParameters"
+
+static const WCHAR BCRYPT_DH_PARAMETERS[] = {'D','H','P','a','r','a','m','e','t','e','r','s',0};
 #endif
 
 #define BCRYPT_ECDSA_PUBLIC_P256_MAGIC  0x31534345
@@ -368,6 +369,15 @@ typedef struct _BCRYPT_DH_KEY_BLOB
     ULONG cbKey;
 } BCRYPT_DH_KEY_BLOB, *PBCRYPT_DH_KEY_BLOB;
 
+#define BCRYPT_DH_PARAMETERS_MAGIC  0x4d504844
+
+typedef struct _BCRYPT_DH_PARAMETER_HEADER
+{
+    ULONG cbLength;
+    ULONG dwMagic;
+    ULONG cbKeyLength;
+} BCRYPT_DH_PARAMETER_HEADER;
+
 #define BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO_VERSION 1
 
 #define BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG 0x00000001
@@ -402,15 +412,6 @@ typedef struct _BCRYPT_KEY_DATA_BLOB_HEADER
     ULONG dwVersion;
     ULONG cbKeyData;
 } BCRYPT_KEY_DATA_BLOB_HEADER, *PBCRYPT_KEY_DATA_BLOB_HEADER;
-
-typedef struct _BCRYPT_DH_PARAMETER_HEADER
-{
-    ULONG cbLength;
-    ULONG dwMagic;
-    ULONG cbKeyLength;
-} BCRYPT_DH_PARAMETER_HEADER;
-
-#define BCRYPT_DH_PARAMETERS_MAGIC 0x4d504844
 
 #define KDF_HASH_ALGORITHM 0x00000000
 #define KDF_SECRET_PREPEND 0x00000001

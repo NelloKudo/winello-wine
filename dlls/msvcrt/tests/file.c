@@ -67,6 +67,7 @@ static int (__cdecl *p_fopen_s)(FILE**, const char*, const char*);
 static int (__cdecl *p__wfopen_s)(FILE**, const wchar_t*, const wchar_t*);
 static errno_t (__cdecl *p__get_fmode)(int*);
 static errno_t (__cdecl *p__set_fmode)(int);
+static int (__cdecl *p__setmaxstdio)(int);
 
 static const char* get_base_name(const char *path)
 {
@@ -91,6 +92,7 @@ static void init(void)
     __pioinfo = (void*)GetProcAddress(hmod, "__pioinfo");
     p__get_fmode = (void*)GetProcAddress(hmod, "_get_fmode");
     p__set_fmode = (void*)GetProcAddress(hmod, "_set_fmode");
+    p__setmaxstdio = (void*)GetProcAddress(hmod, "_setmaxstdio");
 }
 
 static void test_filbuf( void )
@@ -1896,6 +1898,8 @@ static void test_invalid_stdin_child( void )
     handle = (HANDLE)_get_osfhandle(STDIN_FILENO);
     ok(handle == (HANDLE)-2, "handle = %p\n", handle);
     ok(errno == 0xdeadbeef, "errno = %d\n", errno);
+    handle = GetStdHandle(STD_INPUT_HANDLE);
+    ok((LONG_PTR)handle > 0, "Expecting passed handle to be untouched\n");
 
     info = &__pioinfo[STDIN_FILENO/MSVCRT_FD_BLOCK_SIZE][STDIN_FILENO%MSVCRT_FD_BLOCK_SIZE];
     ok(info->handle == (HANDLE)-2, "info->handle = %p\n", info->handle);
@@ -2347,8 +2351,12 @@ static void test_get_osfhandle(void)
 
 static void test_setmaxstdio(void)
 {
-    ok(2048 == _setmaxstdio(2048),"_setmaxstdio returned %d instead of 2048\n",_setmaxstdio(2048));
-    ok(-1 == _setmaxstdio(2049),"_setmaxstdio returned %d instead of -1\n",_setmaxstdio(2049));
+    if (p__setmaxstdio)
+    {
+        ok(2048 == p__setmaxstdio(2048),"_setmaxstdio returned %d instead of 2048\n",p__setmaxstdio(2048));
+        ok(-1 == p__setmaxstdio(2049),"_setmaxstdio returned %d instead of -1\n",p__setmaxstdio(2049));
+    }
+    else win_skip( "_setmaxstdio not supported\n" );
 }
 
 static void test_stat(void)

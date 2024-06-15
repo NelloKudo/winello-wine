@@ -51,6 +51,7 @@
  *          Globals
  */
 
+extern char *process_name;
 extern struct wayland process_wayland;
 
 /**********************************************************************
@@ -142,6 +143,7 @@ struct wayland_output_mode
 
 struct wayland_output_state
 {
+    int modes_count;
     struct rb_tree modes;
     struct wayland_output_mode *current_mode;
     char *name;
@@ -201,6 +203,7 @@ struct wayland_surface
     struct wayland_window_config window;
     struct wayland_client_surface *client;
     int buffer_width, buffer_height;
+    HCURSOR hcursor;
 };
 
 struct wayland_shm_buffer
@@ -220,7 +223,6 @@ struct wayland_shm_buffer
  */
 
 BOOL wayland_process_init(void);
-void wayland_init_display_devices(BOOL force);
 
 /**********************************************************************
  *          Wayland output
@@ -255,6 +257,7 @@ void wayland_surface_coords_to_window(struct wayland_surface *surface,
 struct wayland_client_surface *wayland_surface_get_client(struct wayland_surface *surface);
 BOOL wayland_client_surface_release(struct wayland_client_surface *client);
 void wayland_surface_ensure_contents(struct wayland_surface *surface);
+void wayland_surface_set_title(struct wayland_surface *surface, LPCWSTR title);
 
 /**********************************************************************
  *          Wayland SHM buffer
@@ -292,6 +295,13 @@ void wayland_pointer_deinit(void);
 void wayland_pointer_clear_constraint(void);
 
 /**********************************************************************
+ *          OpenGL
+ */
+
+void wayland_destroy_gl_drawable(HWND hwnd);
+void wayland_resize_gl_drawable(HWND hwnd);
+
+/**********************************************************************
  *          Helpers
  */
 
@@ -319,9 +329,9 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset);
 LRESULT WAYLAND_DesktopWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 void WAYLAND_DestroyWindow(HWND hwnd);
 void WAYLAND_SetCursor(HWND hwnd, HCURSOR hcursor);
+void WAYLAND_SetWindowText(HWND hwnd, LPCWSTR text);
 LRESULT WAYLAND_SysCommand(HWND hwnd, WPARAM wparam, LPARAM lparam);
-BOOL WAYLAND_UpdateDisplayDevices(const struct gdi_device_manager *device_manager,
-                                  BOOL force, void *param);
+UINT WAYLAND_UpdateDisplayDevices(const struct gdi_device_manager *device_manager, void *param);
 LRESULT WAYLAND_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, UINT swp_flags,
                               const RECT *window_rect, const RECT *client_rect,
@@ -330,6 +340,7 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, UINT swp_flags,
 BOOL WAYLAND_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags,
                                const RECT *window_rect, const RECT *client_rect,
                                RECT *visible_rect, struct window_surface **surface);
-const struct vulkan_funcs *WAYLAND_wine_get_vulkan_driver(UINT version);
+UINT WAYLAND_VulkanInit(UINT version, void *vulkan_handle, const struct vulkan_driver_funcs **driver_funcs);
+struct opengl_funcs *WAYLAND_wine_get_wgl_driver(UINT version);
 
 #endif /* __WINE_WAYLANDDRV_H */

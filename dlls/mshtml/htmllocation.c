@@ -59,54 +59,7 @@ static inline HTMLLocation *impl_from_IHTMLLocation(IHTMLLocation *iface)
     return CONTAINING_RECORD(iface, HTMLLocation, IHTMLLocation_iface);
 }
 
-static HRESULT WINAPI HTMLLocation_QueryInterface(IHTMLLocation *iface, REFIID riid, void **ppv)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_QueryInterface(&This->dispex.IDispatchEx_iface, riid, ppv);
-}
-
-static ULONG WINAPI HTMLLocation_AddRef(IHTMLLocation *iface)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_AddRef(&This->dispex.IDispatchEx_iface);
-}
-
-static ULONG WINAPI HTMLLocation_Release(IHTMLLocation *iface)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_Release(&This->dispex.IDispatchEx_iface);
-}
-
-static HRESULT WINAPI HTMLLocation_GetTypeInfoCount(IHTMLLocation *iface, UINT *pctinfo)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_GetTypeInfoCount(&This->dispex.IDispatchEx_iface, pctinfo);
-}
-
-static HRESULT WINAPI HTMLLocation_GetTypeInfo(IHTMLLocation *iface, UINT iTInfo,
-                                              LCID lcid, ITypeInfo **ppTInfo)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_GetTypeInfo(&This->dispex.IDispatchEx_iface, iTInfo, lcid, ppTInfo);
-}
-
-static HRESULT WINAPI HTMLLocation_GetIDsOfNames(IHTMLLocation *iface, REFIID riid,
-                                                LPOLESTR *rgszNames, UINT cNames,
-                                                LCID lcid, DISPID *rgDispId)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_GetIDsOfNames(&This->dispex.IDispatchEx_iface, riid, rgszNames, cNames,
-            lcid, rgDispId);
-}
-
-static HRESULT WINAPI HTMLLocation_Invoke(IHTMLLocation *iface, DISPID dispIdMember,
-                            REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS *pDispParams,
-                            VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
-{
-    HTMLLocation *This = impl_from_IHTMLLocation(iface);
-    return IDispatchEx_Invoke(&This->dispex.IDispatchEx_iface, dispIdMember, riid, lcid,
-            wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
-}
+DISPEX_IDISPATCH_IMPL(HTMLLocation, IHTMLLocation, impl_from_IHTMLLocation(iface)->dispex)
 
 static HRESULT WINAPI HTMLLocation_put_href(IHTMLLocation *iface, BSTR v)
 {
@@ -635,17 +588,15 @@ static const tid_t HTMLLocation_iface_tids[] = {
     IHTMLLocation_tid,
     0
 };
-dispex_static_data_t HTMLLocation_dispex = {
+static dispex_static_data_t HTMLLocation_dispex = {
     "Location",
     &HTMLLocation_dispex_vtbl,
-    PROTO_ID_HTMLLocation,
     DispHTMLLocation_tid,
     HTMLLocation_iface_tids
 };
 
 HRESULT create_location(HTMLOuterWindow *window, HTMLLocation **ret)
 {
-    compat_mode_t compat_mode = dispex_compat_mode(&window->base.inner_window->event_target.dispex);
     HTMLLocation *location;
 
     if(!(location = calloc(1, sizeof(*location))))
@@ -655,7 +606,7 @@ HRESULT create_location(HTMLOuterWindow *window, HTMLLocation **ret)
     location->window = window;
     IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
 
-    init_dispatch(&location->dispex, &HTMLLocation_dispex, window->base.inner_window, min(compat_mode, COMPAT_MODE_IE8));
+    init_dispatch(&location->dispex, &HTMLLocation_dispex, COMPAT_MODE_QUIRKS);
 
     *ret = location;
     return S_OK;

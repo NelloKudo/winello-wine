@@ -395,7 +395,6 @@ static HRESULT pulse_connect(const char *name)
         pa_context_unref(pulse_ctx);
 
     pulse_ctx = pa_context_new(pa_mainloop_get_api(pulse_ml), name);
-    setenv("PULSE_PROP_application.name", name, 1);
     if (!pulse_ctx) {
         ERR("Failed to create context\n");
         return E_FAIL;
@@ -727,7 +726,7 @@ static void pulse_probe_settings(pa_mainloop *ml, pa_context *ctx, int render, c
         ret = -1;
     else if (render)
         ret = pa_stream_connect_playback(stream, pulse_name, &attr,
-        PA_STREAM_START_CORKED|PA_STREAM_FIX_RATE|PA_STREAM_FIX_CHANNELS|PA_STREAM_EARLY_REQUESTS|PA_STREAM_VARIABLE_RATE, NULL, NULL);
+        PA_STREAM_START_CORKED|PA_STREAM_FIX_RATE|PA_STREAM_FIX_CHANNELS|PA_STREAM_EARLY_REQUESTS, NULL, NULL);
     else
         ret = pa_stream_connect_record(stream, pulse_name, &attr, PA_STREAM_START_CORKED|PA_STREAM_FIX_RATE|PA_STREAM_FIX_CHANNELS|PA_STREAM_EARLY_REQUESTS);
     if (ret >= 0) {
@@ -1071,8 +1070,6 @@ static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pul
     else
         pulse_name = NULL;  /* use default */
 
-    if (stream->dataflow == eRender) flags |= PA_STREAM_VARIABLE_RATE;
-
     if (stream->dataflow == eRender)
         ret = pa_stream_connect_playback(stream->stream, pulse_name, &attr, flags, NULL, NULL);
     else
@@ -1119,7 +1116,6 @@ static HRESULT get_device_period_helper(EDataFlow flow, const char *pulse_name, 
 static NTSTATUS pulse_create_stream(void *args)
 {
     struct create_stream_params *params = args;
-    REFERENCE_TIME period, duration = params->duration;
     struct pulse_stream *stream;
     unsigned int i, bufsize_bytes;
     HRESULT hr;
@@ -1159,21 +1155,15 @@ static NTSTATUS pulse_create_stream(void *args)
     if (FAILED(hr))
         goto exit;
 
-    period = 0;
-    hr = get_device_period_helper(params->flow, params->device, &period, NULL);
-    if (FAILED(hr))
-        goto exit;
+    stream->def_period = params->period;
 
-    if (duration < 3 * period)
-        duration = 3 * period;
+    stream->period_bytes = pa_frame_size(&stream->ss) * muldiv(params->period,
+                                                               stream->ss.rate,
+                                                               10000000);
 
-    stream->def_period = period;
-
-    stream->period_bytes = pa_frame_size(&stream->ss) * muldiv(period, stream->ss.rate, 10000000);
-
-    stream->bufsize_frames = ceil((duration / 10000000.) * params->fmt->nSamplesPerSec);
+    stream->bufsize_frames = ceil((params->duration / 10000000.) * params->fmt->nSamplesPerSec);
     bufsize_bytes = stream->bufsize_frames * pa_frame_size(&stream->ss);
-    stream->mmdev_period_usec = period / 10;
+    stream->mmdev_period_usec = params->period / 10;
 
     stream->share = params->share;
     stream->flags = params->flags;
@@ -2441,41 +2431,6 @@ static NTSTATUS pulse_set_event_handle(void *args)
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS pulse_set_sample_rate(void *args)
-{
-    struct set_sample_rate_params *params = args;
-    struct pulse_stream *stream = handle_get_stream(params->stream);
-    HRESULT hr = S_OK;
-    pa_operation *o;
-    int success;
-
-    pulse_lock();
-    if (!pulse_stream_valid(stream))
-        hr = AUDCLNT_E_DEVICE_INVALIDATED;
-    else
-    {
-        if (!(o = pa_stream_update_sample_rate(stream->stream, params->new_rate, pulse_op_cb, &success)))
-            success = 0;
-        else
-        {
-            while (pa_operation_get_state(o) == PA_OPERATION_RUNNING)
-                pthread_cond_wait(&pulse_cond, &pulse_mutex);
-            pa_operation_unref(o);
-        }
-
-        if (!success) hr = E_FAIL;
-        else
-        {
-            stream->ss.rate = params->new_rate;
-            stream->period_bytes = pa_frame_size(&stream->ss) * muldiv(stream->mmdev_period_usec, stream->ss.rate, 1000000);
-        }
-    }
-    pulse_unlock();
-
-    params->result = hr;
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS pulse_is_started(void *args)
 {
     struct is_started_params *params = args;
@@ -2600,7 +2555,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     pulse_get_position,
     pulse_set_volumes,
     pulse_set_event_handle,
-    pulse_set_sample_rate,
     pulse_test_connect,
     pulse_is_started,
     pulse_get_prop_value,
@@ -3072,7 +3026,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     pulse_wow64_get_position,
     pulse_wow64_set_volumes,
     pulse_wow64_set_event_handle,
-    pulse_not_implemented,
     pulse_wow64_test_connect,
     pulse_is_started,
     pulse_wow64_get_prop_value,
